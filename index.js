@@ -2059,31 +2059,50 @@ async function liPopulateLoraList(s, li, charKey) {
 function liRenderAssignmentTable(li, charKey, s) {
     const table = $("#li_assignment_table");
     table.empty();
-    const assignments = li.characterAssignments[charKey] || [];
+    if (!li.characterAssignments[charKey]) li.characterAssignments[charKey] = [];
+    const assignments = li.characterAssignments[charKey];
+
+    const header = $(`
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
+            <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr; gap: 8px; flex: 1;">
+                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>
+                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA</span>
+                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Keywords</span>
+            </div>
+            <button id="li_add_custom_assign" class="ps-modern-btn primary" style="padding: 2px 8px; font-size: 0.65rem; margin-left: 10px; background: var(--gold); color: #000;"><i class="fa-solid fa-plus"></i> Add</button>
+        </div>
+    `);
+
+    header.find("#li_add_custom_assign").on("click", function() {
+        assignments.push({ character: "", lora: "", keywords: "" });
+        li.characterAssignments[charKey] = assignments;
+        saveProfileToMemory();
+        liRenderAssignmentTable(li, charKey, s);
+    });
+
+    table.append(header);
+
     if (assignments.length === 0) {
-        table.html('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to let AI map characters to LoRAs.</div>');
+        table.append('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" or "Add" to map characters to LoRAs.</div>');
         return;
     }
 
-    const header = $(`
-        <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr 60px; gap: 8px; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
-            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>
-            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA</span>
-            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Keywords</span>
-            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase; text-align: center;">Action</span>
-        </div>
-    `);
-    table.append(header);
-
     assignments.forEach((a, idx) => {
         const row = $(`
-            <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr 60px; gap: 8px; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; align-items: center;">
-                <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-main);">${a.character || 'Unknown'}</span>
-                <span style="font-size: 0.7rem; color: #a855f7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${a.lora || 'None'}">${a.lora || 'None'}</span>
-                <span style="font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${a.keywords || ''}">${a.keywords || ''}</span>
-                <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
+                <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr; gap: 8px; flex: 1;">
+                    <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />
+                    <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />
+                    <input class="ps-modern-input li-edit-kw" type="text" placeholder="Keywords" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />
+                </div>
+                <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3); margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
             </div>
         `);
+        
+        row.find(".li-edit-char").val(a.character || '').on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
+        row.find(".li-edit-lora").val(a.lora || '').on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+        row.find(".li-edit-kw").val(a.keywords || '').on("input", function() { a.keywords = $(this).val(); saveProfileToMemory(); });
+
         row.find(".li-remove-assign").on("click", function() {
             assignments.splice(idx, 1);
             li.characterAssignments[charKey] = assignments;
@@ -2368,19 +2387,28 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
                 if (val === "%clip_skip%") node.inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
                 
                 // LoRA Intelligence assignment injection
-                let l1 = s.selectedLora, l2 = s.selectedLora2, l3 = s.selectedLora3, l4 = s.selectedLora4;
-                let w1 = parseFloat(s.selectedLoraWt) || 1.0, w2 = parseFloat(s.selectedLoraWt2) || 1.0, w3 = parseFloat(s.selectedLoraWt3) || 1.0, w4 = parseFloat(s.selectedLoraWt4) || 1.0;
+                let slots = [s.selectedLora, s.selectedLora2, s.selectedLora3, s.selectedLora4];
+                let weights = [parseFloat(s.selectedLoraWt) || 1.0, parseFloat(s.selectedLoraWt2) || 1.0, parseFloat(s.selectedLoraWt3) || 1.0, parseFloat(s.selectedLoraWt4) || 1.0];
                 
                 const li = s.loraIntel;
                 const charKey = getCharacterKey() || "default";
                 if (li && li.enabled && li.characterAssignments && li.characterAssignments[charKey]) {
                     const assignments = li.characterAssignments[charKey];
                     const uniqueLoras = [...new Set(assignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
-                    if (uniqueLoras.length > 0) { l1 = uniqueLoras[0] || l1; }
-                    if (uniqueLoras.length > 1) { l2 = uniqueLoras[1] || l2; }
-                    if (uniqueLoras.length > 2) { l3 = uniqueLoras[2] || l3; }
-                    if (uniqueLoras.length > 3) { l4 = uniqueLoras[3] || l4; }
+                    
+                    let aiIdx = 0;
+                    for (let i = 0; i < 4; i++) {
+                        // Only auto-fill slots that are empty/None. Preserves manually set LoRAs!
+                        if ((!slots[i] || slots[i] === "None" || slots[i] === "") && aiIdx < uniqueLoras.length) {
+                            slots[i] = uniqueLoras[aiIdx];
+                            weights[i] = 1.0;
+                            aiIdx++;
+                        }
+                    }
                 }
+
+                let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
+                let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
 
                 if (val === "%lora1%") node.inputs[key] = l1 || "None";
                 if (val === "%lora2%") node.inputs[key] = l2 || "None";
