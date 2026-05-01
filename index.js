@@ -20,7 +20,10 @@ let activeGenerationOrder = null;
 let activeBanListChat = null;
 let activeImageGenRequest = null;
 let activeStoryPlanRequest = null;
+let activeLoraAssignRequest = null;
 let isDevEngineDirty = false;
+let danbooruTagsMap = null;
+let civitaiKeywordCache = {};
 
 function getCharacterKey() {
     const context = getContext();
@@ -123,7 +126,17 @@ function initProfile() {
             triggerMode: "always", 
             autoGenFreq: 1,
             previewPrompt: false,
-            savedWorkflowStates: {} 
+            savedWorkflowStates: {},
+            loraIntel: {
+                enabled: false,
+                ensureLoras: false,
+                useDanbooruTags: true,
+                useCharDescriptions: false,
+                globalActiveLoras: [],
+                characterActiveLoras: {},
+                characterAssignments: {},
+                compiledPromptOverride: ""
+            }
         }
     };
 
@@ -278,6 +291,74 @@ function getRandomDefaultImage() {
     if (defaultImageCount <= 0) return `${extensionFolderPath}/img/default.png`;
     const pick = Math.floor(Math.random() * defaultImageCount) + 1;
     return `${extensionFolderPath}/img/default${pick}.png`;
+}
+
+// -------------------------------------------------------------
+// DANBOORU TAGS LOADER (Lazy)
+// -------------------------------------------------------------
+async function loadDanbooruTags() {
+    if (danbooruTagsMap) return danbooruTagsMap;
+    try {
+        const res = await fetch(`${extensionFolderPath}/tags.csv`);
+        const text = await res.text();
+        danbooruTagsMap = new Map();
+        const lines = text.split('\n');
+        for (const line of lines) {
+            const firstComma = line.indexOf(',');
+            if (firstComma === -1) continue;
+            const tag = line.substring(0, firstComma).trim();
+            if (tag) {
+                const rest = line.substring(firstComma + 1);
+                const parts = rest.split(',');
+                danbooruTagsMap.set(tag, {
+                    category: parts[0] || '0',
+                    count: parseInt(parts[1]) || 0,
+                    aliases: parts.slice(2).join(',').replace(/"/g, '').trim()
+                });
+            }
+        }
+        console.log(`[Megumin Suite] Loaded ${danbooruTagsMap.size} Danbooru tags.`);
+        return danbooruTagsMap;
+    } catch (e) {
+        console.error('[Megumin Suite] Failed to load tags.csv:', e);
+        return new Map();
+    }
+}
+
+function validateDanbooruTags(tagList) {
+    if (!danbooruTagsMap) return tagList.map(t => ({ tag: t, valid: false }));
+    return tagList.map(t => {
+        const clean = t.trim().toLowerCase().replace(/\s+/g, '_');
+        return { tag: clean, valid: danbooruTagsMap.has(clean) };
+    });
+}
+
+// -------------------------------------------------------------
+// CIVITAI KEYWORD FETCHER
+// -------------------------------------------------------------
+async function fetchCivitaiKeywords(loraFilename) {
+    const cleanName = loraFilename.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim();
+    if (civitaiKeywordCache[cleanName]) return civitaiKeywordCache[cleanName];
+    try {
+        const searchUrl = `https://civitai.com/api/v1/models?types=LORA&query=${encodeURIComponent(cleanName)}&limit=5`;
+        const res = await fetch(searchUrl);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.items || data.items.length === 0) return null;
+        
+        const bestMatch = data.items[0];
+        const version = bestMatch.modelVersions && bestMatch.modelVersions[0];
+        if (!version) return null;
+        
+        const keywords = version.trainedWords || [];
+        if (keywords.length === 0) return null;
+        
+        civitaiKeywordCache[cleanName] = keywords;
+        return keywords;
+    } catch (e) {
+        console.warn(`[Megumin Suite] Civitai keyword fetch failed for ${loraFilename}:`, e);
+        return null;
+    }
 }
 
 function updateCharacterDisplay() {
@@ -1337,6 +1418,13 @@ function renderImageGen(c) {
     c.empty();
     const s = localProfile.imageGen;
 
+    // LoRA Intelligence state
+    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, useCharDescriptions: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    const li = s.loraIntel;
+    const charKey = getCharacterKey() || "default";
+    const liScope = li.characterActiveLoras[charKey] ? 'character' : 'global';
+    const liAssignments = (li.characterAssignments[charKey] || []);
+
     c.append(`
         <!-- MASTER TOGGLE -->
         <div class="ps-toggle-card ${s.enabled ? 'active' : ''}" id="ig_enable_card" style="border-color: ${s.enabled ? 'var(--gold)' : 'var(--border-color)'};">
@@ -1506,6 +1594,91 @@ function renderImageGen(c) {
                     `).join('')}
                 </div>
             </div>
+
+            <!-- LoRA Intelligence -->
+            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7;"><i class="fa-solid fa-brain"></i> LoRA Intelligence</div>
+                    <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
+                        <div class="ps-switch" style="transform: scale(0.8);"></div>
+                    </div>
+                </div>
+
+                <div id="li_main_content" style="display: ${li.enabled ? 'block' : 'none'};">
+                    <!-- Mode Toggles -->
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+                        <div class="ps-toggle-card ${li.ensureLoras ? 'active' : ''}" id="li_toggle_ensure" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.ensureLoras ? '#a855f7' : 'var(--border-color)'};">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem; color: ${li.ensureLoras ? '#a855f7' : 'var(--text-main)'};">Ensure LoRA Usage</span>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">AI prefers LoRAs over tags/descriptions</div>
+                            </div>
+                            <div class="ps-switch" style="transform: scale(0.75);"></div>
+                        </div>
+                        <div class="ps-toggle-card ${li.useDanbooruTags ? 'active' : ''}" id="li_toggle_tags" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.useDanbooruTags ? '#10b981' : 'var(--border-color)'};">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem; color: ${li.useDanbooruTags ? '#10b981' : 'var(--text-main)'};">Danbooru Tags</span>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">AI picks validated tags from dataset</div>
+                            </div>
+                            <div class="ps-switch" style="transform: scale(0.75);"></div>
+                        </div>
+                        <div class="ps-toggle-card ${li.useCharDescriptions ? 'active' : ''}" id="li_toggle_desc" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--border-color)'};">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem; color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--text-main)'};">Character Descriptions</span>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">AI describes physical features in detail</div>
+                            </div>
+                            <div class="ps-switch" style="transform: scale(0.75);"></div>
+                        </div>
+                    </div>
+
+                    <!-- LoRA Browser -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-folder-tree" style="color: #a855f7; margin-right: 6px;"></i>LoRA Browser</span>
+                                <select id="li_scope_select" class="ps-modern-input" style="width: auto; padding: 4px 10px; font-size: 0.7rem; font-weight: 600;">
+                                    <option value="global" ${liScope === 'global' ? 'selected' : ''}>Global</option>
+                                    <option value="character" ${liScope === 'character' ? 'selected' : ''}>Character Specific</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button id="li_fetch_keywords_btn" class="ps-modern-btn secondary" style="padding: 4px 12px; font-size: 0.7rem;"><i class="fa-solid fa-key"></i> Fetch Keywords</button>
+                                <button id="li_refresh_btn" class="ps-modern-btn secondary" style="padding: 4px 12px; font-size: 0.7rem;"><i class="fa-solid fa-sync"></i> Refresh</button>
+                            </div>
+                        </div>
+                        <div id="li_lora_list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+                            <div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 20px;">Loading LoRAs from ComfyUI...</div>
+                        </div>
+                    </div>
+
+                    <!-- AI Character Assignment -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-users-gear" style="color: var(--gold); margin-right: 6px;"></i>AI Character → LoRA Assignment</span>
+                            <button id="li_analyze_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; padding: 6px 14px; font-size: 0.75rem; font-weight: 800;">
+                                <i class="fa-solid fa-bolt"></i> Analyze Characters
+                            </button>
+                        </div>
+                        <div id="li_assignment_table" style="min-height: 40px;">
+                            ${liAssignments.length > 0 ? '' : '<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to let AI map characters to LoRAs.</div>'}
+                        </div>
+                    </div>
+
+                    <!-- Compiled Prompt Preview -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                        <div id="li_prompt_preview_header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; cursor: pointer; user-select: none;">
+                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-eye" style="color: #3b82f6; margin-right: 6px;"></i>Compiled Prompt Preview</span>
+                            <i id="li_prompt_chevron" class="fa-solid fa-chevron-down" style="color: var(--text-muted); transition: transform 0.2s;"></i>
+                        </div>
+                        <div id="li_prompt_preview_body" style="display: none; padding: 0 15px 15px 15px;">
+                            <textarea id="li_compiled_prompt" class="ps-modern-input" style="height: 120px; resize: vertical; font-family: monospace; font-size: 0.75rem; background: #000;" placeholder="The compiled prompt based on your toggle settings will appear here during generation. You can also manually override it.">${li.compiledPromptOverride || ''}</textarea>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                                <span style="font-size: 0.65rem; color: var(--text-muted);">Manual overrides will be used instead of AI compilation.</span>
+                                <button id="li_clear_override" class="ps-modern-btn secondary" style="padding: 3px 10px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);">Clear Override</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     `);
 
@@ -1608,6 +1781,134 @@ function renderImageGen(c) {
         igPopulateWorkflows();
         igFetchComfyLists();
     }
+
+    // --- LoRA Intelligence Event Bindings ---
+    $("#li_enable_toggle").on("click", function() {
+        li.enabled = !li.enabled; saveProfileToMemory(); switchTab(currentTab);
+    });
+    $("#li_toggle_ensure").on("click", function() { li.ensureLoras = !li.ensureLoras; saveProfileToMemory(); switchTab(currentTab); });
+    $("#li_toggle_tags").on("click", function() { li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); switchTab(currentTab); });
+    $("#li_toggle_desc").on("click", function() { li.useCharDescriptions = !li.useCharDescriptions; saveProfileToMemory(); switchTab(currentTab); });
+
+    // Scope select
+    $("#li_scope_select").on("change", function() {
+        const scope = $(this).val();
+        if (scope === "character" && !li.characterActiveLoras[charKey]) {
+            li.characterActiveLoras[charKey] = JSON.parse(JSON.stringify(li.globalActiveLoras));
+        }
+        saveProfileToMemory();
+        liPopulateLoraList(s, li, charKey);
+    });
+
+    // Prompt preview toggle
+    $("#li_prompt_preview_header").on("click", function() {
+        const body = $("#li_prompt_preview_body");
+        const chevron = $("#li_prompt_chevron");
+        if (body.is(":visible")) { body.slideUp(200); chevron.css("transform", "rotate(0deg)"); }
+        else { body.slideDown(200); chevron.css("transform", "rotate(180deg)"); }
+    });
+    $("#li_compiled_prompt").on("input", function() { li.compiledPromptOverride = $(this).val(); saveProfileToMemory(); });
+    $("#li_clear_override").on("click", function() { li.compiledPromptOverride = ""; $("#li_compiled_prompt").val(""); saveProfileToMemory(); toastr.info("Override cleared."); });
+
+    // Refresh LoRA list
+    $("#li_refresh_btn").on("click", async function() {
+        $(this).prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+        await liPopulateLoraList(s, li, charKey);
+        $(this).prop("disabled", false).html('<i class="fa-solid fa-sync"></i> Refresh');
+    });
+
+    // Fetch keywords from Civitai for all active LoRAs
+    $("#li_fetch_keywords_btn").on("click", async function() {
+        const btn = $(this);
+        btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Fetching...');
+        const scope = $("#li_scope_select").val();
+        const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
+        const enabledLoras = activeList.filter(l => l.enabled);
+        if (enabledLoras.length === 0) { toastr.warning("No active LoRAs to fetch keywords for."); btn.prop("disabled", false).html('<i class="fa-solid fa-key"></i> Fetch Keywords'); return; }
+
+        let fetched = 0;
+        for (const lora of enabledLoras) {
+            if (lora.keywords && lora.keywords.length > 0) continue;
+            const keywords = await fetchCivitaiKeywords(lora.name);
+            if (keywords) { lora.keywords = keywords; fetched++; }
+        }
+        saveProfileToMemory();
+        liPopulateLoraList(s, li, charKey);
+        if (fetched > 0) toastr.success(`Fetched keywords for ${fetched} LoRAs!`);
+        else toastr.info("No new keywords found. Some LoRAs may not have Civitai entries.");
+        btn.prop("disabled", false).html('<i class="fa-solid fa-key"></i> Fetch Keywords');
+    });
+
+    // AI Character Assignment
+    $("#li_analyze_btn").on("click", async function() {
+        const btn = $(this);
+        const chatText = getCleanedChatHistory();
+        if (chatText.length < 50) return toastr.warning("Not enough chat history to analyze characters.");
+
+        const scope = $("#li_scope_select").val();
+        const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
+        const enabledLoras = activeList.filter(l => l.enabled);
+
+        btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...');
+
+        try {
+            const loraListStr = enabledLoras.map(l => {
+                const kw = l.keywords && l.keywords.length > 0 ? ` (keywords: ${l.keywords.join(', ')})` : '';
+                return `- ${l.name}${kw}`;
+            }).join('\n');
+
+            activeLoraAssignRequest = {
+                chatText: chatText,
+                loraList: loraListStr,
+                hasLoras: enabledLoras.length > 0,
+                ensureLoras: li.ensureLoras,
+                useTags: li.useDanbooruTags,
+                useDescriptions: li.useCharDescriptions
+            };
+
+            let rawOutput;
+            if (s.generatorBackend === "direct") {
+                rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
+            } else {
+                await useMeguminEngine(async () => {
+                    rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
+                });
+            }
+            activeLoraAssignRequest = null;
+
+            rawOutput = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
+            // Parse the AI response
+            try {
+                const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                    const assignments = JSON.parse(jsonMatch[0]);
+                    li.characterAssignments[charKey] = assignments;
+                    saveProfileToMemory();
+                    liRenderAssignmentTable(li, charKey, s);
+                    toastr.success(`Mapped ${assignments.length} characters!`);
+                } else {
+                    toastr.warning("AI response couldn't be parsed. Try again.");
+                    console.log("[Megumin Suite] Raw LoRA assignment output:", rawOutput);
+                }
+            } catch (parseErr) {
+                toastr.warning("Failed to parse AI assignment response.");
+                console.error("[Megumin Suite] Parse error:", parseErr, rawOutput);
+            }
+        } catch (e) {
+            toastr.error("Character analysis failed.");
+            console.error(e);
+        } finally {
+            activeLoraAssignRequest = null;
+            btn.prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
+        }
+    });
+
+    // Populate LoRA browser if enabled
+    if (s.enabled && li.enabled) {
+        liPopulateLoraList(s, li, charKey);
+        liRenderAssignmentTable(li, charKey, s);
+    }
 }
 
 // -------------------------------------------------------------
@@ -1643,6 +1944,154 @@ async function igFetchComfyLists() {
             }
         }
     } catch (e) { console.warn(`[Megumin-Suite] ComfyLists failed`, e); }
+}
+
+// -------------------------------------------------------------
+// LORA INTELLIGENCE HELPERS
+// -------------------------------------------------------------
+async function liPopulateLoraList(s, li, charKey) {
+    const container = $("#li_lora_list");
+    container.empty();
+
+    let loraFiles = [];
+    try {
+        const lRes = await fetch(`${s.comfyUrl}/object_info/LoraLoader`);
+        if (lRes.ok) {
+            const json = await lRes.json();
+            loraFiles = json['LoraLoader'].input.required.lora_name[0] || [];
+        }
+    } catch (e) {
+        container.html('<div style="text-align: center; color: #ef4444; font-size: 0.8rem; padding: 15px;">Failed to fetch LoRAs from ComfyUI.</div>');
+        return;
+    }
+
+    if (loraFiles.length === 0) {
+        container.html('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px;">No LoRAs found in ComfyUI.</div>');
+        return;
+    }
+
+    const scope = $("#li_scope_select").val() || "global";
+    let activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
+
+    // Build a lookup map of active LoRAs
+    const activeMap = new Map();
+    activeList.forEach(l => activeMap.set(l.name, l));
+
+    // Group LoRAs by folder
+    const folders = {};
+    const rootFiles = [];
+    loraFiles.forEach(f => {
+        const sep = f.lastIndexOf('/') !== -1 ? f.lastIndexOf('/') : f.lastIndexOf('\\');
+        if (sep > 0) {
+            const folder = f.substring(0, sep);
+            if (!folders[folder]) folders[folder] = [];
+            folders[folder].push(f);
+        } else {
+            rootFiles.push(f);
+        }
+    });
+
+    const renderLoraItem = (f) => {
+        const existing = activeMap.get(f);
+        const isActive = existing ? existing.enabled : false;
+        const keywords = existing && existing.keywords ? existing.keywords.join(', ') : '';
+        const shortName = f.includes('/') ? f.split('/').pop() : (f.includes('\\') ? f.split('\\').pop() : f);
+
+        const item = $(`
+            <div class="li-lora-item" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: ${isActive ? 'rgba(168,85,247,0.1)' : 'rgba(0,0,0,0.15)'}; border: 1px solid ${isActive ? 'rgba(168,85,247,0.3)' : 'var(--border-color)'}; border-radius: 6px; cursor: pointer; transition: 0.2s;" data-lora="${f}">
+                <div style="width: 18px; height: 18px; border-radius: 4px; border: 2px solid ${isActive ? '#a855f7' : '#52525b'}; background: ${isActive ? '#a855f7' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    ${isActive ? '<i class="fa-solid fa-check" style="font-size: 0.55rem; color: #fff;"></i>' : ''}
+                </div>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${f}">${shortName}</div>
+                    ${keywords ? `<div style="font-size: 0.6rem; color: #a855f7; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${keywords}"><i class="fa-solid fa-key" style="margin-right: 3px;"></i>${keywords}</div>` : ''}
+                </div>
+            </div>
+        `);
+
+        item.on("click", function() {
+            const loraName = $(this).attr("data-lora");
+            const existingEntry = activeList.find(l => l.name === loraName);
+            if (existingEntry) {
+                existingEntry.enabled = !existingEntry.enabled;
+            } else {
+                activeList.push({ name: loraName, enabled: true, keywords: civitaiKeywordCache[loraName.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim()] || [] });
+            }
+
+            if (scope === "character") li.characterActiveLoras[charKey] = activeList;
+            else li.globalActiveLoras = activeList;
+            saveProfileToMemory();
+            liPopulateLoraList(s, li, charKey);
+        });
+
+        return item;
+    };
+
+    // Render folders
+    const folderNames = Object.keys(folders).sort();
+    folderNames.forEach(folder => {
+        const folderEl = $(`
+            <div class="li-folder" style="margin-bottom: 4px;">
+                <div class="li-folder-header" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.15); border-radius: 6px; cursor: pointer; user-select: none;">
+                    <i class="fa-solid fa-folder" style="color: #a855f7; font-size: 0.75rem;"></i>
+                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-main); flex: 1;">${folder}</span>
+                    <span style="font-size: 0.6rem; color: var(--text-muted);">${folders[folder].length} LoRAs</span>
+                    <i class="fa-solid fa-chevron-right li-folder-chevron" style="font-size: 0.6rem; color: var(--text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div class="li-folder-body" style="display: none; padding-left: 15px; padding-top: 4px; display: flex; flex-direction: column; gap: 3px;"></div>
+            </div>
+        `);
+
+        const body = folderEl.find(".li-folder-body").hide();
+        folderEl.find(".li-folder-header").on("click", function() {
+            body.slideToggle(150);
+            $(this).find(".li-folder-chevron").css("transform", body.is(":visible") ? "rotate(90deg)" : "rotate(0deg)");
+        });
+
+        folders[folder].forEach(f => body.append(renderLoraItem(f)));
+        container.append(folderEl);
+    });
+
+    // Render root files
+    rootFiles.forEach(f => container.append(renderLoraItem(f)));
+}
+
+function liRenderAssignmentTable(li, charKey, s) {
+    const table = $("#li_assignment_table");
+    table.empty();
+    const assignments = li.characterAssignments[charKey] || [];
+    if (assignments.length === 0) {
+        table.html('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to let AI map characters to LoRAs.</div>');
+        return;
+    }
+
+    const header = $(`
+        <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr 60px; gap: 8px; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
+            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>
+            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA</span>
+            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Keywords</span>
+            <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase; text-align: center;">Action</span>
+        </div>
+    `);
+    table.append(header);
+
+    assignments.forEach((a, idx) => {
+        const row = $(`
+            <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr 60px; gap: 8px; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; align-items: center;">
+                <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-main);">${a.character || 'Unknown'}</span>
+                <span style="font-size: 0.7rem; color: #a855f7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${a.lora || 'None'}">${a.lora || 'None'}</span>
+                <span style="font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${a.keywords || ''}">${a.keywords || ''}</span>
+                <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        `);
+        row.find(".li-remove-assign").on("click", function() {
+            assignments.splice(idx, 1);
+            li.characterAssignments[charKey] = assignments;
+            saveProfileToMemory();
+            liRenderAssignmentTable(li, charKey, s);
+        });
+        table.append(row);
+    });
 }
 
 function toggleQuickGenButton() {
@@ -2324,6 +2773,48 @@ function handlePromptInjection(data) {
         
         console.log(`[${extensionName}] 🎯 Injected Image Gen array in memory.`);
         return; 
+    }
+
+    // --- INJECT LORA ASSIGNMENT PROMPT ---
+    if (activeLoraAssignRequest) {
+        messages.length = 0;
+        
+        let modeInstructions = "";
+        if (activeLoraAssignRequest.hasLoras && activeLoraAssignRequest.ensureLoras) {
+            modeInstructions = "PRIORITY: You MUST assign LoRAs to characters whenever possible. Only fall back to tags or descriptions if no LoRA fits.";
+        } else if (activeLoraAssignRequest.hasLoras && activeLoraAssignRequest.useTags && activeLoraAssignRequest.useDescriptions) {
+            modeInstructions = "Use your best judgement. You may use LoRAs, danbooru tags, or physical descriptions for each character — pick whatever fits best.";
+        } else if (activeLoraAssignRequest.hasLoras) {
+            modeInstructions = "Assign LoRAs to characters from the available list. Add activation keywords if the LoRA has them.";
+        } else if (activeLoraAssignRequest.useTags) {
+            modeInstructions = "No LoRAs are available. Instead, suggest danbooru-style tags for each character's appearance.";
+        } else if (activeLoraAssignRequest.useDescriptions) {
+            modeInstructions = "No LoRAs are available. Instead, describe each character's physical features in detail.";
+        } else {
+            modeInstructions = "Analyze the characters and suggest the best visual representation method for each.";
+        }
+
+        let loraSection = "";
+        if (activeLoraAssignRequest.hasLoras) {
+            loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
+        }
+
+        messages.push({
+            "role": "system",
+            "content": `You are an expert at analyzing roleplay conversations and matching characters to LoRA models for image generation. ${modeInstructions}`
+        });
+        messages.push({
+            "role": "user",
+            "content": `Analyze this conversation and identify the important characters. Then assign each character to the most appropriate LoRA from the available list, and add any necessary activation keywords.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n  {"character": "Name", "lora": "exact_lora_filename.safetensors", "keywords": "activation keywords, extra tags"}\n]\n\nRules:\n- Use EXACT filenames from the available LoRA list\n- If a LoRA has activation keywords listed, include them\n- If no LoRA fits a character, set lora to "" and provide descriptive tags/keywords instead\n- Include ALL important characters from the conversation\n- Output ONLY the JSON array, no explanation`
+        });
+    if (!disablePrefill) {
+        messages.push({
+            "role": "assistant",
+            "content": "[\n"
+        });
+    }
+        console.log(`[${extensionName}] 🎯 Injected LoRA Assignment array in memory.`);
+        return;
     }
 
     if (activeGenerationOrder) {
