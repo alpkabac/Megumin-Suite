@@ -2268,6 +2268,12 @@ async function igManualGenerate() {
 // New Helper Function for generating the prompt text
 async function generateImagePromptText() {
     const s = localProfile.imageGen;
+    const li = s.loraIntel;
+
+    if (li && li.enabled && li.compiledPromptOverride && li.compiledPromptOverride.trim() !== "") {
+        return li.compiledPromptOverride.trim();
+    }
+
     const chat = getContext().chat;
     const badStuffRegex = /(<disclaimer>.*?<\/disclaimer>)|(<guifan>.*?<\/guifan>)|(<danmu>.*?<\/danmu>)|(<options>.*?<\/options>)|```start|```end|<done>|`<done>`|(.*?<\/(?:ksc??|think(?:ing)?)>(\n)?)|(<(?:ksc??|think(?:ing)?)>[\s\S]*?<\/(?:ksc??|think(?:ing)?)>(\n)?)/gs;
 
@@ -2283,7 +2289,21 @@ async function generateImagePromptText() {
     activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: s.promptExtra || "None" };
     
     let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
-    return rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    let finalPrompt = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
+    // If using danbooru tags and not overriding, validate tags
+    if (li && li.enabled && li.useDanbooruTags && !li.compiledPromptOverride && danbooruTagsMap) {
+        const words = finalPrompt.split(',').map(w => w.trim()).filter(w => w);
+        const validated = validateDanbooruTags(words);
+        finalPrompt = validated.map(v => v.tag).join(', ');
+    }
+
+    // Auto-update the preview in the UI if it exists
+    if (li && li.enabled) {
+        $("#li_compiled_prompt").val(finalPrompt);
+    }
+
+    return finalPrompt;
 }
 
 async function igGenerateWithComfy(positivePrompt, target = null) {
@@ -2346,14 +2366,31 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
                 if (val === "%scale%") node.inputs[key] = parseFloat(s.cfg) || 7.0;
                 if (val === "%denoise%") node.inputs[key] = parseFloat(s.denoise) || 1.0;
                 if (val === "%clip_skip%") node.inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
-                if (val === "%lora1%") node.inputs[key] = s.selectedLora || "None";
-                if (val === "%lora2%") node.inputs[key] = s.selectedLora2 || "None";
-                if (val === "%lora3%") node.inputs[key] = s.selectedLora3 || "None";
-                if (val === "%lora4%") node.inputs[key] = s.selectedLora4 || "None";
-                if (val === "%lorawt1%") node.inputs[key] = parseFloat(s.selectedLoraWt) || 1.0;
-                if (val === "%lorawt2%") node.inputs[key] = parseFloat(s.selectedLoraWt2) || 1.0;
-                if (val === "%lorawt3%") node.inputs[key] = parseFloat(s.selectedLoraWt3) || 1.0;
-                if (val === "%lorawt4%") node.inputs[key] = parseFloat(s.selectedLoraWt4) || 1.0;
+                
+                // LoRA Intelligence assignment injection
+                let l1 = s.selectedLora, l2 = s.selectedLora2, l3 = s.selectedLora3, l4 = s.selectedLora4;
+                let w1 = parseFloat(s.selectedLoraWt) || 1.0, w2 = parseFloat(s.selectedLoraWt2) || 1.0, w3 = parseFloat(s.selectedLoraWt3) || 1.0, w4 = parseFloat(s.selectedLoraWt4) || 1.0;
+                
+                const li = s.loraIntel;
+                const charKey = getCharacterKey() || "default";
+                if (li && li.enabled && li.characterAssignments && li.characterAssignments[charKey]) {
+                    const assignments = li.characterAssignments[charKey];
+                    const uniqueLoras = [...new Set(assignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
+                    if (uniqueLoras.length > 0) { l1 = uniqueLoras[0] || l1; }
+                    if (uniqueLoras.length > 1) { l2 = uniqueLoras[1] || l2; }
+                    if (uniqueLoras.length > 2) { l3 = uniqueLoras[2] || l3; }
+                    if (uniqueLoras.length > 3) { l4 = uniqueLoras[3] || l4; }
+                }
+
+                if (val === "%lora1%") node.inputs[key] = l1 || "None";
+                if (val === "%lora2%") node.inputs[key] = l2 || "None";
+                if (val === "%lora3%") node.inputs[key] = l3 || "None";
+                if (val === "%lora4%") node.inputs[key] = l4 || "None";
+                if (val === "%lorawt1%") node.inputs[key] = w1;
+                if (val === "%lorawt2%") node.inputs[key] = w2;
+                if (val === "%lorawt3%") node.inputs[key] = w3;
+                if (val === "%lorawt4%") node.inputs[key] = w4;
+                
                 if (val === "%width%") node.inputs[key] = parseInt(s.imgWidth) || 512;
                 if (val === "%height%") node.inputs[key] = parseInt(s.imgHeight) || 512;
             }
@@ -2688,7 +2725,31 @@ function buildBaseDict() {
         if (shouldInject) {
             let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Use natural descriptive sentences. Focus on photorealism." : "Use keywords.");
             let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
-            dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${ig.promptExtra ? `\nExtra: ${ig.promptExtra}` : ""}`;
+            
+            let liInstructions = "";
+            if (ig.loraIntel && ig.loraIntel.enabled) {
+                const li = ig.loraIntel;
+                if (li.compiledPromptOverride) {
+                    liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
+                } else {
+                    let modes = [];
+                    if (li.useDanbooruTags) modes.push("guess appropriate Danbooru tags for characters");
+                    if (li.useCharDescriptions) modes.push("describe physical features in detail");
+                    if (modes.length > 0) liInstructions = `\nCharacter Instructions: ${modes.join(" or ")}.`;
+                }
+
+                // Inject activation keywords for assigned characters
+                const charKey = getCharacterKey() || "default";
+                if (li.characterAssignments && li.characterAssignments[charKey]) {
+                    const assignments = li.characterAssignments[charKey];
+                    if (assignments.length > 0) {
+                        const kwStrings = assignments.map(a => `${a.character}: ${a.keywords || 'none'}`);
+                        liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
+                    }
+                }
+            }
+
+            dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${ig.promptExtra ? `\nExtra: ${ig.promptExtra}` : ""}${liInstructions}`;
             dict["[[img2]]"] = `<img prompt="prompt">`;
         } else {
             dict["[[img1]]"] = ""; dict["[[img2]]"] = "";
@@ -3262,6 +3323,7 @@ jQuery(async () => {
             eventSource.on(event_types.APP_READY, () => {
                 cleanGhostProfiles();
                 discoverDefaultImages();
+                loadDanbooruTags();
             });
             eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, handlePromptInjection);
             eventSource.on(event_types.CHAT_CHANGED, () => {

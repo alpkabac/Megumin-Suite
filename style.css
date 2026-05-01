@@ -416,3 +416,25 @@
         padding: 8px 10px 68px 10px !important;
     }
 }
+
+/* -------------------------------------------------------------
+ * LORA INTELLIGENCE STYLES
+ * ------------------------------------------------------------- */
+.li-lora-item:hover {
+    background: rgba(168, 85, 247, 0.2) !important;
+    border-color: rgba(168, 85, 247, 0.4) !important;
+}
+
+.li-folder-header:hover {
+    background: rgba(168, 85, 247, 0.15) !important;
+    border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+#li_assignment_table > div:not(:first-child):hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+#li_prompt_preview_header:hover {
+    background: rgba(59, 130, 246, 0.1) !important;
+}
