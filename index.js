@@ -1965,21 +1965,34 @@ async function igFetchComfyLists() {
 // -------------------------------------------------------------
 // LORA INTELLIGENCE HELPERS
 // -------------------------------------------------------------
-async function liPopulateLoraList(s, li, charKey) {
+let cachedLoraFiles = null;
+async function liPopulateLoraList(s, li, charKey, forceRefresh = false) {
     const container = $("#li_lora_list");
-    container.empty();
-
-    let loraFiles = [];
-    try {
-        const lRes = await fetch(`${s.comfyUrl}/object_info/LoraLoader`);
-        if (lRes.ok) {
-            const json = await lRes.json();
-            loraFiles = json['LoraLoader'].input.required.lora_name[0] || [];
+    
+    // Remember open folders
+    const openFolders = [];
+    container.find(".li-folder").each(function() {
+        if ($(this).find(".li-folder-body").is(":visible")) {
+            openFolders.push($(this).find(".li-folder-header span").first().text());
         }
-    } catch (e) {
-        container.html('<div style="text-align: center; color: #ef4444; font-size: 0.8rem; padding: 15px;">Failed to fetch LoRAs from ComfyUI.</div>');
-        return;
+    });
+
+    if (forceRefresh || !cachedLoraFiles) {
+        if (!cachedLoraFiles) container.empty();
+        try {
+            const lRes = await fetch(`${s.comfyUrl}/object_info/LoraLoader`);
+            if (lRes.ok) {
+                const json = await lRes.json();
+                cachedLoraFiles = json['LoraLoader'].input.required.lora_name[0] || [];
+            }
+        } catch (e) {
+            container.html('<div style="text-align: center; color: #ef4444; font-size: 0.8rem; padding: 15px;">Failed to fetch LoRAs from ComfyUI.</div>');
+            return;
+        }
     }
+    
+    container.empty();
+    let loraFiles = cachedLoraFiles || [];
 
     if (loraFiles.length === 0) {
         container.html('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px;">No LoRAs found in ComfyUI.</div>');
@@ -2076,7 +2089,14 @@ async function liPopulateLoraList(s, li, charKey) {
             </div>
         `);
 
-        const body = folderEl.find(".li-folder-body").hide();
+        const body = folderEl.find(".li-folder-body");
+        if (openFolders.includes(folder)) {
+            body.show();
+            folderEl.find(".li-folder-chevron").css("transform", "rotate(90deg)");
+        } else {
+            body.hide();
+        }
+
         folderEl.find(".li-folder-header").on("click", function() {
             body.slideToggle(150);
             $(this).find(".li-folder-chevron").css("transform", body.is(":visible") ? "rotate(90deg)" : "rotate(0deg)");
