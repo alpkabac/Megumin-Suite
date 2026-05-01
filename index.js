@@ -1419,7 +1419,7 @@ function renderImageGen(c) {
     const s = localProfile.imageGen;
 
     // LoRA Intelligence state
-    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, useCharDescriptions: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
     const liScope = li.characterActiveLoras[charKey] ? 'character' : 'global';
@@ -1622,11 +1622,17 @@ function renderImageGen(c) {
                             <div class="ps-switch" style="transform: scale(0.75);"></div>
                         </div>
                         <div class="ps-toggle-card ${li.useCharDescriptions ? 'active' : ''}" id="li_toggle_desc" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--border-color)'};">
-                            <div style="display:flex; flex-direction:column;">
-                                <span style="font-weight:600; font-size:0.8rem; color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--text-main)'};">Character Descriptions</span>
-                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">AI describes physical features in detail</div>
+                            <div style="display:flex; flex-direction:column; width: 100%;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                    <span style="font-weight:600; font-size:0.8rem; color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--text-main)'};">Character Descriptions</span>
+                                    <div class="ps-switch" style="transform: scale(0.75);"></div>
+                                </div>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px; margin-bottom: 6px;">AI describes physical features in detail</div>
+                                <select id="li_desc_style" class="ps-modern-input" style="font-size: 0.7rem; padding: 4px; display: ${li.useCharDescriptions ? 'block' : 'none'};">
+                                    <option value="booru" ${li.descriptionStyle === 'booru' ? 'selected' : ''}>Booru Style (tags)</option>
+                                    <option value="natural" ${li.descriptionStyle === 'natural' ? 'selected' : ''}>Natural Language</option>
+                                </select>
                             </div>
-                            <div class="ps-switch" style="transform: scale(0.75);"></div>
                         </div>
                     </div>
 
@@ -1788,7 +1794,16 @@ function renderImageGen(c) {
     });
     $("#li_toggle_ensure").on("click", function() { li.ensureLoras = !li.ensureLoras; saveProfileToMemory(); switchTab(currentTab); });
     $("#li_toggle_tags").on("click", function() { li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); switchTab(currentTab); });
-    $("#li_toggle_desc").on("click", function() { li.useCharDescriptions = !li.useCharDescriptions; saveProfileToMemory(); switchTab(currentTab); });
+    $("#li_toggle_desc").on("click", function(e) { 
+        if ($(e.target).is("select") || $(e.target).is("option")) return;
+        li.useCharDescriptions = !li.useCharDescriptions; 
+        saveProfileToMemory(); 
+        switchTab(currentTab); 
+    });
+    $("#li_desc_style").on("change", function(e) {
+        li.descriptionStyle = $(this).val();
+        saveProfileToMemory();
+    });
 
     // Scope select
     $("#li_scope_select").on("change", function() {
@@ -1863,7 +1878,8 @@ function renderImageGen(c) {
                 hasLoras: enabledLoras.length > 0,
                 ensureLoras: li.ensureLoras,
                 useTags: li.useDanbooruTags,
-                useDescriptions: li.useCharDescriptions
+                useDescriptions: li.useCharDescriptions,
+                descStyle: li.descriptionStyle
             };
 
             let rawOutput;
@@ -1994,28 +2010,36 @@ async function liPopulateLoraList(s, li, charKey) {
     const renderLoraItem = (f) => {
         const existing = activeMap.get(f);
         const isActive = existing ? existing.enabled : false;
-        const keywords = existing && existing.keywords ? existing.keywords.join(', ') : '';
+        const keywordsStr = existing && existing.keywords && existing.keywords.length ? existing.keywords.join(', ') : '';
         const shortName = f.includes('/') ? f.split('/').pop() : (f.includes('\\') ? f.split('\\').pop() : f);
 
         const item = $(`
-            <div class="li-lora-item" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: ${isActive ? 'rgba(168,85,247,0.1)' : 'rgba(0,0,0,0.15)'}; border: 1px solid ${isActive ? 'rgba(168,85,247,0.3)' : 'var(--border-color)'}; border-radius: 6px; cursor: pointer; transition: 0.2s;" data-lora="${f}">
-                <div style="width: 18px; height: 18px; border-radius: 4px; border: 2px solid ${isActive ? '#a855f7' : '#52525b'}; background: ${isActive ? '#a855f7' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    ${isActive ? '<i class="fa-solid fa-check" style="font-size: 0.55rem; color: #fff;"></i>' : ''}
+            <div class="li-lora-item" style="display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: ${isActive ? 'rgba(168,85,247,0.1)' : 'rgba(0,0,0,0.15)'}; border: 1px solid ${isActive ? 'rgba(168,85,247,0.3)' : 'var(--border-color)'}; border-radius: 6px; cursor: pointer; transition: 0.2s;" data-lora="${f}">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 18px; height: 18px; border-radius: 4px; border: 2px solid ${isActive ? '#a855f7' : '#52525b'}; background: ${isActive ? '#a855f7' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        ${isActive ? '<i class="fa-solid fa-check" style="font-size: 0.55rem; color: #fff;"></i>' : ''}
+                    </div>
+                    <div style="flex: 1; min-width: 0; font-size: 0.75rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${f}">${shortName}</div>
                 </div>
-                <div style="flex: 1; min-width: 0;">
-                    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${f}">${shortName}</div>
-                    ${keywords ? `<div style="font-size: 0.6rem; color: #a855f7; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${keywords}"><i class="fa-solid fa-key" style="margin-right: 3px;"></i>${keywords}</div>` : ''}
+                ${isActive ? `
+                <div style="display: flex; align-items: center; gap: 6px; padding-left: 28px;">
+                    <i class="fa-solid fa-key" style="color: #a855f7; font-size: 0.65rem;"></i>
+                    <input type="text" class="ps-modern-input li-lora-kw-input" value="${keywordsStr.replace(/"/g, '&quot;')}" placeholder="Activation words (e.g. a woman)" style="font-size: 0.65rem; padding: 2px 6px; height: 20px; flex: 1; background: rgba(0,0,0,0.2); color: #a855f7; border-color: rgba(168,85,247,0.3);" />
                 </div>
+                ` : ''}
             </div>
         `);
 
-        item.on("click", function() {
+        item.on("click", function(e) {
+            if ($(e.target).is("input")) return;
             const loraName = $(this).attr("data-lora");
             const existingEntry = activeList.find(l => l.name === loraName);
             if (existingEntry) {
                 existingEntry.enabled = !existingEntry.enabled;
             } else {
-                activeList.push({ name: loraName, enabled: true, keywords: civitaiKeywordCache[loraName.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim()] || [] });
+                let defaultKws = civitaiKeywordCache[loraName.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim()];
+                if (!defaultKws || defaultKws.length === 0) defaultKws = ["a woman"];
+                activeList.push({ name: loraName, enabled: true, keywords: defaultKws });
             }
 
             if (scope === "character") li.characterActiveLoras[charKey] = activeList;
@@ -2023,6 +2047,16 @@ async function liPopulateLoraList(s, li, charKey) {
             saveProfileToMemory();
             liPopulateLoraList(s, li, charKey);
         });
+
+        if (isActive) {
+            item.find(".li-lora-kw-input").on("input", function() {
+                const existingEntry = activeList.find(l => l.name === f);
+                if (existingEntry) {
+                    existingEntry.keywords = $(this).val().split(',').map(s => s.trim()).filter(s => s);
+                    saveProfileToMemory();
+                }
+            });
+        }
 
         return item;
     };
@@ -2059,22 +2093,46 @@ async function liPopulateLoraList(s, li, charKey) {
 function liRenderAssignmentTable(li, charKey, s) {
     const table = $("#li_assignment_table");
     table.empty();
+
+    if (!li.ensureLoras && !li.useCharDescriptions) {
+        table.hide();
+        return;
+    } else {
+        table.show();
+    }
+
     if (!li.characterAssignments[charKey]) li.characterAssignments[charKey] = [];
     const assignments = li.characterAssignments[charKey];
 
+    const showLoras = li.ensureLoras;
+    const showDesc = li.useCharDescriptions;
+
+    // Build grid columns dynamically
+    let gridCols = "1fr ";
+    if (showLoras) gridCols += "1.5fr 1.5fr ";
+    if (showDesc) gridCols += "2fr ";
+
+    let headerHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
+        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>`;
+    if (showLoras) {
+        headerHtml += `
+        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Match Keywords</span>
+        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA File</span>`;
+    }
+    if (showDesc) {
+        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Description</span>`;
+    }
+    headerHtml += `</div>`;
+
     const header = $(`
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
-            <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr; gap: 8px; flex: 1;">
-                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>
-                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA</span>
-                <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Keywords</span>
-            </div>
+            ${headerHtml}
             <button id="li_add_custom_assign" class="ps-modern-btn primary" style="padding: 2px 8px; font-size: 0.65rem; margin-left: 10px; background: var(--gold); color: #000;"><i class="fa-solid fa-plus"></i> Add</button>
         </div>
     `);
 
     header.find("#li_add_custom_assign").on("click", function() {
-        assignments.push({ character: "", lora: "", keywords: "" });
+        assignments.push({ character: "", match_keywords: "", lora: "", description: "" });
         li.characterAssignments[charKey] = assignments;
         saveProfileToMemory();
         liRenderAssignmentTable(li, charKey, s);
@@ -2083,25 +2141,38 @@ function liRenderAssignmentTable(li, charKey, s) {
     table.append(header);
 
     if (assignments.length === 0) {
-        table.append('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" or "Add" to map characters to LoRAs.</div>');
+        table.append('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" or "Add".</div>');
         return;
     }
 
     assignments.forEach((a, idx) => {
+        let rowHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
+            <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${a.character ? a.character.replace(/"/g, '&quot;') : ''}" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />`;
+        if (showLoras) {
+            rowHtml += `
+            <input class="ps-modern-input li-edit-match" type="text" placeholder="Match (e.g. Megumin, Megu)" value="${a.match_keywords ? a.match_keywords.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />
+            <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" value="${a.lora ? a.lora.replace(/"/g, '&quot;') : ''}" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+        }
+        if (showDesc) {
+            rowHtml += `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${a.description ? a.description.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: #3b82f6; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+        }
+        rowHtml += `</div>`;
+
         const row = $(`
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
-                <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.5fr; gap: 8px; flex: 1;">
-                    <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />
-                    <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />
-                    <input class="ps-modern-input li-edit-kw" type="text" placeholder="Keywords" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />
-                </div>
+                ${rowHtml}
                 <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3); margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
             </div>
         `);
         
-        row.find(".li-edit-char").val(a.character || '').on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
-        row.find(".li-edit-lora").val(a.lora || '').on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
-        row.find(".li-edit-kw").val(a.keywords || '').on("input", function() { a.keywords = $(this).val(); saveProfileToMemory(); });
+        row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
+        if (showLoras) {
+            row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+            row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+        }
+        if (showDesc) {
+            row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+        }
 
         row.find(".li-remove-assign").on("click", function() {
             assignments.splice(idx, 1);
@@ -2392,9 +2463,16 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
                 
                 const li = s.loraIntel;
                 const charKey = getCharacterKey() || "default";
-                if (li && li.enabled && li.characterAssignments && li.characterAssignments[charKey]) {
+                if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
+                    const recentChat = getCleanedChatHistory().slice(-1000).toLowerCase();
                     const assignments = li.characterAssignments[charKey];
-                    const uniqueLoras = [...new Set(assignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
+                    const activeAssignments = assignments.filter(a => {
+                        if (!a.match_keywords) return true; 
+                        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+                        if (kws.length === 0) return true;
+                        return kws.some(kw => recentChat.includes(kw));
+                    });
+                    const uniqueLoras = [...new Set(activeAssignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
                     
                     let aiIdx = 0;
                     for (let i = 0; i < 4; i++) {
@@ -2760,19 +2838,47 @@ function buildBaseDict() {
                 if (li.compiledPromptOverride) {
                     liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
                 } else {
-                    let modes = [];
-                    if (li.useDanbooruTags) modes.push("guess appropriate Danbooru tags for characters");
-                    if (li.useCharDescriptions) modes.push("describe physical features in detail");
-                    if (modes.length > 0) liInstructions = `\nCharacter Instructions: ${modes.join(" or ")}.`;
-                }
+                    const charKey = getCharacterKey() || "default";
+                    const recentChat = getCleanedChatHistory().slice(-1000).toLowerCase();
+                    const assignments = li.characterAssignments[charKey] || [];
+                    
+                    // Filter assignments present in recent chat
+                    const activeAssignments = assignments.filter(a => {
+                        if (!a.match_keywords) return true; 
+                        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+                        if (kws.length === 0) return true;
+                        return kws.some(kw => recentChat.includes(kw));
+                    });
 
-                // Inject activation keywords for assigned characters
-                const charKey = getCharacterKey() || "default";
-                if (li.characterAssignments && li.characterAssignments[charKey]) {
-                    const assignments = li.characterAssignments[charKey];
-                    if (assignments.length > 0) {
-                        const kwStrings = assignments.map(a => `${a.character}: ${a.keywords || 'none'}`);
-                        liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
+                    let modes = [];
+                    if (li.useDanbooruTags && !li.useCharDescriptions) modes.push("guess appropriate Danbooru tags for characters");
+                    if (modes.length > 0) liInstructions = `\nCharacter Instructions: ${modes.join(" or ")}.`;
+
+                    if (activeAssignments.length > 0) {
+                        const scope = $("#li_scope_select").val() || "global";
+                        const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
+                        
+                        let kwStrings = [];
+                        let descStrings = [];
+                        
+                        activeAssignments.forEach(a => {
+                            if (li.ensureLoras && a.lora) {
+                                const loraEntry = activeList.find(l => l.name === a.lora);
+                                if (loraEntry && loraEntry.keywords && loraEntry.keywords.length > 0) {
+                                    kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
+                                }
+                            }
+                            if (li.useCharDescriptions && a.description) {
+                                descStrings.push(`${a.character}: ${a.description}`);
+                            }
+                        });
+
+                        if (kwStrings.length > 0) {
+                            liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
+                        }
+                        if (descStrings.length > 0) {
+                            liInstructions += `\nCharacter appearances: ${descStrings.join(' | ')}`;
+                        }
                     }
                 }
             }
@@ -2869,19 +2975,19 @@ function handlePromptInjection(data) {
         messages.length = 0;
         
         let modeInstructions = "";
-        if (activeLoraAssignRequest.hasLoras && activeLoraAssignRequest.ensureLoras) {
-            modeInstructions = "PRIORITY: You MUST assign LoRAs to characters whenever possible. Only fall back to tags or descriptions if no LoRA fits.";
-        } else if (activeLoraAssignRequest.hasLoras && activeLoraAssignRequest.useTags && activeLoraAssignRequest.useDescriptions) {
-            modeInstructions = "Use your best judgement. You may use LoRAs, danbooru tags, or physical descriptions for each character — pick whatever fits best.";
-        } else if (activeLoraAssignRequest.hasLoras) {
-            modeInstructions = "Assign LoRAs to characters from the available list. Add activation keywords if the LoRA has them.";
-        } else if (activeLoraAssignRequest.useTags) {
-            modeInstructions = "No LoRAs are available. Instead, suggest danbooru-style tags for each character's appearance.";
-        } else if (activeLoraAssignRequest.useDescriptions) {
-            modeInstructions = "No LoRAs are available. Instead, describe each character's physical features in detail.";
-        } else {
-            modeInstructions = "Analyze the characters and suggest the best visual representation method for each.";
+        let jsonFormat = `  {"character": "Name"`;
+        
+        if (activeLoraAssignRequest.ensureLoras) {
+            jsonFormat += `, "match_keywords": "Name, Nickname, Title", "lora": "exact_lora_filename.safetensors"`;
+            modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
         }
+        if (activeLoraAssignRequest.useDescriptions || activeLoraAssignRequest.useTags) {
+            jsonFormat += `, "description": "physical description here..."`;
+            let style = activeLoraAssignRequest.descStyle === 'natural' ? "natural language (e.g. 'a tall woman with blonde hair')" : "danbooru tags (e.g. 'tall, blonde hair')";
+            if (activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions) style = "danbooru tags";
+            modeInstructions += `You MUST provide a physical appearance description for each character in ${style}. `;
+        }
+        jsonFormat += `}`;
 
         let loraSection = "";
         if (activeLoraAssignRequest.hasLoras) {
@@ -2890,11 +2996,11 @@ function handlePromptInjection(data) {
 
         messages.push({
             "role": "system",
-            "content": `You are an expert at analyzing roleplay conversations and matching characters to LoRA models for image generation. ${modeInstructions}`
+            "content": `You are an expert at analyzing roleplay conversations and extracting character visual metadata for image generation. ${modeInstructions}`
         });
         messages.push({
             "role": "user",
-            "content": `Analyze this conversation and identify the important characters. Then assign each character to the most appropriate LoRA from the available list, and add any necessary activation keywords.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n  {"character": "Name", "lora": "exact_lora_filename.safetensors", "keywords": "activation keywords, extra tags"}\n]\n\nRules:\n- Use EXACT filenames from the available LoRA list\n- If a LoRA has activation keywords listed, include them\n- If no LoRA fits a character, set lora to "" and provide descriptive tags/keywords instead\n- Include ALL important characters from the conversation\n- Output ONLY the JSON array, no explanation`
+            "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation`
         });
     if (!disablePrefill) {
         messages.push({
