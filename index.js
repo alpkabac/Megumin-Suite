@@ -368,6 +368,88 @@ function validateDanbooruTags(tagList) {
     });
 }
 
+/** First top-level `[` … `]` span with bracket depth, respecting JSON string escapes (handles `]` inside tag strings). */
+function extractBalancedJsonArraySlice(text) {
+    const start = text.indexOf("[");
+    if (start === -1) return null;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = start; i < text.length; i++) {
+        const c = text[i];
+        if (inString) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (c === "\\") {
+                escape = true;
+                continue;
+            }
+            if (c === '"') inString = false;
+            continue;
+        }
+        if (c === '"') {
+            inString = true;
+            continue;
+        }
+        if (c === "[") depth++;
+        else if (c === "]") {
+            depth--;
+            if (depth === 0) return text.slice(start, i + 1);
+        }
+    }
+    return null;
+}
+
+function tryJsonParseLenient(jsonStr) {
+    try {
+        return JSON.parse(jsonStr);
+    } catch {
+        try {
+            const fixed = jsonStr.replace(/,\s*([\]}])/g, "$1");
+            return JSON.parse(fixed);
+        } catch {
+            return null;
+        }
+    }
+}
+
+/** Parse AI output from Analyze Characters (JSON array of assignments). */
+function parseLoraAssignmentJsonArray(rawOutput) {
+    let t = String(rawOutput || "").trim();
+    t = t.replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, "");
+    t = t.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "");
+    t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
+    t = t.trim();
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) t = fence[1].trim();
+
+    const slice = extractBalancedJsonArraySlice(t);
+    if (slice) {
+        const parsed = tryJsonParseLenient(slice);
+        if (Array.isArray(parsed)) return parsed;
+    }
+
+    try {
+        const o = tryJsonParseLenient(t);
+        if (Array.isArray(o)) return o;
+        if (o && typeof o === "object") {
+            for (const k of ["assignments", "characters", "results", "data"]) {
+                if (Array.isArray(o[k])) return o[k];
+            }
+        }
+    } catch { /* ignore */ }
+
+    const greedy = t.match(/\[[\s\S]*\]/);
+    if (greedy) {
+        const parsed = tryJsonParseLenient(greedy[0]);
+        if (Array.isArray(parsed)) return parsed;
+    }
+
+    return null;
+}
+
 // -------------------------------------------------------------
 // CIVITAI KEYWORD FETCHER
 // -------------------------------------------------------------
@@ -1964,13 +2046,10 @@ function renderImageGen(c) {
             }
             activeLoraAssignRequest = null;
 
-            rawOutput = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-
-            // Parse the AI response
+            // Parse the AI response (bracket-aware: Danbooru tag strings may contain `]` etc.)
             try {
-                const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
-                if (jsonMatch) {
-                    const assignments = JSON.parse(jsonMatch[0]);
+                const assignments = parseLoraAssignmentJsonArray(rawOutput);
+                if (assignments) {
                     li.characterAssignments[charKey] = assignments;
                     saveProfileToMemory();
                     liRenderAssignmentTable(li, charKey, s);
@@ -3252,6 +3331,10 @@ function handlePromptInjection(data) {
     // --- INJECT LORA ASSIGNMENT PROMPT ---
     if (activeLoraAssignRequest) {
         messages.length = 0;
+
+        const tagsOnlyMode = activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions;
+        /** In tags-only mode, listing LoRAs biases the model toward LoRA/training names instead of Danbooru character_(series) tags—omit unless Ensure LoRA needs filenames. */
+        const includeLorasInAssignmentPrompt = activeLoraAssignRequest.hasLoras && (!tagsOnlyMode || activeLoraAssignRequest.ensureLoras);
         
         let modeInstructions = "";
         let jsonFormat = `  {"character": "Name"`;
@@ -3271,8 +3354,12 @@ function handlePromptInjection(data) {
         }
         jsonFormat += `}`;
 
+        if (tagsOnlyMode && activeLoraAssignRequest.ensureLoras && activeLoraAssignRequest.hasLoras) {
+            modeInstructions += "The <available_loras> block is ONLY for choosing exact \"lora\" filenames and match_keywords—each \"description\" must still use standard Danbooru character_(copyright) tags from anime/games/manga. Never use LoRA filenames, training tokens, or model titles as character identity tags. ";
+        }
+
         let loraSection = "";
-        if (activeLoraAssignRequest.hasLoras) {
+        if (includeLorasInAssignmentPrompt) {
             loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
         }
 
