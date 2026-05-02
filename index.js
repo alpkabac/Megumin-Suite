@@ -361,11 +361,37 @@ async function loadDanbooruTags() {
 }
 
 function validateDanbooruTags(tagList) {
-    if (!danbooruTagsMap) return tagList.map(t => ({ tag: t, valid: false }));
     return tagList.map(t => {
         const clean = t.trim().toLowerCase().replace(/\s+/g, '_');
+        if (!danbooruTagsMap) return { tag: clean, valid: false };
         return { tag: clean, valid: danbooruTagsMap.has(clean) };
     });
+}
+
+/** After Analyze Characters: normalize comma-separated tags in description against tags.csv (analyze path only—not image generation). */
+async function normalizeDanbooruTagsInAssignments(assignments) {
+    await loadDanbooruTags();
+    if (!danbooruTagsMap || !assignments) return;
+    for (const a of assignments) {
+        if (!a.description || typeof a.description !== "string") continue;
+        const parts = a.description.split(",").map(p => p.trim()).filter(Boolean);
+        if (parts.length === 0) continue;
+        const validated = validateDanbooruTags(parts);
+        a.description = validated.map(v => v.tag).join(", ");
+    }
+}
+
+/** If the model left match_keywords empty, derive from character label so scene filtering + img injection still work. */
+function fillAssignmentMatchKeywords(assignments) {
+    if (!assignments) return;
+    for (const a of assignments) {
+        if (a.match_keywords && String(a.match_keywords).trim()) continue;
+        const name = (a.character || "").trim();
+        if (!name) continue;
+        const tokens = name.split(/[\s,]+/).filter(Boolean);
+        const uniq = [...new Set([name, ...tokens].map(x => x.trim()).filter(Boolean))];
+        a.match_keywords = uniq.join(", ");
+    }
 }
 
 /** First top-level `[` … `]` span with bracket depth, respecting JSON string escapes (handles `]` inside tag strings). */
@@ -2050,6 +2076,10 @@ function renderImageGen(c) {
             try {
                 const assignments = parseLoraAssignmentJsonArray(rawOutput);
                 if (assignments) {
+                    if (li.useDanbooruTags && !li.useCharDescriptions) {
+                        await normalizeDanbooruTagsInAssignments(assignments);
+                        fillAssignmentMatchKeywords(assignments);
+                    }
                     li.characterAssignments[charKey] = assignments;
                     saveProfileToMemory();
                     liRenderAssignmentTable(li, charKey, s);
@@ -2328,6 +2358,8 @@ function liRenderAssignmentTable(li, charKey, s) {
     if (!li.characterAssignments[charKey]) li.characterAssignments[charKey] = [];
     const assignments = li.characterAssignments[charKey];
 
+    const tagsOnlyIntel = li.useDanbooruTags && !li.useCharDescriptions;
+    const showMatchCol = tagsOnlyIntel || li.ensureLoras;
     const showLoras = li.ensureLoras;
     const showDesc = li.useCharDescriptions || li.useDanbooruTags;
     const descColumnLabel = li.useCharDescriptions ? "Description" : "Danbooru Tags";
@@ -2336,14 +2368,18 @@ function liRenderAssignmentTable(li, charKey, s) {
 
     // Build grid columns dynamically
     let gridCols = "1fr ";
-    if (showLoras) gridCols += "1.5fr 1.5fr ";
+    if (showMatchCol) gridCols += "1.5fr ";
+    if (showLoras) gridCols += "1.5fr ";
     if (showDesc) gridCols += "2fr ";
 
     let headerHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
         <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>`;
+    if (showMatchCol) {
+        headerHtml += `
+        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Match Keywords</span>`;
+    }
     if (showLoras) {
         headerHtml += `
-        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Match Keywords</span>
         <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA File</span>`;
     }
     if (showDesc) {
@@ -2375,9 +2411,12 @@ function liRenderAssignmentTable(li, charKey, s) {
     assignments.forEach((a, idx) => {
         let rowHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${a.character ? a.character.replace(/"/g, '&quot;') : ''}" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />`;
+        if (showMatchCol) {
+            rowHtml += `
+            <input class="ps-modern-input li-edit-match" type="text" placeholder="Match (e.g. Megumin, Megu)" value="${a.match_keywords ? a.match_keywords.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+        }
         if (showLoras) {
             rowHtml += `
-            <input class="ps-modern-input li-edit-match" type="text" placeholder="Match (e.g. Megumin, Megu)" value="${a.match_keywords ? a.match_keywords.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />
             <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" value="${a.lora ? a.lora.replace(/"/g, '&quot;') : ''}" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
         }
         if (showDesc) {
@@ -2393,8 +2432,10 @@ function liRenderAssignmentTable(li, charKey, s) {
         `);
         
         row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
-        if (showLoras) {
+        if (showMatchCol) {
             row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+        }
+        if (showLoras) {
             row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
         }
         if (showDesc) {
@@ -2600,18 +2641,12 @@ async function generateImagePromptText() {
     
     let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences." : "Use a comma-separated list of detailed keywords and visual descriptors.");
     let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
-    
-    activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: s.promptExtra || "None" };
-    
+    const presetVisualHint = (localProfile.aiRule && String(localProfile.aiRule).trim()) ? String(localProfile.aiRule).trim() : "";
+
+    activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: s.promptExtra || "None", presetVisualHint };
+
     let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
     let finalPrompt = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-
-    // If using danbooru tags and not overriding, validate tags
-    if (li && li.enabled && li.useDanbooruTags && !li.compiledPromptOverride && danbooruTagsMap) {
-        const words = finalPrompt.split(',').map(w => w.trim()).filter(w => w);
-        const validated = validateDanbooruTags(words);
-        finalPrompt = validated.map(v => v.tag).join(', ');
-    }
 
     // Auto-update the preview in the UI if it exists
     if (li && li.enabled) {
@@ -3228,6 +3263,8 @@ function buildBaseDict() {
                             }
                             if (li.useCharDescriptions && a.description) {
                                 descStrings.push(`${a.character}: ${a.description}`);
+                            } else if (li.useDanbooruTags && !li.useCharDescriptions && a.description) {
+                                descStrings.push(`${a.character}: ${a.description}`);
                             }
                         });
 
@@ -3311,7 +3348,7 @@ function handlePromptInjection(data) {
         });
         messages.push({ 
             "role": "user", 
-            "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw image prompt text.` 
+            "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}${activeImageGenRequest.presetVisualHint ? `\n\nActive style preset (apply to mood, composition, and lens—still respect Style Constraint and Perspective):\n${activeImageGenRequest.presetVisualHint}` : ""}\n\nOutput ONLY the raw image prompt text.` 
         });
         messages.push({ 
             "role": "system", 
@@ -3342,6 +3379,9 @@ function handlePromptInjection(data) {
         if (activeLoraAssignRequest.ensureLoras) {
             jsonFormat += `, "match_keywords": "Name, Nickname, Title", "lora": "exact_lora_filename.safetensors"`;
             modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
+        } else if (tagsOnlyMode) {
+            jsonFormat += `, "match_keywords": "Name, Nickname, titles — comma-separated chat substrings"`;
+            modeInstructions += "For each character include match_keywords: comma-separated phrases that may appear in the chat (given names, nicknames, honorifics) so we can tell who is active in the scene. ";
         }
         if (activeLoraAssignRequest.useDescriptions || activeLoraAssignRequest.useTags) {
             jsonFormat += `, "description": "physical description here..."`;
@@ -3830,7 +3870,6 @@ jQuery(async () => {
             eventSource.on(event_types.APP_READY, () => {
                 cleanGhostProfiles();
                 discoverDefaultImages();
-                loadDanbooruTags();
             });
             eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, handlePromptInjection);
             eventSource.on(event_types.CHAT_CHANGED, () => {
