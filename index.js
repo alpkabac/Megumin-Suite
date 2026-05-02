@@ -11,6 +11,11 @@ const extensionName = "Megumin-Suite";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const TARGET_PRESET_NAME = "Megumin Engine";
 
+/** SillyTavern's generateQuietPrompt expects `quietPrompt`, not `prompt` — using `prompt` leaves the instruction empty. */
+function meguminGenerateQuiet(trigger, opts = {}) {
+    return generateQuietPrompt({ quietPrompt: trigger, removeReasoning: false, ...opts });
+}
+
 // -------------------------------------------------------------
 // STATE MANAGEMENT
 // -------------------------------------------------------------
@@ -361,6 +366,39 @@ function fillAssignmentMatchKeywords(assignments) {
     }
 }
 
+/** Balanced `{` … `}` from index, respecting JSON strings (for loose assignment recovery). */
+function extractBalancedJsonObjectSliceFrom(text, openBraceIndex) {
+    if (openBraceIndex < 0 || openBraceIndex >= text.length || text[openBraceIndex] !== "{") return null;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = openBraceIndex; i < text.length; i++) {
+        const c = text[i];
+        if (inString) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (c === "\\") {
+                escape = true;
+                continue;
+            }
+            if (c === '"') inString = false;
+            continue;
+        }
+        if (c === '"') {
+            inString = true;
+            continue;
+        }
+        if (c === "{") depth++;
+        else if (c === "}") {
+            depth--;
+            if (depth === 0) return text.slice(openBraceIndex, i + 1);
+        }
+    }
+    return null;
+}
+
 /** First top-level `[` … `]` span with bracket depth, respecting JSON string escapes (handles `]` inside tag strings). */
 function extractBalancedJsonArraySlice(text) {
     const start = text.indexOf("[");
@@ -448,9 +486,31 @@ function tryParseLoraAssignmentArraySlice(slice) {
     return null;
 }
 
+/** When the outer array is truncated or invalid, collect objects that look like assignment rows. */
+function parseLoraAssignmentsFromLooseObjects(text) {
+    const src = String(text || "");
+    const re = /\{\s*"character"\s*:/g;
+    const results = [];
+    let m;
+    let lastEnd = -1;
+    while ((m = re.exec(src)) !== null) {
+        if (m.index < lastEnd) continue;
+        const slice = extractBalancedJsonObjectSliceFrom(src, m.index);
+        if (!slice) continue;
+        const obj = tryJsonParseLenient(normalizeJsonDelimiterQuotes(slice));
+        if (obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, "character")) {
+            results.push(obj);
+            lastEnd = m.index + slice.length;
+            re.lastIndex = lastEnd;
+        }
+    }
+    return results.length ? results : null;
+}
+
 /** Parse AI output from Analyze Characters (JSON array of assignments). */
 function parseLoraAssignmentJsonArray(rawOutput) {
     let t = String(rawOutput || "").trim();
+    t = t.replace(/\uFF3B/g, "[").replace(/\uFF3D/g, "]");
     t = t.replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, "");
     t = t.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "");
     t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
@@ -481,6 +541,9 @@ function parseLoraAssignmentJsonArray(rawOutput) {
         const parsed = tryParseLoraAssignmentArraySlice(greedy[0]);
         if (Array.isArray(parsed)) return parsed;
     }
+
+    const loose = parseLoraAssignmentsFromLooseObjects(tNorm);
+    if (loose) return loose;
 
     return null;
 }
@@ -1478,7 +1541,7 @@ function renderStoryPlanner(c) {
 async function generateStoryPlanLogic(chatText) {
     activeStoryPlanRequest = chatText;
     try {
-        let rawOutput = await generateQuietPrompt({ prompt: "___PS_STORY_PLAN___" });
+        let rawOutput = await meguminGenerateQuiet("___PS_STORY_PLAN___");
         return rawOutput;
     } finally {
         activeStoryPlanRequest = null;
@@ -2070,10 +2133,10 @@ function renderImageGen(c) {
 
             let rawOutput;
             if (s.generatorBackend === "direct") {
-                rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
+                rawOutput = await meguminGenerateQuiet("___PS_LORA_ASSIGN___");
             } else {
                 await useMeguminEngine(async () => {
-                    rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
+                    rawOutput = await meguminGenerateQuiet("___PS_LORA_ASSIGN___");
                 });
             }
             activeLoraAssignRequest = null;
@@ -2651,7 +2714,7 @@ async function generateImagePromptText() {
 
     activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: s.promptExtra || "None", presetVisualHint };
 
-    let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
+    let rawOutput = await meguminGenerateQuiet("___PS_IMAGE_GEN___");
     let finalPrompt = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
     // Auto-update the preview in the UI if it exists
@@ -2988,7 +3051,7 @@ function getCleanedChatHistory() {
 async function analyzeSlopDirectly(chatText) {
     activeBanListChat = chatText;
     try {
-        let rawOutput = await generateQuietPrompt({ prompt: "___PS_BANLIST___" });
+        let rawOutput = await meguminGenerateQuiet("___PS_BANLIST___");
         return rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
     } catch (e) {
         console.error(`[${extensionName}] Ban List Analysis Failed:`, e);
@@ -3035,7 +3098,7 @@ async function useMeguminEngine(task, targetPreset = TARGET_PRESET_NAME) { // Ad
 async function runMeguminTask(orderText) {
     activeGenerationOrder = orderText;
     try {
-        return await generateQuietPrompt({ prompt: "___PS_DUMMY___" });
+        return await meguminGenerateQuiet("___PS_DUMMY___");
     } finally {
         activeGenerationOrder = null;
     }
