@@ -3229,6 +3229,9 @@ function handlePromptInjection(data) {
             let style = activeLoraAssignRequest.descStyle === 'natural' ? "natural language (e.g. 'a tall woman with blonde hair')" : "danbooru tags (e.g. 'tall, blonde hair')";
             if (activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions) style = "danbooru tags";
             modeInstructions += `You MUST provide a physical appearance description for each character in ${style}. `;
+            if (activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions) {
+                modeInstructions += "For \"description\" use comma-separated Danbooru tags. MANDATORY: for every character in the array, you MUST include at least one standard canonical character tag (e.g. character_name_(series))—never omit it. Pick the well-known reference whose stable physical traits best match the roleplay writeup (resemblance and cross-scene consistency matter more than the in-chat name). You may also add allowed physical-trait tags: hair, eyes, skin, body type, height or age appearance, species, distinctive facial/body features. Do NOT include tags for: clothing or outfits, accessories or jewelry, weapons or held objects, relationships or roles (sibling, couple, etc.), pose, action, expression, setting, props, or anything scene-specific or transient. ";
+            }
         }
         jsonFormat += `}`;
 
@@ -3237,13 +3240,17 @@ function handlePromptInjection(data) {
             loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
         }
 
+        const tagsOnlyUserRules = (activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions)
+            ? `\n\nTag rules for the "description" field: Every entry MUST include at least one canonical character_(series) tag (best visual match; chat name may differ), then optional allowed physical tags. No clothing, relations, accessories, pose, action, or scene tags.`
+            : "";
+
         messages.push({
             "role": "system",
             "content": `You are an expert at analyzing roleplay conversations and extracting character visual metadata for image generation. ${modeInstructions}`
         });
         messages.push({
             "role": "user",
-            "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation`
+            "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}${tagsOnlyUserRules}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation${activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions ? "\n- Every \"description\" must contain at least one character_name_(series) style tag" : ""}`
         });
     if (!disablePrefill) {
         messages.push({
