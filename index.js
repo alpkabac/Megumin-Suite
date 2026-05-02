@@ -408,24 +408,66 @@ function tryJsonParseLenient(jsonStr) {
     }
 }
 
+/** Typographic / BOM characters break JSON.parse when models use them as string delimiters. */
+function normalizeJsonDelimiterQuotes(s) {
+    return String(s || "")
+        .replace(/\uFEFF/g, "")
+        .replace(/\u201c/g, '"')
+        .replace(/\u201d/g, '"');
+}
+
+/**
+ * Models often emit prose between `[` and the first `{` (e.g. "Here is the JSON:").
+ * extractBalancedJsonArraySlice includes that text, producing invalid JSON.
+ */
+function repairJsonArrayLeaderAfterOpen(text) {
+    const start = text.indexOf("[");
+    if (start === -1) return text;
+    let i = start + 1;
+    while (i < text.length && /[\s,]/.test(text[i])) i++;
+    if (i >= text.length) return text;
+    const c = text[i];
+    if (c === "{" || c === "]") return text;
+    const fb = text.indexOf("{", i);
+    if (fb === -1) return text;
+    return text.slice(0, start + 1) + "\n" + text.slice(fb);
+}
+
+function tryParseLoraAssignmentArraySlice(slice) {
+    if (!slice) return null;
+    const variants = [
+        slice,
+        repairJsonArrayLeaderAfterOpen(slice),
+        normalizeJsonDelimiterQuotes(slice),
+        normalizeJsonDelimiterQuotes(repairJsonArrayLeaderAfterOpen(slice)),
+    ];
+    for (const v of variants) {
+        const p = tryJsonParseLenient(v);
+        if (Array.isArray(p)) return p;
+    }
+    return null;
+}
+
 /** Parse AI output from Analyze Characters (JSON array of assignments). */
 function parseLoraAssignmentJsonArray(rawOutput) {
     let t = String(rawOutput || "").trim();
     t = t.replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, "");
     t = t.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "");
     t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
+    t = t.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "");
     t = t.trim();
     const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fence) t = fence[1].trim();
 
     const slice = extractBalancedJsonArraySlice(t);
     if (slice) {
-        const parsed = tryJsonParseLenient(slice);
+        const parsed = tryParseLoraAssignmentArraySlice(slice);
         if (Array.isArray(parsed)) return parsed;
     }
 
+    const tNorm = normalizeJsonDelimiterQuotes(t);
     try {
-        const o = tryJsonParseLenient(t);
+        const o = tryJsonParseLenient(tNorm);
         if (Array.isArray(o)) return o;
         if (o && typeof o === "object") {
             for (const k of ["assignments", "characters", "results", "data"]) {
@@ -434,9 +476,9 @@ function parseLoraAssignmentJsonArray(rawOutput) {
         }
     } catch { /* ignore */ }
 
-    const greedy = t.match(/\[[\s\S]*\]/);
+    const greedy = tNorm.match(/\[[\s\S]*\]/);
     if (greedy) {
-        const parsed = tryJsonParseLenient(greedy[0]);
+        const parsed = tryParseLoraAssignmentArraySlice(greedy[0]);
         if (Array.isArray(parsed)) return parsed;
     }
 
@@ -3377,7 +3419,11 @@ function handlePromptInjection(data) {
         });
         messages.push({
             "role": "user",
-            "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}${tagsOnlyUserRules}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation${activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions ? "\n- Every \"description\" must contain at least one character_name_(series) style tag" : ""}`
+            "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}${tagsOnlyUserRules}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation${activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions ? "\n- Every \"description\" must contain at least one character_name_(series) style tag" : ""}\n- After the opening [, the next non-whitespace character must be { or ]; never put labels, sentences, or markdown between [ and the first object.`
+        });
+        messages.push({
+            "role": "system",
+            "content": "<thinking_steps>\nPut brief planning in <think></think> only. The JSON array must follow </think> with no other text between </think> and the continuation of the array (the assistant message already starts with [).\n</thinking_steps>\n\n[OUTPUT ORDER]\n<think>\n{Brief planning}\n</think>\n\nThen continue only the JSON array body and closing ]; no prose inside the array."
         });
     if (!disablePrefill) {
         messages.push({
