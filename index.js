@@ -1622,6 +1622,21 @@ function renderImageGen(c) {
                     </div>
                 </div>
 
+                <div id="li_last_comfy_api_wrap" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-paper-plane" style="color: #a855f7; margin-right: 6px;"></i>Last ComfyUI <span style="font-family: Consolas, Monaco, monospace; font-size: 0.8rem;">/prompt</span> request</span>
+                        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                            <label for="li_last_comfy_req_view" style="font-size: 0.7rem; color: var(--text-muted); margin: 0;">View</label>
+                            <select id="li_last_comfy_req_view" class="ps-modern-input" style="width: auto; max-width: 280px; padding: 6px 10px; font-size: 0.75rem; cursor: pointer;">
+                                <option value="summary">Summary (prompts, LoRAs, samplers)</option>
+                                <option value="json">Full JSON (entire graph)</option>
+                            </select>
+                            <button type="button" id="li_last_comfy_req_copy" class="ps-modern-btn secondary" style="padding: 6px 12px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
+                        </div>
+                    </div>
+                    <textarea id="li_last_comfy_req_body" readonly class="ps-modern-input" style="height: 220px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.72rem; background: #0c0c0e; color: var(--text-main); cursor: default;" spellcheck="false"></textarea>
+                </div>
+
                 <div id="li_main_content" style="display: ${li.enabled ? 'block' : 'none'};">
                     <!-- Mode Toggles -->
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
@@ -1861,6 +1876,18 @@ function renderImageGen(c) {
     $("#li_compiled_prompt").on("input", function() { li.compiledPromptOverride = $(this).val(); saveProfileToMemory(); });
     $("#li_clear_override").on("click", function() { li.compiledPromptOverride = ""; $("#li_compiled_prompt").val(""); saveProfileToMemory(); toastr.info("Override cleared."); });
 
+    $("#li_last_comfy_req_view").on("change", function() { igRefreshLastComfyApiPanel(); });
+    $("#li_last_comfy_req_copy").on("click", async function() {
+        const t = $("#li_last_comfy_req_body").val();
+        try {
+            await navigator.clipboard.writeText(t);
+            toastr.success("Copied to clipboard");
+        } catch (e) {
+            toastr.error("Copy failed");
+        }
+    });
+    igRefreshLastComfyApiPanel();
+
     // Refresh LoRA list
     $("#li_refresh_btn").on("click", async function() {
         $(this).prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
@@ -2054,6 +2081,149 @@ async function igFetchComfyLists() {
 // -------------------------------------------------------------
 // LORA INTELLIGENCE HELPERS
 // -------------------------------------------------------------
+/** Last POST body sent to ComfyUI `/prompt` (session memory; refreshed on each generation). */
+let igLastComfyApiRequest = null;
+
+function igCollectWorkflowLoraNodes(workflow) {
+    const out = [];
+    if (!workflow || typeof workflow !== "object") return out;
+    for (const nodeId of Object.keys(workflow)) {
+        const node = workflow[nodeId];
+        if (!node || !node.inputs) continue;
+        if (!Object.prototype.hasOwnProperty.call(node.inputs, "lora_name")) continue;
+        const inp = node.inputs;
+        out.push({
+            node_id: nodeId,
+            class_type: node.class_type || "?",
+            lora_name: inp.lora_name,
+            strength_model: inp.strength_model,
+            strength_clip: inp.strength_clip
+        });
+    }
+    return out;
+}
+
+function igCollectWorkflowSamplerNodes(workflow) {
+    const out = [];
+    if (!workflow || typeof workflow !== "object") return out;
+    for (const nodeId of Object.keys(workflow)) {
+        const node = workflow[nodeId];
+        if (!node || !node.inputs) continue;
+        const inp = node.inputs;
+        if (inp.sampler_name === undefined && inp.scheduler === undefined) continue;
+        const row = { node_id: nodeId, class_type: node.class_type || "?" };
+        if (inp.sampler_name !== undefined) row.sampler_name = inp.sampler_name;
+        if (inp.scheduler !== undefined) row.scheduler = inp.scheduler;
+        if (inp.steps !== undefined) row.steps = inp.steps;
+        if (inp.cfg !== undefined) row.cfg = inp.cfg;
+        if (inp.seed !== undefined) row.seed = inp.seed;
+        if (inp.denoise !== undefined) row.denoise = inp.denoise;
+        out.push(row);
+    }
+    return out;
+}
+
+function igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4) {
+    const fullPayload = { prompt: JSON.parse(JSON.stringify(workflow)) };
+    const cs = parseInt(s.clipSkip, 10);
+    return {
+        at: new Date().toISOString(),
+        comfy_url: s.comfyUrl,
+        workflow_file: s.currentWorkflowName,
+        positive_prompt: finalPrompt,
+        negative_prompt: s.customNegative || "",
+        final_seed: finalSeed,
+        megumin: {
+            model: s.selectedModel || "",
+            sampler: s.selectedSampler || "",
+            steps: parseInt(s.steps, 10) || 20,
+            cfg: parseFloat(s.cfg) || 7,
+            denoise: parseFloat(s.denoise) || 1,
+            clip_skip_ui: s.clipSkip,
+            clip_skip_injected: -Math.abs(cs) || -1,
+            width: parseInt(s.imgWidth, 10) || 512,
+            height: parseInt(s.imgHeight, 10) || 512
+        },
+        lora_slots: [
+            { slot: 1, file: l1 || "None", weight: w1 },
+            { slot: 2, file: l2 || "None", weight: w2 },
+            { slot: 3, file: l3 || "None", weight: w3 },
+            { slot: 4, file: l4 || "None", weight: w4 }
+        ],
+        workflow_lora_nodes: igCollectWorkflowLoraNodes(workflow),
+        workflow_sampler_nodes: igCollectWorkflowSamplerNodes(workflow),
+        full_payload: fullPayload
+    };
+}
+
+function igFormatLastComfyApiSummary(snap) {
+    if (!snap) return "No ComfyUI request sent yet in this session.";
+    const lines = [];
+    lines.push(`Time: ${snap.at}`);
+    lines.push(`POST ${snap.comfy_url}/prompt`);
+    lines.push(`Workflow file: ${snap.workflow_file}`);
+    lines.push("");
+    lines.push("── Positive prompt ──");
+    lines.push(String(snap.positive_prompt || "(empty)"));
+    lines.push("");
+    lines.push("── Negative prompt ──");
+    lines.push(String(snap.negative_prompt || "(empty)"));
+    lines.push("");
+    lines.push("── Megumin placeholder values ──");
+    lines.push(`Seed: ${snap.final_seed}`);
+    const m = snap.megumin;
+    lines.push(`Checkpoint (%model%): ${m.model || "(empty)"}`);
+    lines.push(`Sampler (%sampler%): ${m.sampler || "(empty)"}`);
+    lines.push(`Steps / CFG / Denoise: ${m.steps} / ${m.cfg} / ${m.denoise}`);
+    lines.push(`CLIP skip (UI → injected as %clip_skip%): ${m.clip_skip_ui} → ${m.clip_skip_injected}`);
+    lines.push(`Size (%width% × %height%): ${m.width} × ${m.height}`);
+    lines.push("");
+    lines.push("── LoRA slots (after LoRA Intelligence / UI resolve) ──");
+    snap.lora_slots.forEach((l) => {
+        const f = l.file && l.file !== "None" ? l.file : "None";
+        lines.push(`  Slot ${l.slot}: ${f}  weight ${l.weight}`);
+    });
+    lines.push("");
+    lines.push("── LoRA loader nodes in graph (resolved) ──");
+    if (!snap.workflow_lora_nodes.length) lines.push("  (none detected)");
+    else {
+        snap.workflow_lora_nodes.forEach((n) => {
+            lines.push(`  [${n.node_id}] ${n.class_type}: ${JSON.stringify(n.lora_name)}  model ${n.strength_model}  clip ${n.strength_clip}`);
+        });
+    }
+    lines.push("");
+    lines.push("── Sampler / scheduler fields in graph ──");
+    if (!snap.workflow_sampler_nodes.length) lines.push("  (none detected — workflow may use different node types)");
+    else {
+        snap.workflow_sampler_nodes.forEach((n) => {
+            const bits = [`[${n.node_id}] ${n.class_type}`];
+            if (n.sampler_name !== undefined) bits.push(`sampler_name=${JSON.stringify(n.sampler_name)}`);
+            if (n.scheduler !== undefined) bits.push(`scheduler=${JSON.stringify(n.scheduler)}`);
+            if (n.steps !== undefined) bits.push(`steps=${n.steps}`);
+            if (n.cfg !== undefined) bits.push(`cfg=${n.cfg}`);
+            if (n.seed !== undefined) bits.push(`seed=${n.seed}`);
+            if (n.denoise !== undefined) bits.push(`denoise=${n.denoise}`);
+            lines.push(`  ${bits.join("  ")}`);
+        });
+    }
+    lines.push("");
+    lines.push("── Tip ──");
+    lines.push('Switch "View" to "Full JSON" for the exact payload sent to ComfyUI.');
+    return lines.join("\n");
+}
+
+function igRefreshLastComfyApiPanel() {
+    const $fmt = $("#li_last_comfy_req_view");
+    const $ta = $("#li_last_comfy_req_body");
+    if (!$fmt.length || !$ta.length) return;
+    const mode = $fmt.val() || "summary";
+    if (mode === "json") {
+        $ta.val(igLastComfyApiRequest ? JSON.stringify(igLastComfyApiRequest.full_payload, null, 2) : igFormatLastComfyApiSummary(null));
+    } else {
+        $ta.val(igFormatLastComfyApiSummary(igLastComfyApiRequest));
+    }
+}
+
 let cachedLoraFiles = null;
 async function liPopulateLoraList(s, li, charKey, forceRefresh = false) {
     const container = $("#li_lora_list");
@@ -2697,6 +2867,9 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
             if (!seedInjected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
         }
     }
+
+    igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
+    igRefreshLastComfyApiPanel();
 
     try {
         const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
