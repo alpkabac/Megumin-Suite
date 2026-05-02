@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import { extension_settings, getContext } from "../../../extensions.js";
-import { saveSettingsDebounced, generateQuietPrompt, event_types, eventSource, substituteParams, saveChat, reloadCurrentChat, addOneMessage, getRequestHeaders, appendMediaToMessage } from "../../../../script.js";
+import { saveSettingsDebounced, saveSettings, generateQuietPrompt, event_types, eventSource, substituteParams, saveChat, reloadCurrentChat, addOneMessage, getRequestHeaders, appendMediaToMessage } from "../../../../script.js";
 import { saveBase64AsFile } from "../../../utils.js";
 import { humanizedDateTime } from "../../../RossAscends-mods.js";
 import { Popup, POPUP_TYPE } from "../../../popup.js";
@@ -237,7 +237,8 @@ function saveProfileToMemory() {
         extension_settings[extensionName].profiles["default"].imageGen = JSON.parse(JSON.stringify(localProfile.imageGen));
     }
     extension_settings[extensionName].profiles[key] = localProfile;
-    saveSettingsDebounced();
+    // Immediate persist: CHAT_CHANGED runs initProfile often; debounced save can lose edits before disk/API flush.
+    void saveSettings().catch(() => {});
 
     updateLiveTokenCount(); // NEW: Update the UI whenever settings are saved!
 
