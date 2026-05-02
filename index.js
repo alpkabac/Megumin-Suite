@@ -2203,7 +2203,7 @@ function liRenderAssignmentTable(li, charKey, s) {
     const table = $("#li_assignment_table");
     table.empty();
 
-    if (!li.ensureLoras && !li.useCharDescriptions) {
+    if (!li.ensureLoras && !li.useCharDescriptions && !li.useDanbooruTags) {
         table.hide();
         return;
     } else {
@@ -2214,7 +2214,10 @@ function liRenderAssignmentTable(li, charKey, s) {
     const assignments = li.characterAssignments[charKey];
 
     const showLoras = li.ensureLoras;
-    const showDesc = li.useCharDescriptions;
+    const showDesc = li.useCharDescriptions || li.useDanbooruTags;
+    const descColumnLabel = li.useCharDescriptions ? "Description" : "Danbooru Tags";
+    const descPlaceholder = li.useCharDescriptions ? "Physical description..." : "Comma-separated Danbooru tags...";
+    const descInputColor = li.useCharDescriptions ? "#3b82f6" : "#10b981";
 
     // Build grid columns dynamically
     let gridCols = "1fr ";
@@ -2229,7 +2232,7 @@ function liRenderAssignmentTable(li, charKey, s) {
         <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA File</span>`;
     }
     if (showDesc) {
-        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Description</span>`;
+        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">${descColumnLabel}</span>`;
     }
     headerHtml += `</div>`;
 
@@ -2263,7 +2266,7 @@ function liRenderAssignmentTable(li, charKey, s) {
             <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" value="${a.lora ? a.lora.replace(/"/g, '&quot;') : ''}" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
         }
         if (showDesc) {
-            rowHtml += `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${a.description ? a.description.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: #3b82f6; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+            rowHtml += `<input class="ps-modern-input li-edit-desc" type="text" placeholder="${descPlaceholder.replace(/"/g, '&quot;')}" value="${a.description ? a.description.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: ${descInputColor}; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
         }
         rowHtml += `</div>`;
 
