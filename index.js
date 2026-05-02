@@ -2667,33 +2667,40 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
     let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
 
+    const injectComfyPlaceholders = (inputs) => {
+        if (!inputs || typeof inputs !== "object") return;
+        for (const key in inputs) {
+            const val = inputs[key];
+            if (typeof val === "string") {
+                if (val === "%prompt%") inputs[key] = finalPrompt;
+                else if (val === "%negative_prompt%") inputs[key] = s.customNegative || "";
+                else if (val === "%seed%") { inputs[key] = finalSeed; seedInjected = true; }
+                else if (val === "%sampler%") inputs[key] = s.selectedSampler || "euler";
+                else if (val === "%model%") inputs[key] = s.selectedModel || "v1-5-pruned.ckpt";
+                else if (val === "%steps%") inputs[key] = parseInt(s.steps) || 20;
+                else if (val === "%scale%") inputs[key] = parseFloat(s.cfg) || 7.0;
+                else if (val === "%denoise%") inputs[key] = parseFloat(s.denoise) || 1.0;
+                else if (val === "%clip_skip%") inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
+                else if (val === "%lora1%") inputs[key] = l1 || "None";
+                else if (val === "%lora2%") inputs[key] = l2 || "None";
+                else if (val === "%lora3%") inputs[key] = l3 || "None";
+                else if (val === "%lora4%") inputs[key] = l4 || "None";
+                else if (val === "%lorawt1%") inputs[key] = w1;
+                else if (val === "%lorawt2%") inputs[key] = w2;
+                else if (val === "%lorawt3%") inputs[key] = w3;
+                else if (val === "%lorawt4%") inputs[key] = w4;
+                else if (val === "%width%") inputs[key] = parseInt(s.imgWidth) || 512;
+                else if (val === "%height%") inputs[key] = parseInt(s.imgHeight) || 512;
+            } else if (val && typeof val === "object" && !Array.isArray(val)) {
+                injectComfyPlaceholders(val);
+            }
+        }
+    };
+
     for (const nodeId in workflow) {
         const node = workflow[nodeId];
         if (node.inputs) {
-            for (const key in node.inputs) {
-                const val = node.inputs[key];
-                if (val === "%prompt%") node.inputs[key] = finalPrompt;
-                if (val === "%negative_prompt%") node.inputs[key] = s.customNegative || "";
-                if (val === "%seed%") { node.inputs[key] = finalSeed; seedInjected = true; }
-                if (val === "%sampler%") node.inputs[key] = s.selectedSampler || "euler";
-                if (val === "%model%") node.inputs[key] = s.selectedModel || "v1-5-pruned.ckpt";
-                if (val === "%steps%") node.inputs[key] = parseInt(s.steps) || 20;
-                if (val === "%scale%") node.inputs[key] = parseFloat(s.cfg) || 7.0;
-                if (val === "%denoise%") node.inputs[key] = parseFloat(s.denoise) || 1.0;
-                if (val === "%clip_skip%") node.inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
-                
-                if (val === "%lora1%") node.inputs[key] = l1 || "None";
-                if (val === "%lora2%") node.inputs[key] = l2 || "None";
-                if (val === "%lora3%") node.inputs[key] = l3 || "None";
-                if (val === "%lora4%") node.inputs[key] = l4 || "None";
-                if (val === "%lorawt1%") node.inputs[key] = w1;
-                if (val === "%lorawt2%") node.inputs[key] = w2;
-                if (val === "%lorawt3%") node.inputs[key] = w3;
-                if (val === "%lorawt4%") node.inputs[key] = w4;
-                
-                if (val === "%width%") node.inputs[key] = parseInt(s.imgWidth) || 512;
-                if (val === "%height%") node.inputs[key] = parseInt(s.imgHeight) || 512;
-            }
+            injectComfyPlaceholders(node.inputs);
             if (!seedInjected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
         }
     }

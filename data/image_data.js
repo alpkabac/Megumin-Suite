@@ -5,7 +5,6 @@ export const KAZUMA_PLACEHOLDERS = [
         { key: '"%steps%"', desc: "Sampling Steps (Integer)" },
         { key: '"%scale%"', desc: "CFG Scale (Float)" },
         { key: '"%denoise%"', desc: "Denoise Strength (Float)" },
-        { key: '"%clip_skip%"', desc: "CLIP Skip (Integer)" },
         { key: '"%model%"', desc: "Checkpoint Name" },
         { key: '"%sampler%"', desc: "Sampler Name" },
         { key: '"%width%"', desc: "Image Width (px)" },
