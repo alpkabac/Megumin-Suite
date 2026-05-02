@@ -2766,6 +2766,7 @@ function cleanMessageTextForKeywords(text) {
     if (!text) return "";
     let t = String(text);
     t = t.replace(PS_BAD_STUFF_REGEX, "");
+    t = t.replace(/<think>[\s\S]*?<\/redacted_thinking>/gis, "");
     t = t.replace(/<details>[\s\S]*?<\/details>/gs, "");
     t = t.replace(/<summary>[\s\S]*?<\/summary>/gs, "");
     t = t.replace(/<[^>]+>/g, "");
