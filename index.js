@@ -2462,6 +2462,60 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
 
     let seedInjected = false;
+
+    // --- LORA INTELLIGENCE INJECTION ---
+    let slots = [s.selectedLora, s.selectedLora2, s.selectedLora3, s.selectedLora4];
+    let weights = [parseFloat(s.selectedLoraWt) || 1.0, parseFloat(s.selectedLoraWt2) || 1.0, parseFloat(s.selectedLoraWt3) || 1.0, parseFloat(s.selectedLoraWt4) || 1.0];
+    
+    const li = s.loraIntel;
+    const charKey = getCharacterKey() || "default";
+    if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
+        const cleanedChat = getCleanedChatHistory();
+        const msgs = cleanedChat.split("\n\n");
+        const recentChat = msgs.length > 0 ? msgs[msgs.length - 1].toLowerCase() : "";
+        
+        const assignments = li.characterAssignments[charKey];
+        const activeAssignments = assignments.filter(a => {
+            if (!a.match_keywords) return true; 
+            const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+            if (kws.length === 0) return true;
+            return kws.some(kw => recentChat.includes(kw));
+        });
+        const uniqueLoras = [...new Set(activeAssignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
+        
+        let aiIdx = 0;
+        let uiChanged = false;
+        for (let i = 0; i < 4; i++) {
+            // Only auto-fill slots that are empty/None. Preserves manually set LoRAs!
+            if ((!slots[i] || slots[i] === "None" || slots[i] === "") && aiIdx < uniqueLoras.length) {
+                slots[i] = uniqueLoras[aiIdx];
+                weights[i] = 1.0;
+                
+                // Update UI visually
+                const selector = i === 0 ? "#ig_lora_1" : `#ig_lora_${i+1}`;
+                $(selector).val(slots[i]);
+                
+                uiChanged = true;
+                aiIdx++;
+            }
+        }
+        
+        if (uiChanged) {
+            s.selectedLora = slots[0];
+            s.selectedLora2 = slots[1];
+            s.selectedLora3 = slots[2];
+            s.selectedLora4 = slots[3];
+            s.selectedLoraWt = weights[0];
+            s.selectedLoraWt2 = weights[1];
+            s.selectedLoraWt3 = weights[2];
+            s.selectedLoraWt4 = weights[3];
+            saveProfileToMemory();
+        }
+    }
+
+    let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
+    let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
+
     for (const nodeId in workflow) {
         const node = workflow[nodeId];
         if (node.inputs) {
@@ -2477,37 +2531,6 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
                 if (val === "%denoise%") node.inputs[key] = parseFloat(s.denoise) || 1.0;
                 if (val === "%clip_skip%") node.inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
                 
-                // LoRA Intelligence assignment injection
-                let slots = [s.selectedLora, s.selectedLora2, s.selectedLora3, s.selectedLora4];
-                let weights = [parseFloat(s.selectedLoraWt) || 1.0, parseFloat(s.selectedLoraWt2) || 1.0, parseFloat(s.selectedLoraWt3) || 1.0, parseFloat(s.selectedLoraWt4) || 1.0];
-                
-                const li = s.loraIntel;
-                const charKey = getCharacterKey() || "default";
-                if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
-                    const recentChat = getCleanedChatHistory().slice(-1000).toLowerCase();
-                    const assignments = li.characterAssignments[charKey];
-                    const activeAssignments = assignments.filter(a => {
-                        if (!a.match_keywords) return true; 
-                        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
-                        if (kws.length === 0) return true;
-                        return kws.some(kw => recentChat.includes(kw));
-                    });
-                    const uniqueLoras = [...new Set(activeAssignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
-                    
-                    let aiIdx = 0;
-                    for (let i = 0; i < 4; i++) {
-                        // Only auto-fill slots that are empty/None. Preserves manually set LoRAs!
-                        if ((!slots[i] || slots[i] === "None" || slots[i] === "") && aiIdx < uniqueLoras.length) {
-                            slots[i] = uniqueLoras[aiIdx];
-                            weights[i] = 1.0;
-                            aiIdx++;
-                        }
-                    }
-                }
-
-                let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
-                let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
-
                 if (val === "%lora1%") node.inputs[key] = l1 || "None";
                 if (val === "%lora2%") node.inputs[key] = l2 || "None";
                 if (val === "%lora3%") node.inputs[key] = l3 || "None";
@@ -2859,7 +2882,9 @@ function buildBaseDict() {
                     liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
                 } else {
                     const charKey = getCharacterKey() || "default";
-                    const recentChat = getCleanedChatHistory().slice(-1000).toLowerCase();
+                    const cleanedChat = getCleanedChatHistory();
+                    const msgs = cleanedChat.split("\n\n");
+                    const recentChat = msgs.length > 0 ? msgs[msgs.length - 1].toLowerCase() : "";
                     const assignments = li.characterAssignments[charKey] || [];
                     
                     // Filter assignments present in recent chat
