@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import { extension_settings, getContext } from "../../../extensions.js";
-import { saveSettingsDebounced, saveSettings, generateQuietPrompt, event_types, eventSource, substituteParams, saveChat, reloadCurrentChat, addOneMessage, getRequestHeaders, appendMediaToMessage } from "../../../../script.js";
+import { saveSettingsDebounced, generateQuietPrompt, event_types, eventSource, substituteParams, saveChat, reloadCurrentChat, addOneMessage, getRequestHeaders, appendMediaToMessage } from "../../../../script.js";
 import { saveBase64AsFile } from "../../../utils.js";
 import { humanizedDateTime } from "../../../RossAscends-mods.js";
 import { Popup, POPUP_TYPE } from "../../../popup.js";
@@ -30,28 +30,6 @@ function getCharacterKey() {
     if (context.groupId !== undefined && context.groupId !== null) { return `group_${context.groupId}`; }
     if (context.characterId !== undefined && context.characterId !== null && context.characters[context.characterId]) { return context.characters[context.characterId].avatar; }
     return null;
-}
-
-/** Merge persisted Image Gen blob onto defaults (deep merge for nested objects; arrays replaced). Canonical store: profiles["default"].imageGen */
-function mergeGlobalImageGen(stored, fallbackDefaults) {
-    const merged = JSON.parse(JSON.stringify(fallbackDefaults));
-    if (!stored || typeof stored !== "object") return merged;
-    const patch = JSON.parse(JSON.stringify(stored));
-    function deepMerge(target, source) {
-        for (const key of Object.keys(source)) {
-            const sv = source[key];
-            if (sv !== null && typeof sv === "object" && !Array.isArray(sv)) {
-                if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) {
-                    target[key] = {};
-                }
-                deepMerge(target[key], sv);
-            } else {
-                target[key] = sv;
-            }
-        }
-    }
-    deepMerge(merged, patch);
-    return merged;
 }
 
 function cleanGhostProfiles() {
@@ -169,15 +147,6 @@ function initProfile() {
         extension_settings[extensionName].profiles["default"] = JSON.parse(JSON.stringify(defaults));
     }
 
-    // Legacy: globalImageGen lived at extension root and could fail to persist in ST — migrate into profiles.default.imageGen
-    if (extension_settings[extensionName].globalImageGen) {
-        extension_settings[extensionName].profiles["default"].imageGen = mergeGlobalImageGen(
-            extension_settings[extensionName].globalImageGen,
-            defaults.imageGen
-        );
-        delete extension_settings[extensionName].globalImageGen;
-    }
-
     if (key && extension_settings[extensionName].profiles[key]) {
         localProfile = extension_settings[extensionName].profiles[key];
         if (isGroup) {
@@ -205,9 +174,6 @@ function initProfile() {
     if (!localProfile.onomatopoeia) localProfile.onomatopoeia = defaults.onomatopoeia;
     if (localProfile.disableUtilityPrefill === undefined) localProfile.disableUtilityPrefill = false;
 
-    const canonImg = extension_settings[extensionName].profiles["default"]?.imageGen;
-    localProfile.imageGen = mergeGlobalImageGen(canonImg, defaults.imageGen);
-
     if (localProfile.devOverrides && Object.keys(localProfile.devOverrides).length > 0) {
         localProfile.devOverrides = {};
         saveSettingsDebounced();
@@ -233,12 +199,8 @@ function saveProfileToMemory() {
     const key = getCharacterKey() || "default";
     const ruleBox = $("#ps_main_current_rule");
     if (ruleBox.length > 0) { localProfile.aiRule = ruleBox.val(); }
-    if (localProfile.imageGen && extension_settings[extensionName].profiles["default"]) {
-        extension_settings[extensionName].profiles["default"].imageGen = JSON.parse(JSON.stringify(localProfile.imageGen));
-    }
     extension_settings[extensionName].profiles[key] = localProfile;
-    // Immediate persist: CHAT_CHANGED runs initProfile often; debounced save can lose edits before disk/API flush.
-    void saveSettings().catch(() => {});
+    saveSettingsDebounced();
 
     updateLiveTokenCount(); // NEW: Update the UI whenever settings are saved!
 
