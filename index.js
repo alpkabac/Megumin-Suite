@@ -2385,11 +2385,9 @@ async function generateImagePromptText() {
     }
 
     const chat = getContext().chat;
-    const badStuffRegex = /(<disclaimer>.*?<\/disclaimer>)|(<guifan>.*?<\/guifan>)|(<danmu>.*?<\/danmu>)|(<options>.*?<\/options>)|```start|```end|<done>|`<done>`|(.*?<\/(?:ksc??|think(?:ing)?)>(\n)?)|(<(?:ksc??|think(?:ing)?)>[\s\S]*?<\/(?:ksc??|think(?:ing)?)>(\n)?)/gs;
 
     const lastMessages = chat.filter(m => !m.is_system).slice(-5).map(m => {
-        let text = m.mes;
-        text = text.replace(badStuffRegex, "").replace(/<details>[\s\S]*?<\/details>/gs, "").replace(/<summary>[\s\S]*?<\/summary>/gs, "").replace(/<[^>]*>?/gm, "");
+        const text = cleanMessageTextForKeywords(m.mes);
         return `${m.name}: ${text.trim()}`;
     }).join("\n\n");
     
@@ -2418,6 +2416,7 @@ async function generateImagePromptText() {
 
 async function igGenerateWithComfy(positivePrompt, target = null) {
     const s = localProfile.imageGen;
+    igSyncImageGenLoraFromDom(s);
     let finalPrompt = positivePrompt;
 
     // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
@@ -2470,9 +2469,7 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
     if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
-        const cleanedChat = getCleanedChatHistory();
-        const msgs = cleanedChat.split("\n\n");
-        const recentChat = msgs.length > 0 ? msgs[msgs.length - 1].toLowerCase() : "";
+        const recentChat = getRecentChatForLoraKeywords();
         
         const assignments = li.characterAssignments[charKey];
         const activeAssignments = assignments.filter(a => {
@@ -2481,7 +2478,20 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
             if (kws.length === 0) return true;
             return kws.some(kw => recentChat.includes(kw));
         });
-        const uniqueLoras = [...new Set(activeAssignments.map(a => a.lora).filter(l => l && l !== "None" && l !== ""))];
+        const occupiedKeys = new Set(
+            slots.map(sl => (sl && sl !== "None" && sl !== "") ? normalizeLoraKeyForDedupe(sl) : "").filter(Boolean)
+        );
+        const uniqueLoras = [];
+        const seenLora = new Set();
+        for (const a of activeAssignments) {
+            const l = a.lora;
+            if (!l || l === "None" || l === "") continue;
+            const k = normalizeLoraKeyForDedupe(l);
+            if (!k || seenLora.has(k)) continue;
+            seenLora.add(k);
+            if (occupiedKeys.has(k)) continue;
+            uniqueLoras.push(l);
+        }
         
         let aiIdx = 0;
         let uiChanged = false;
@@ -2609,21 +2619,59 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
 // -------------------------------------------------------------
 // AI GENERATION & BAN LIST HELPER FUNCTIONS (RESTORED)
 // -------------------------------------------------------------
+const PS_BAD_STUFF_REGEX = /(<disclaimer>.*?<\/disclaimer>)|(<guifan>.*?<\/guifan>)|(<danmu>.*?<\/danmu>)|(<options>.*?<\/options>)|```start|```end|<done>|`<done>`|(.*?<\/(?:ksc??|think(?:ing)?)>(\n)?)|(<(?:ksc??|think(?:ing)?)>[\s\S]*?<\/(?:ksc??|think(?:ing)?)>(\n)?)/gs;
+
+function cleanMessageTextForKeywords(text) {
+    if (!text) return "";
+    let t = String(text);
+    t = t.replace(PS_BAD_STUFF_REGEX, "");
+    t = t.replace(/<details>[\s\S]*?<\/details>/gs, "");
+    t = t.replace(/<summary>[\s\S]*?<\/summary>/gs, "");
+    t = t.replace(/<[^>]+>/g, "");
+    return t.trim();
+}
+
+function getRecentChatForLoraKeywords() {
+    const context = getContext();
+    if (!context.chat || context.chat.length === 0) return "";
+    const chat = context.chat;
+    const lastUser = [...chat].reverse().find(m => m.is_user && !m.is_system);
+    const lastAi = [...chat].reverse().find(m => !m.is_user && !m.is_system);
+    const parts = [];
+    if (lastUser?.mes) parts.push(cleanMessageTextForKeywords(lastUser.mes));
+    if (lastAi?.mes) parts.push(cleanMessageTextForKeywords(lastAi.mes));
+    return parts.join("\n").toLowerCase();
+}
+
+function normalizeLoraKeyForDedupe(name) {
+    if (!name || typeof name !== "string") return "";
+    return name.replace(/\\/g, "/").trim().toLowerCase();
+}
+
+function igSyncImageGenLoraFromDom(s) {
+    if (!s) return;
+    for (let i = 1; i <= 4; i++) {
+        const $sel = $(`#ig_lora_${i}`);
+        if (!$sel.length) continue;
+        const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+        const wtKey = i === 1 ? "selectedLoraWt" : `selectedLoraWt${i}`;
+        const val = $sel.val();
+        if (val !== undefined && val !== null) s[key] = val;
+        const $wt = $(`#ig_lorawt_${i}`);
+        if ($wt.length) {
+            const w = parseFloat($wt.val());
+            if (!isNaN(w)) s[wtKey] = w;
+        }
+    }
+}
+
 function getCleanedChatHistory() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return "";
 
     const aiMessages = context.chat.filter(m => !m.is_user && !m.is_system).slice(-50);
-    const badStuffRegex = /(<disclaimer>.*?<\/disclaimer>)|(<guifan>.*?<\/guifan>)|(<danmu>.*?<\/danmu>)|(<options>.*?<\/options>)|```start|```end|<done>|`<done>`|(.*?<\/(?:ksc??|think(?:ing)?)>(\n)?)|(<(?:ksc??|think(?:ing)?)>[\s\S]*?<\/(?:ksc??|think(?:ing)?)>(\n)?)/gs;
 
-    let cleanedMessages = aiMessages.map(m => {
-        let text = m.mes;
-        text = text.replace(badStuffRegex, "");
-        text = text.replace(/<details>[\s\S]*?<\/details>/gs, "");
-        text = text.replace(/<summary>[\s\S]*?<\/summary>/gs, "");
-        text = text.replace(/<[^>]*>?/gm, "");
-        return text.trim();
-    });
+    let cleanedMessages = aiMessages.map(m => cleanMessageTextForKeywords(m.mes));
 
     cleanedMessages = cleanedMessages.filter(t => t.length > 0);
     return cleanedMessages.join("\n\n");
@@ -2882,9 +2930,7 @@ function buildBaseDict() {
                     liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
                 } else {
                     const charKey = getCharacterKey() || "default";
-                    const cleanedChat = getCleanedChatHistory();
-                    const msgs = cleanedChat.split("\n\n");
-                    const recentChat = msgs.length > 0 ? msgs[msgs.length - 1].toLowerCase() : "";
+                    const recentChat = getRecentChatForLoraKeywords();
                     const assignments = li.characterAssignments[charKey] || [];
                     
                     // Filter assignments present in recent chat
