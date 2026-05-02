@@ -32,7 +32,7 @@ function getCharacterKey() {
     return null;
 }
 
-/** Merge saved global Image Gen settings onto defaults (deep merge for nested objects; arrays replaced). */
+/** Merge persisted Image Gen blob onto defaults (deep merge for nested objects; arrays replaced). Canonical store: profiles["default"].imageGen */
 function mergeGlobalImageGen(stored, fallbackDefaults) {
     const merged = JSON.parse(JSON.stringify(fallbackDefaults));
     if (!stored || typeof stored !== "object") return merged;
@@ -169,10 +169,13 @@ function initProfile() {
         extension_settings[extensionName].profiles["default"] = JSON.parse(JSON.stringify(defaults));
     }
 
-    if (!extension_settings[extensionName].globalImageGen) {
-        extension_settings[extensionName].globalImageGen = JSON.parse(JSON.stringify(
-            extension_settings[extensionName].profiles["default"].imageGen || defaults.imageGen
-        ));
+    // Legacy: globalImageGen lived at extension root and could fail to persist in ST — migrate into profiles.default.imageGen
+    if (extension_settings[extensionName].globalImageGen) {
+        extension_settings[extensionName].profiles["default"].imageGen = mergeGlobalImageGen(
+            extension_settings[extensionName].globalImageGen,
+            defaults.imageGen
+        );
+        delete extension_settings[extensionName].globalImageGen;
     }
 
     if (key && extension_settings[extensionName].profiles[key]) {
@@ -202,7 +205,8 @@ function initProfile() {
     if (!localProfile.onomatopoeia) localProfile.onomatopoeia = defaults.onomatopoeia;
     if (localProfile.disableUtilityPrefill === undefined) localProfile.disableUtilityPrefill = false;
 
-    localProfile.imageGen = mergeGlobalImageGen(extension_settings[extensionName].globalImageGen, defaults.imageGen);
+    const canonImg = extension_settings[extensionName].profiles["default"]?.imageGen;
+    localProfile.imageGen = mergeGlobalImageGen(canonImg, defaults.imageGen);
 
     if (localProfile.devOverrides && Object.keys(localProfile.devOverrides).length > 0) {
         localProfile.devOverrides = {};
@@ -229,8 +233,8 @@ function saveProfileToMemory() {
     const key = getCharacterKey() || "default";
     const ruleBox = $("#ps_main_current_rule");
     if (ruleBox.length > 0) { localProfile.aiRule = ruleBox.val(); }
-    if (localProfile.imageGen) {
-        extension_settings[extensionName].globalImageGen = JSON.parse(JSON.stringify(localProfile.imageGen));
+    if (localProfile.imageGen && extension_settings[extensionName].profiles["default"]) {
+        extension_settings[extensionName].profiles["default"].imageGen = JSON.parse(JSON.stringify(localProfile.imageGen));
     }
     extension_settings[extensionName].profiles[key] = localProfile;
     saveSettingsDebounced();
@@ -610,9 +614,6 @@ function applyTabToAll() {
                 prof[k] = JSON.parse(JSON.stringify(currentData[k]));
             });
         });
-        if (keysToSync.includes("imageGen")) {
-            extension_settings[extensionName].globalImageGen = JSON.parse(JSON.stringify(currentData.imageGen));
-        }
         saveSettingsDebounced();
         toastr.success(`Synced ${tabsUI[currentTab].title} across all profiles!`);
     }
