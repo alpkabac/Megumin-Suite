@@ -127,6 +127,8 @@ function initProfile() {
             autoGenFreq: 1,
             previewPrompt: false,
             savedWorkflowStates: {},
+            loraSlotLocked: [false, false, false, false],
+            loraSlotKeywordManaged: [false, false, false, false],
             loraIntel: {
                 enabled: false,
                 ensureLoras: false,
@@ -1414,9 +1416,20 @@ function renderBanList(c) {
 // -------------------------------------------------------------
 // STAGE 8: IMAGE GEN KAZUMA (ComfyUI Integration)
 // -------------------------------------------------------------
+function ensureImageGenLoraArrays(s) {
+    if (!s) return;
+    if (!Array.isArray(s.loraSlotLocked) || s.loraSlotLocked.length !== 4) {
+        s.loraSlotLocked = [false, false, false, false];
+    }
+    if (!Array.isArray(s.loraSlotKeywordManaged) || s.loraSlotKeywordManaged.length !== 4) {
+        s.loraSlotKeywordManaged = [false, false, false, false];
+    }
+}
+
 function renderImageGen(c) {
     c.empty();
     const s = localProfile.imageGen;
+    ensureImageGenLoraArrays(s);
 
     // LoRA Intelligence state
     if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
@@ -1584,7 +1597,12 @@ function renderImageGen(c) {
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                     ${[1,2,3,4].map(i => `
                         <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; border-left: 3px solid #a855f7;">
-                            <div style="font-size: 0.75rem; font-weight: bold; color: var(--text-muted); margin-bottom: 5px;">Slot ${i}</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; gap: 8px;">
+                                <div style="font-size: 0.75rem; font-weight: bold; color: var(--text-muted);">Slot ${i}</div>
+                                <button type="button" id="ig_lora_lock_${i}" class="ps-modern-btn secondary ig-lora-lock-btn" title="Lock: match-keywords never changes this slot. Unlock to allow keyword swaps on empty or keyword-filled slots." style="padding: 4px 10px; font-size: 0.65rem; min-width: auto; border-radius: 6px;">
+                                    <i class="fa-solid ${s.loraSlotLocked[i - 1] ? "fa-lock" : "fa-lock-open"}"></i>
+                                </button>
+                            </div>
                             <select id="ig_lora_${i}" class="ps-modern-input" style="padding: 6px; font-size: 0.75rem; margin-bottom: 8px;"><option value="">Loading...</option></select>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: bold;">Wt: <span id="ig_lorawt_lbl_${i}" style="color: var(--text-main);">${i===1?s.selectedLoraWt:i===2?s.selectedLoraWt2:i===3?s.selectedLoraWt3:s.selectedLoraWt4}</span></span>
@@ -1717,7 +1735,12 @@ function renderImageGen(c) {
     });
 
     // Inputs
-    $("#ig_url").on("input", (e) => { s.comfyUrl = $(e.target).val(); saveProfileToMemory(); });
+    $("#ig_url").on("input", (e) => {
+        meguminComfyLoraCache = null;
+        meguminComfyLoraCacheUrl = "";
+        s.comfyUrl = $(e.target).val();
+        saveProfileToMemory();
+    });
     $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
@@ -1745,8 +1768,19 @@ function renderImageGen(c) {
     for(let i=1; i<=4; i++) {
         const key = i===1 ? "selectedLora" : `selectedLora${i}`;
         const wtKey = i===1 ? "selectedLoraWt" : `selectedLoraWt${i}`;
-        $(`#ig_lora_${i}`).on("change", (e) => { s[key] = $(e.target).val(); saveProfileToMemory(); });
+        $(`#ig_lora_${i}`).on("change", (e) => {
+            s[key] = $(e.target).val();
+            ensureImageGenLoraArrays(s);
+            s.loraSlotKeywordManaged[i - 1] = false;
+            saveProfileToMemory();
+        });
         $(`#ig_lorawt_${i}`).on("input", function() { let v = parseFloat(this.value); s[wtKey] = v; $(`#ig_lorawt_lbl_${i}`).text(v); saveProfileToMemory(); });
+        $(`#ig_lora_lock_${i}`).on("click", function() {
+            ensureImageGenLoraArrays(s);
+            s.loraSlotLocked[i - 1] = !s.loraSlotLocked[i - 1];
+            $(this).find("i").attr("class", s.loraSlotLocked[i - 1] ? "fa-solid fa-lock" : "fa-solid fa-lock-open");
+            saveProfileToMemory();
+        });
     }
 
     // Models & Samplers
@@ -1770,7 +1804,9 @@ function renderImageGen(c) {
                 imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
                 promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, previewPrompt: s.previewPrompt,
                 selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
-                selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4
+                selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
+                loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
+                loraSlotKeywordManaged: [...(s.loraSlotKeywordManaged || [false, false, false, false])]
             };
         }
         if (s.savedWorkflowStates && s.savedWorkflowStates[newWorkflow]) {
@@ -1930,6 +1966,46 @@ function renderImageGen(c) {
 // -------------------------------------------------------------
 // STAGE 8 HELPER FUNCTIONS
 // -------------------------------------------------------------
+let meguminComfyLoraCache = null;
+let meguminComfyLoraCacheUrl = "";
+
+/** Map saved LoRA path to the exact string Comfy lists (folder slash vs backslash, etc.). */
+function resolveLoraPathForDropdown(stored, filesList) {
+    if (!stored || stored === "None" || stored === "") return stored || "";
+    if (!filesList || !filesList.length) return stored;
+    if (filesList.includes(stored)) return stored;
+    const norm = (p) => String(p).replace(/\\/g, "/").trim().toLowerCase();
+    const n = norm(stored);
+    for (const f of filesList) {
+        if (norm(f) === n) return f;
+    }
+    const base = stored.replace(/^.*[/\\]/, "");
+    if (base) {
+        const nb = base.trim().toLowerCase();
+        for (const f of filesList) {
+            const tail = f.replace(/^.*[/\\]/, "");
+            if (tail.trim().toLowerCase() === nb) return f;
+        }
+    }
+    return stored;
+}
+
+async function ensureMeguminComfyLoraList(s) {
+    const url = (s && s.comfyUrl) ? String(s.comfyUrl).trim() : "";
+    if (!url) return [];
+    if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === url) return meguminComfyLoraCache;
+    try {
+        const lRes = await fetch(`${url}/object_info/LoraLoader`);
+        if (lRes.ok) {
+            const json = await lRes.json();
+            meguminComfyLoraCache = json["LoraLoader"].input.required.lora_name[0] || [];
+            meguminComfyLoraCacheUrl = url;
+            return meguminComfyLoraCache;
+        }
+    } catch (e) {}
+    return [];
+}
+
 async function igFetchComfyLists() {
     const s = localProfile.imageGen;
     const url = s.comfyUrl;
@@ -1951,13 +2027,26 @@ async function igFetchComfyLists() {
         const lRes = await fetch(`${url}/object_info/LoraLoader`);
         if (lRes.ok) {
             const json = await lRes.json();
-            const files = json['LoraLoader'].input.required.lora_name[0];
-            for(let i=1; i<=4; i++) {
-                const sel = $(`#ig_lora_${i}`); const val = i===1 ? s.selectedLora : s[`selectedLora${i}`];
+            const files = json["LoraLoader"].input.required.lora_name[0] || [];
+            meguminComfyLoraCache = files;
+            meguminComfyLoraCacheUrl = url;
+            let canonChanged = false;
+            for (let i = 1; i <= 4; i++) {
+                const sel = $(`#ig_lora_${i}`);
+                const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+                const val = s[key];
                 sel.empty().append('<option value="">-- No LoRA --</option>');
-                files.forEach(f => sel.append(`<option value="${f}">${f}</option>`));
-                if (val) sel.val(val);
+                files.forEach(f => { sel.append($("<option></option>").attr("value", f).text(f)); });
+                if (val) {
+                    const resolved = resolveLoraPathForDropdown(val, files);
+                    if (resolved && resolved !== val) {
+                        s[key] = resolved;
+                        canonChanged = true;
+                    }
+                    sel.val(resolved || val);
+                }
             }
+            if (canonChanged) saveProfileToMemory();
         }
     } catch (e) { console.warn(`[Megumin-Suite] ComfyLists failed`, e); }
 }
@@ -2416,6 +2505,7 @@ async function generateImagePromptText() {
 
 async function igGenerateWithComfy(positivePrompt, target = null) {
     const s = localProfile.imageGen;
+    ensureImageGenLoraArrays(s);
     igSyncImageGenLoraFromDom(s);
     let finalPrompt = positivePrompt;
 
@@ -2462,6 +2552,22 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
 
     let seedInjected = false;
 
+    const comfyLoraFiles = await ensureMeguminComfyLoraList(s);
+    let loraPathCanonChanged = false;
+    for (let i = 1; i <= 4; i++) {
+        const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+        const v = s[key];
+        if (!v || v === "None" || v === "") continue;
+        const r = resolveLoraPathForDropdown(v, comfyLoraFiles);
+        if (r && r !== v) {
+            s[key] = r;
+            loraPathCanonChanged = true;
+            const $dd = $(`#ig_lora_${i}`);
+            if ($dd.length) $dd.val(r);
+        }
+    }
+    if (loraPathCanonChanged) saveProfileToMemory();
+
     // --- LORA INTELLIGENCE INJECTION ---
     let slots = [s.selectedLora, s.selectedLora2, s.selectedLora3, s.selectedLora4];
     let weights = [parseFloat(s.selectedLoraWt) || 1.0, parseFloat(s.selectedLoraWt2) || 1.0, parseFloat(s.selectedLoraWt3) || 1.0, parseFloat(s.selectedLoraWt4) || 1.0];
@@ -2469,6 +2575,10 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
     if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
+        ensureImageGenLoraArrays(s);
+        const locked = s.loraSlotLocked;
+        const kwManaged = s.loraSlotKeywordManaged;
+
         const recentChat = getRecentChatForLoraKeywords();
         
         const assignments = li.characterAssignments[charKey];
@@ -2478,9 +2588,14 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
             if (kws.length === 0) return true;
             return kws.some(kw => recentChat.includes(kw));
         });
-        const occupiedKeys = new Set(
-            slots.map(sl => (sl && sl !== "None" && sl !== "") ? normalizeLoraKeyForDedupe(sl) : "").filter(Boolean)
-        );
+
+        const occupiedKeys = new Set();
+        slots.forEach((sl, idx) => {
+            if (!sl || sl === "None" || sl === "") return;
+            if (locked[idx]) occupiedKeys.add(normalizeLoraKeyForDedupe(sl));
+            else if (!kwManaged[idx]) occupiedKeys.add(normalizeLoraKeyForDedupe(sl));
+        });
+
         const uniqueLoras = [];
         const seenLora = new Set();
         for (const a of activeAssignments) {
@@ -2492,21 +2607,47 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
             if (occupiedKeys.has(k)) continue;
             uniqueLoras.push(l);
         }
-        
-        let aiIdx = 0;
+
+        const slotEligible = (i) => {
+            if (locked[i]) return false;
+            const empty = !slots[i] || slots[i] === "None" || slots[i] === "";
+            if (empty) return true;
+            return kwManaged[i];
+        };
+
         let uiChanged = false;
-        for (let i = 0; i < 4; i++) {
-            // Only auto-fill slots that are empty/None. Preserves manually set LoRAs!
-            if ((!slots[i] || slots[i] === "None" || slots[i] === "") && aiIdx < uniqueLoras.length) {
-                slots[i] = uniqueLoras[aiIdx];
-                weights[i] = 1.0;
-                
-                // Update UI visually
-                const selector = i === 0 ? "#ig_lora_1" : `#ig_lora_${i+1}`;
-                $(selector).val(slots[i]);
-                
+        let si = 0;
+        for (let di = 0; di < uniqueLoras.length; di++) {
+            while (si < 4 && !slotEligible(si)) si++;
+            if (si >= 4) break;
+            const rawPick = uniqueLoras[di];
+            const resolved = resolveLoraPathForDropdown(rawPick, comfyLoraFiles) || rawPick;
+            const curKey = slots[si] ? normalizeLoraKeyForDedupe(slots[si]) : "";
+            const newKey = normalizeLoraKeyForDedupe(resolved);
+            const empty = !slots[si] || slots[si] === "None" || slots[si] === "";
+            if (curKey !== newKey || empty) {
+                slots[si] = resolved;
+                $(`#ig_lora_${si + 1}`).val(slots[si]);
                 uiChanged = true;
-                aiIdx++;
+            }
+            if (!kwManaged[si]) uiChanged = true;
+            kwManaged[si] = true;
+            si++;
+        }
+
+        const desiredKeysNormalized = new Set(
+            uniqueLoras.map(l => normalizeLoraKeyForDedupe(resolveLoraPathForDropdown(l, comfyLoraFiles) || l)).filter(Boolean)
+        );
+        for (let i = 0; i < 4; i++) {
+            if (locked[i] || !kwManaged[i]) continue;
+            const sk = slots[i] ? normalizeLoraKeyForDedupe(slots[i]) : "";
+            if (!sk || !desiredKeysNormalized.has(sk)) {
+                if (slots[i]) {
+                    slots[i] = "";
+                    kwManaged[i] = false;
+                    $(`#ig_lora_${i + 1}`).val("");
+                    uiChanged = true;
+                }
             }
         }
         
