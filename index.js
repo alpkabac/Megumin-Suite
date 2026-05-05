@@ -2743,22 +2743,25 @@ async function igManualGenerate() {
     showKazumaProgress("Analyzing Scene...");
 
     try {
-        let promptText;
+        let gen;
         if (s.generatorBackend === "direct") {
-            promptText = await generateImagePromptText();
+            gen = await generateImagePromptText();
         } else {
-            // Use the "Megumin Image" preset, but still run the exact same prompt logic
+            gen = null;
             await useMeguminEngine(async () => {
-                promptText = await generateImagePromptText();
+                gen = await generateImagePromptText();
             }, "Megumin Image");
         }
+
+        let promptText = gen ? gen.prompt : "";
+        const skipLeadPrefix = !!(gen && gen.skipLeadPrefix);
 
         const imgRegex = /<img\s+prompt=["'](.*?)["']\s*\/?>/i;
         const match = promptText.match(imgRegex);
         if (match) promptText = match[1];
 
         toastr.info("Sending to ComfyUI...", "Megumin Suite");
-        igGenerateWithComfy(promptText, null);
+        igGenerateWithComfy(promptText, null, { skipLeadPrefix });
 
     } catch(e) {
         console.error(e);
@@ -2814,7 +2817,7 @@ async function generateImagePromptText() {
     const li = s.loraIntel;
 
     if (li && li.enabled && li.compiledPromptOverride && li.compiledPromptOverride.trim() !== "") {
-        return li.compiledPromptOverride.trim();
+        return { prompt: li.compiledPromptOverride.trim(), skipLeadPrefix: true };
     }
 
     const chat = getContext().chat;
@@ -2876,21 +2879,21 @@ async function generateImagePromptText() {
 
     finalPrompt = sanitizePromptTags(finalPrompt);
 
-    const leadPrefix = buildBooruStandardTagLead(s, li);
-    if (leadPrefix) finalPrompt = `${leadPrefix}, ${finalPrompt}`;
-
     if (li && li.enabled) {
-        $("#li_compiled_prompt").val(finalPrompt);
+        $("#li_compiled_prompt").val(ensureImageLeadPrefix(finalPrompt));
     }
 
-    return finalPrompt;
+    return { prompt: finalPrompt, skipLeadPrefix: false };
 }
 
-async function igGenerateWithComfy(positivePrompt, target = null) {
+async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
     const s = localProfile.imageGen;
     ensureImageGenLoraArrays(s);
     igSyncImageGenLoraFromDom(s);
     let finalPrompt = sanitizePromptTags(positivePrompt);
+    if (!opts || !opts.skipLeadPrefix) {
+        finalPrompt = ensureImageLeadPrefix(finalPrompt);
+    }
 
     // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
     if (s.previewPrompt) {
@@ -3539,6 +3542,18 @@ function buildBaseDict() {
 }
 
 function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** Idempotent prepend of leading tags for SDXL / Standard+Booru. Use on every path to Comfy (manual, <img> extract, overswipe). */
+function ensureImageLeadPrefix(rawPrompt) {
+    const s = localProfile?.imageGen;
+    let p = sanitizePromptTags(String(rawPrompt ?? "")).trim();
+    if (!s || !s.enabled) return p;
+    const lead = buildBooruStandardTagLead(s, s.loraIntel);
+    if (!lead) return p;
+    const esc = escapeRegex(lead);
+    if (new RegExp(`^${esc}\\s*,\\s*`).test(p) || p === lead) return p;
+    return `${lead}, ${p}`;
+}
 
 function handlePromptInjection(data) {
     const messages = data?.messages || data?.chat || (Array.isArray(data) ? data : null);
