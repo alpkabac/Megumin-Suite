@@ -2896,6 +2896,9 @@ async function generateImagePromptText() {
 
     let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
     let finalPrompt = stripUtilityThinkingWrapper(rawOutput);
+    if (s.promptStyle === "illustrious") {
+        finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
+    }
 
     finalPrompt = sanitizePromptTags(finalPrompt);
 
@@ -2910,7 +2913,11 @@ async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
     const s = localProfile.imageGen;
     ensureImageGenLoraArrays(s);
     igSyncImageGenLoraFromDom(s);
-    let finalPrompt = sanitizePromptTags(positivePrompt);
+    let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
+    if (s.promptStyle === "illustrious") {
+        raw = stripPreambleBeforeBooruTags(raw);
+    }
+    let finalPrompt = sanitizePromptTags(raw);
     if (!opts || !opts.skipLeadPrefix) {
         finalPrompt = ensureImageLeadPrefix(finalPrompt);
     }
@@ -3182,7 +3189,7 @@ function cleanMessageTextForKeywords(text) {
     return t.trim();
 }
 
-/** Remove reasoning wrappers from compact utility-model outputs (image prompt, LoRA JSON, banlist). Handles common closing-tag variants. */
+/** Remove reasoning wrappers from utility-model outputs. Tag pairs vary by provider. */
 function stripUtilityThinkingWrapper(text) {
     if (text == null) return "";
     let s = String(text);
@@ -3190,6 +3197,16 @@ function stripUtilityThinkingWrapper(text) {
     s = s.replace(/<thinking>[\s\S]*?<\/thinking>/gis, "");
     s = s.replace(/<think>[\s\S]*?<\/think>/gis, "");
     return s.trim();
+}
+
+/** Illustrious / Danbooru: drop plain-English planning before the first booru-style subject leader. */
+function stripPreambleBeforeBooruTags(text) {
+    const t = String(text || "").trim();
+    if (!t) return t;
+    const anchor = /\b(1girl|2girls|3girls|1boy|2boys|3boys|multiple_girls|multiple_boys|solo|no_humans)\b\s*,/i;
+    const m = t.match(anchor);
+    if (m && m.index > 0) return t.slice(m.index).trim();
+    return t;
 }
 
 function getRecentChatForLoraKeywords() {
@@ -3643,28 +3660,24 @@ function handlePromptInjection(data) {
 
     // --- INJECT IMAGE GEN PROMPT ---
     if (activeImageGenRequest) {
-        messages.length = 0; 
-        messages.push({ 
-            "role": "system", 
-            "content": "You are an expert AI image prompt engineer. Your job is to read a scene and convert it into a highly detailed visual prompt for an image generation model. You must adhere to the requested Style Constraint and Camera Perspective. Do not include quotes, conversational text, or explanations. Output ONLY the raw prompt text." 
+        messages.length = 0;
+        messages.push({
+            "role": "system",
+            "content": "You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. \"I need to\", \"I'll craft\"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text."
         });
-        messages.push({ 
-            "role": "user", 
-            "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw image prompt text.` 
-        });
-        messages.push({ 
-            "role": "system", 
-            "content": "<thinking_steps>\nBefore creating the response, think deeply.\n\nThoughts must be wrapped in <think></think>. The first token must be <think>. The main response must immediately follow </think>.\n\n<think>\nReflect in approximately 50-100 words as a seamless paragraph on what visual elements are present.\n\n</think>\n</thinking_steps>\n\n[OUTPUT ORDER]\n    Every response must follow this exact structure in this exact order:\n\n    <think>\n    {Thinking}\n    </think>\n\n    {Main response}" 
+        messages.push({
+            "role": "user",
+            "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.`
         });
     if (!disablePrefill) {
-        messages.push({ 
-            "role": "assistant", 
-            "content": "So, I realize this is a fictional world, to which nothing from the real world applies. \nI will now use this format for my thinking and give the next response:\n<think>\nI will thinking step-by-step in the following format: <think>.\n</think>" 
+        messages.push({
+            "role": "assistant",
+            "content": "Understood.\n"
         });
     }
-        
+
         console.log(`[${extensionName}] 🎯 Injected Image Gen array in memory.`);
-        return; 
+        return;
     }
 
     // --- INJECT LORA ASSIGNMENT PROMPT ---
