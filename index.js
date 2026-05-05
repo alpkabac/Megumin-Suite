@@ -133,6 +133,7 @@ function initProfile() {
                 enabled: false,
                 ensureLoras: false,
                 useDanbooruTags: true,
+                ensureCharacterTag: false,
                 useCharDescriptions: false,
                 globalActiveLoras: [],
                 characterActiveLoras: {},
@@ -333,6 +334,40 @@ function validateDanbooruTags(tagList) {
         const clean = t.trim().toLowerCase().replace(/\s+/g, '_');
         return { tag: clean, valid: danbooruTagsMap.has(clean) };
     });
+}
+
+let danbooruAliasMap = null;
+
+function ensureDanbooruAliasMap() {
+    if (danbooruAliasMap) return danbooruAliasMap;
+    if (!danbooruTagsMap || danbooruTagsMap.size === 0) return null;
+    danbooruAliasMap = new Map();
+    for (const [canonical, data] of danbooruTagsMap) {
+        if (data.aliases) {
+            const aliasList = data.aliases.split(',').map(a => a.trim().toLowerCase().replace(/\s+/g, '_')).filter(a => a);
+            for (const alias of aliasList) {
+                danbooruAliasMap.set(alias, canonical);
+            }
+        }
+    }
+    return danbooruAliasMap;
+}
+
+function repairBooruTags(tagString) {
+    if (!tagString || typeof tagString !== 'string') return tagString || "";
+    if (!danbooruTagsMap || danbooruTagsMap.size === 0) return tagString;
+
+    const aliasMap = ensureDanbooruAliasMap();
+
+    const tags = tagString.split(',').map(t => t.trim()).filter(t => t);
+    const repaired = tags.map(rawTag => {
+        const normalized = rawTag.toLowerCase().replace(/\s+/g, '_');
+        if (danbooruTagsMap.has(normalized)) return normalized;
+        if (aliasMap && aliasMap.has(normalized)) return aliasMap.get(normalized);
+        return normalized;
+    });
+
+    return repaired.join(', ');
 }
 
 // -------------------------------------------------------------
@@ -1432,7 +1467,8 @@ function renderImageGen(c) {
     ensureImageGenLoraArrays(s);
 
     // LoRA Intelligence state
-    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    if (s.loraIntel.ensureCharacterTag === undefined) s.loraIntel.ensureCharacterTag = false;
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
     const liScope = li.characterActiveLoras[charKey] ? 'character' : 'global';
@@ -1648,11 +1684,22 @@ function renderImageGen(c) {
                             <div class="ps-switch" style="transform: scale(0.75);"></div>
                         </div>
                         <div class="ps-toggle-card ${li.useDanbooruTags ? 'active' : ''}" id="li_toggle_tags" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.useDanbooruTags ? '#10b981' : 'var(--border-color)'};">
-                            <div style="display:flex; flex-direction:column;">
-                                <span style="font-weight:600; font-size:0.8rem; color: ${li.useDanbooruTags ? '#10b981' : 'var(--text-main)'};">Danbooru Tags</span>
-                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">AI picks validated tags from dataset</div>
+                            <div style="display:flex; flex-direction:column; width: 100%;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                    <span style="font-weight:600; font-size:0.8rem; color: ${li.useDanbooruTags ? '#10b981' : 'var(--text-main)'};">Booru Tags</span>
+                                    <div class="ps-switch" style="transform: scale(0.75);"></div>
+                                </div>
+                                <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px; margin-bottom: 6px;">Assign & validate booru tags per character (facial/body features)</div>
+                                <div id="li_ensure_char_tag_wrap" style="display: ${li.useDanbooruTags ? 'flex' : 'none'}; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); border-radius: 6px; cursor: pointer;" class="${li.ensureCharacterTag ? 'active' : ''}">
+                                    <div style="width: 16px; height: 16px; border-radius: 4px; border: 2px solid ${li.ensureCharacterTag ? '#f59e0b' : '#52525b'}; background: ${li.ensureCharacterTag ? '#f59e0b' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                        ${li.ensureCharacterTag ? '<i class="fa-solid fa-check" style="font-size: 0.5rem; color: #000;"></i>' : ''}
+                                    </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <span style="font-size: 0.7rem; font-weight: 700; color: ${li.ensureCharacterTag ? '#f59e0b' : 'var(--text-muted)'};">Ensure Character Tag</span>
+                                        <span style="font-size: 0.6rem; color: var(--text-muted);">Match each character to a famous anime/game character tag by appearance</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="ps-switch" style="transform: scale(0.75);"></div>
                         </div>
                         <div class="ps-toggle-card ${li.useCharDescriptions ? 'active' : ''}" id="li_toggle_desc" style="flex: 1; min-width: 200px; padding: 12px 16px; border-color: ${li.useCharDescriptions ? '#3b82f6' : 'var(--border-color)'};">
                             <div style="display:flex; flex-direction:column; width: 100%;">
@@ -1844,7 +1891,14 @@ function renderImageGen(c) {
         li.enabled = !li.enabled; saveProfileToMemory(); switchTab(currentTab);
     });
     $("#li_toggle_ensure").on("click", function() { li.ensureLoras = !li.ensureLoras; saveProfileToMemory(); switchTab(currentTab); });
-    $("#li_toggle_tags").on("click", function() { li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); switchTab(currentTab); });
+    $("#li_toggle_tags").on("click", function(e) {
+        if ($(e.target).closest("#li_ensure_char_tag_wrap").length) return;
+        li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); switchTab(currentTab);
+    });
+    $("#li_ensure_char_tag_wrap").on("click", function(e) {
+        e.stopPropagation();
+        li.ensureCharacterTag = !li.ensureCharacterTag; saveProfileToMemory(); switchTab(currentTab);
+    });
     $("#li_toggle_desc").on("click", function(e) { 
         if ($(e.target).is("select") || $(e.target).is("option")) return;
         li.useCharDescriptions = !li.useCharDescriptions; 
@@ -1930,6 +1984,8 @@ function renderImageGen(c) {
         btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...');
 
         try {
+            if (li.useDanbooruTags) await loadDanbooruTags();
+
             const loraListStr = enabledLoras.map(l => {
                 const kw = l.keywords && l.keywords.length > 0 ? ` (keywords: ${l.keywords.join(', ')})` : '';
                 return `- ${l.name}${kw}`;
@@ -1941,6 +1997,7 @@ function renderImageGen(c) {
                 hasLoras: enabledLoras.length > 0,
                 ensureLoras: li.ensureLoras,
                 useTags: li.useDanbooruTags,
+                ensureCharacterTag: li.ensureCharacterTag,
                 useDescriptions: li.useCharDescriptions,
                 descStyle: li.descriptionStyle
             };
@@ -1962,6 +2019,15 @@ function renderImageGen(c) {
                 const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
                 if (jsonMatch) {
                     const assignments = JSON.parse(jsonMatch[0]);
+
+                    if (li.useDanbooruTags && danbooruTagsMap && danbooruTagsMap.size > 0) {
+                        for (const a of assignments) {
+                            if (a.booru_tags) {
+                                a.booru_tags = repairBooruTags(a.booru_tags);
+                            }
+                        }
+                    }
+
                     li.characterAssignments[charKey] = assignments;
                     saveProfileToMemory();
                     liRenderAssignmentTable(li, charKey, s);
@@ -2373,7 +2439,7 @@ function liRenderAssignmentTable(li, charKey, s) {
     const table = $("#li_assignment_table");
     table.empty();
 
-    if (!li.ensureLoras && !li.useCharDescriptions) {
+    if (!li.ensureLoras && !li.useCharDescriptions && !li.useDanbooruTags) {
         table.hide();
         return;
     } else {
@@ -2385,18 +2451,25 @@ function liRenderAssignmentTable(li, charKey, s) {
 
     const showLoras = li.ensureLoras;
     const showDesc = li.useCharDescriptions;
+    const showBooru = li.useDanbooruTags;
+    const showMatchKw = showLoras || showBooru;
 
-    // Build grid columns dynamically
     let gridCols = "1fr ";
-    if (showLoras) gridCols += "1.5fr 1.5fr ";
+    if (showMatchKw) gridCols += "1.5fr ";
+    if (showLoras) gridCols += "1.5fr ";
+    if (showBooru) gridCols += "2fr ";
     if (showDesc) gridCols += "2fr ";
 
     let headerHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
         <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Character</span>`;
+    if (showMatchKw) {
+        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Match Keywords</span>`;
+    }
     if (showLoras) {
-        headerHtml += `
-        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Match Keywords</span>
-        <span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA File</span>`;
+        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">LoRA File</span>`;
+    }
+    if (showBooru) {
+        headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: #10b981; text-transform: uppercase; font-size: 0.65rem; font-weight: 800;">Booru Tags</span>`;
     }
     if (showDesc) {
         headerHtml += `<span style="font-size: 0.65rem; font-weight: 800; color: var(--gold); text-transform: uppercase;">Description</span>`;
@@ -2411,7 +2484,7 @@ function liRenderAssignmentTable(li, charKey, s) {
     `);
 
     header.find("#li_add_custom_assign").on("click", function() {
-        assignments.push({ character: "", match_keywords: "", lora: "", description: "" });
+        assignments.push({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "" });
         li.characterAssignments[charKey] = assignments;
         saveProfileToMemory();
         liRenderAssignmentTable(li, charKey, s);
@@ -2427,10 +2500,14 @@ function liRenderAssignmentTable(li, charKey, s) {
     assignments.forEach((a, idx) => {
         let rowHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${a.character ? a.character.replace(/"/g, '&quot;') : ''}" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />`;
+        if (showMatchKw) {
+            rowHtml += `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match (e.g. Megumin, Megu)" value="${a.match_keywords ? a.match_keywords.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+        }
         if (showLoras) {
-            rowHtml += `
-            <input class="ps-modern-input li-edit-match" type="text" placeholder="Match (e.g. Megumin, Megu)" value="${a.match_keywords ? a.match_keywords.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: var(--text-muted); padding: 4px; border: 1px solid transparent; background: transparent;" />
-            <input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" value="${a.lora ? a.lora.replace(/"/g, '&quot;') : ''}" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+            rowHtml += `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA File" value="${a.lora ? a.lora.replace(/"/g, '&quot;') : ''}" style="font-size: 0.7rem; color: #a855f7; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
+        }
+        if (showBooru) {
+            rowHtml += `<input class="ps-modern-input li-edit-booru" type="text" placeholder="e.g. blue_eyes, long_hair, 1girl" value="${a.booru_tags ? a.booru_tags.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: #10b981; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
         }
         if (showDesc) {
             rowHtml += `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${a.description ? a.description.replace(/"/g, '&quot;') : ''}" style="font-size: 0.65rem; color: #3b82f6; padding: 4px; border: 1px solid transparent; background: transparent;" />`;
@@ -2445,9 +2522,24 @@ function liRenderAssignmentTable(li, charKey, s) {
         `);
         
         row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
-        if (showLoras) {
+        if (showMatchKw) {
             row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+        }
+        if (showLoras) {
             row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+        }
+        if (showBooru) {
+            row.find(".li-edit-booru").on("input", function() { a.booru_tags = $(this).val(); saveProfileToMemory(); });
+            row.find(".li-edit-booru").on("blur", function() {
+                if (a.booru_tags && danbooruTagsMap && danbooruTagsMap.size > 0) {
+                    const repaired = repairBooruTags(a.booru_tags);
+                    if (repaired !== a.booru_tags) {
+                        a.booru_tags = repaired;
+                        $(this).val(repaired);
+                        saveProfileToMemory();
+                    }
+                }
+            });
         }
         if (showDesc) {
             row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
@@ -2635,6 +2727,32 @@ async function igManualGenerate() {
 }
 
 // New Helper Function for generating the prompt text
+function getMatchedBooruTags(li, charKey) {
+    if (!li || !li.enabled || !li.useDanbooruTags) return [];
+    const assignments = li.characterAssignments[charKey] || [];
+    if (assignments.length === 0) return [];
+    
+    const recentChat = getRecentChatForLoraKeywords();
+    const matched = [];
+    
+    for (const a of assignments) {
+        if (!a.booru_tags) continue;
+        if (!a.match_keywords) {
+            matched.push({ character: a.character, tags: a.booru_tags });
+            continue;
+        }
+        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+        if (kws.length === 0) {
+            matched.push({ character: a.character, tags: a.booru_tags });
+            continue;
+        }
+        if (kws.some(kw => recentChat.includes(kw))) {
+            matched.push({ character: a.character, tags: a.booru_tags });
+        }
+    }
+    return matched;
+}
+
 async function generateImagePromptText() {
     const s = localProfile.imageGen;
     const li = s.loraIntel;
@@ -2644,6 +2762,7 @@ async function generateImagePromptText() {
     }
 
     const chat = getContext().chat;
+    const charKey = getCharacterKey() || "default";
 
     const lastMessages = chat.filter(m => !m.is_system).slice(-5).map(m => {
         const text = cleanMessageTextForKeywords(m.mes);
@@ -2653,19 +2772,27 @@ async function generateImagePromptText() {
     let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences." : "Use a comma-separated list of detailed keywords and visual descriptors.");
     let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
     
-    activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: s.promptExtra || "None" };
+    let extraStr = s.promptExtra || "None";
+
+    if (li && li.enabled) {
+        const matchedBooru = getMatchedBooruTags(li, charKey);
+        if (matchedBooru.length > 0) {
+            const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
+            extraStr += `\nIMPORTANT - Include these character appearance booru tags in the prompt: ${booruInstr}`;
+        }
+    }
+
+    activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr };
     
     let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
     let finalPrompt = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
-    // If using danbooru tags and not overriding, validate tags
     if (li && li.enabled && li.useDanbooruTags && !li.compiledPromptOverride && danbooruTagsMap) {
         const words = finalPrompt.split(',').map(w => w.trim()).filter(w => w);
         const validated = validateDanbooruTags(words);
         finalPrompt = validated.map(v => v.tag).join(', ');
     }
 
-    // Auto-update the preview in the UI if it exists
     if (li && li.enabled) {
         $("#li_compiled_prompt").val(finalPrompt);
     }
@@ -3256,16 +3383,13 @@ function buildBaseDict() {
                         return kws.some(kw => recentChat.includes(kw));
                     });
 
-                    let modes = [];
-                    if (li.useDanbooruTags && !li.useCharDescriptions) modes.push("guess appropriate Danbooru tags for characters");
-                    if (modes.length > 0) liInstructions = `\nCharacter Instructions: ${modes.join(" or ")}.`;
-
                     if (activeAssignments.length > 0) {
                         const scope = $("#li_scope_select").val() || "global";
                         const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
                         
                         let kwStrings = [];
                         let descStrings = [];
+                        let booruStrings = [];
                         
                         activeAssignments.forEach(a => {
                             if (li.ensureLoras && a.lora) {
@@ -3274,6 +3398,9 @@ function buildBaseDict() {
                                     kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
                                 }
                             }
+                            if (li.useDanbooruTags && a.booru_tags) {
+                                booruStrings.push(`${a.character}: ${a.booru_tags}`);
+                            }
                             if (li.useCharDescriptions && a.description) {
                                 descStrings.push(`${a.character}: ${a.description}`);
                             }
@@ -3281,6 +3408,9 @@ function buildBaseDict() {
 
                         if (kwStrings.length > 0) {
                             liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
+                        }
+                        if (booruStrings.length > 0) {
+                            liInstructions += `\nInclude these booru tags for character appearances in the prompt: ${booruStrings.join(' | ')}`;
                         }
                         if (descStrings.length > 0) {
                             liInstructions += `\nCharacter appearances: ${descStrings.join(' | ')}`;
@@ -3382,15 +3512,27 @@ function handlePromptInjection(data) {
         
         let modeInstructions = "";
         let jsonFormat = `  {"character": "Name"`;
+        const needsMatchKeywords = activeLoraAssignRequest.ensureLoras || activeLoraAssignRequest.useTags;
         
+        if (needsMatchKeywords) {
+            jsonFormat += `, "match_keywords": "Name, Nickname, Title"`;
+        }
         if (activeLoraAssignRequest.ensureLoras) {
-            jsonFormat += `, "match_keywords": "Name, Nickname, Title", "lora": "exact_lora_filename.safetensors"`;
+            jsonFormat += `, "lora": "exact_lora_filename.safetensors"`;
             modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
         }
-        if (activeLoraAssignRequest.useDescriptions || activeLoraAssignRequest.useTags) {
+        if (activeLoraAssignRequest.useTags) {
+            jsonFormat += `, "booru_tags": "danbooru_tag1, danbooru_tag2, ..."`;
+            let booruInstr = "You MUST provide Danbooru-style booru tags describing each character's facial features and body characteristics (e.g. 'blue_eyes, long_hair, large_breasts, ponytail, school_uniform'). Focus on visual/physical traits. ";
+            if (activeLoraAssignRequest.ensureCharacterTag) {
+                booruInstr += "ADDITIONALLY: For EACH character, you MUST also include a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. This character tag MUST be included in booru_tags. ";
+            }
+            booruInstr += "Use 'match_keywords' to list name variations for keyword detection. ";
+            modeInstructions += booruInstr;
+        }
+        if (activeLoraAssignRequest.useDescriptions) {
             jsonFormat += `, "description": "physical description here..."`;
             let style = activeLoraAssignRequest.descStyle === 'natural' ? "natural language (e.g. 'a tall woman with blonde hair')" : "danbooru tags (e.g. 'tall, blonde hair')";
-            if (activeLoraAssignRequest.useTags && !activeLoraAssignRequest.useDescriptions) style = "danbooru tags";
             modeInstructions += `You MUST provide a physical appearance description for each character in ${style}. `;
         }
         jsonFormat += `}`;
