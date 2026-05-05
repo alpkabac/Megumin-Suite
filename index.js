@@ -123,6 +123,7 @@ function initProfile() {
             promptStyle: "standard",      
             promptPerspective: "scene",   
             promptExtra: "",
+            standardBooruLeadTags: "",
             triggerMode: "always", 
             autoGenFreq: 1,
             previewPrompt: false,
@@ -328,12 +329,17 @@ async function loadDanbooruTags() {
     }
 }
 
-function validateDanbooruTags(tagList) {
-    if (!danbooruTagsMap) return tagList.map(t => ({ tag: t, valid: false }));
-    return tagList.map(t => {
-        const clean = t.trim().toLowerCase().replace(/\s+/g, '_');
-        return { tag: clean, valid: danbooruTagsMap.has(clean) };
+const BANNED_PROMPT_WORDS = ['loli', 'teenage', 'teenager', 'child', 'underage', 'minor'];
+
+function sanitizePromptTags(promptText) {
+    if (!promptText) return "";
+    const tags = promptText.split(',').map(t => t.trim()).filter(t => t);
+    const cleaned = tags.filter(tag => {
+        const lower = tag.toLowerCase().replace(/\s+/g, '_');
+        if (BANNED_PROMPT_WORDS.some(bw => lower.includes(bw))) return false;
+        return true;
     });
+    return cleaned.join(', ');
 }
 
 let danbooruAliasMap = null;
@@ -1465,6 +1471,7 @@ function renderImageGen(c) {
     c.empty();
     const s = localProfile.imageGen;
     ensureImageGenLoraArrays(s);
+    if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
 
     // LoRA Intelligence state
     if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
@@ -1563,7 +1570,13 @@ function renderImageGen(c) {
                             </select>
                         </div>
                     </div>
-                    <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Extra Instructions (e.g. moody lighting, dark atmosphere...)" value="${s.promptExtra}" style="padding: 8px; font-size: 0.8rem;" />
+                    <div style="margin-bottom: 8px;">
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Standard + Booru Tags: leading tags (comma-separated)</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended before Extra and matched character tags when Model Style is Standard and LoRA Intelligence → Booru Tags is on. Leave empty to skip.</div>
+                        <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${(s.standardBooruLeadTags || '').replace(/"/g, '&quot;')}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+                    <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Extra (tags / cues, comma-separated)</div>
+                    <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Additional tags or notes merged into the lead (mood, lighting, ...)" value="${s.promptExtra}" style="padding: 8px; font-size: 0.8rem;" />
                 </div>
             </div>
 
@@ -1805,6 +1818,7 @@ function renderImageGen(c) {
     });
     $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
+    $("#ig_std_booru_lead").on("input", (e) => { s.standardBooruLeadTags = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_w, #ig_h").on("input", (e) => { s[e.target.id === "ig_w" ? "imgWidth" : "imgHeight"] = parseInt($(e.target).val()); saveProfileToMemory(); });
     $("#ig_neg").on("input", (e) => { s.customNegative = $(e.target).val(); saveProfileToMemory(); });
@@ -1864,7 +1878,7 @@ function renderImageGen(c) {
             s.savedWorkflowStates[oldWorkflow] = {
                 selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
                 imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-                promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, previewPrompt: s.previewPrompt,
+                promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
                 selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
                 selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
                 loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
@@ -2039,7 +2053,7 @@ function renderImageGen(c) {
                     if (li.useDanbooruTags && danbooruTagsMap && danbooruTagsMap.size > 0) {
                         for (const a of assignments) {
                             if (a.booru_tags) {
-                                a.booru_tags = repairBooruTags(a.booru_tags);
+                                a.booru_tags = sanitizePromptTags(repairBooruTags(a.booru_tags));
                             }
                         }
                     }
@@ -2769,6 +2783,28 @@ function getMatchedBooruTags(li, charKey) {
     return matched;
 }
 
+function isBooruStandardImageMode(s, li) {
+    return !!(s && li && li.enabled && li.useDanbooruTags && s.promptStyle === 'standard');
+}
+
+function buildBooruStandardTagLead(s, li, charKey) {
+    if (!isBooruStandardImageMode(s, li)) return '';
+    const parts = [];
+    const lead = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
+    if (lead) parts.push(lead);
+    if (s.promptExtra && s.promptExtra.trim()) parts.push(s.promptExtra.trim());
+    const matchedTags = getMatchedBooruTags(li, charKey || (getCharacterKey() || 'default'));
+    for (const m of matchedTags) {
+        if (!m.tags) continue;
+        m.tags.split(',').forEach(t => {
+            const x = t.trim();
+            if (x) parts.push(x);
+        });
+    }
+    if (parts.length === 0) return '';
+    return sanitizePromptTags(parts.join(', '));
+}
+
 async function generateImagePromptText() {
     const s = localProfile.imageGen;
     const li = s.loraIntel;
@@ -2784,29 +2820,44 @@ async function generateImagePromptText() {
         const text = cleanMessageTextForKeywords(m.mes);
         return `${m.name}: ${text.trim()}`;
     }).join("\n\n");
-    
-    let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences." : "Use a comma-separated list of detailed keywords and visual descriptors.");
-    let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
-    
-    let extraStr = s.promptExtra || "None";
 
-    if (li && li.enabled) {
-        const matchedBooru = getMatchedBooruTags(li, charKey);
-        if (matchedBooru.length > 0) {
-            const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
-            extraStr += `\nIMPORTANT - Include these character appearance booru tags in the prompt: ${booruInstr}`;
+    const booruStd = isBooruStandardImageMode(s, li);
+
+    let styleStr;
+    if (s.promptStyle === "illustrious") {
+        styleStr = "Use Danbooru-style tags separated by commas.";
+    } else if (s.promptStyle === "sdxl") {
+        styleStr = "Use natural, descriptive prose and full sentences.";
+    } else if (booruStd) {
+        styleStr = "Write ONLY a flowing natural-language image description (full sentences, not comma-separated tag lists). Turn visual shorthand into prose—for example \"1girl, blue eyes, huge breasts\" becomes \"a woman with blue eyes and huge breasts.\" Describe actions, poses, and interactions in clear descriptive language. Do NOT output a leading comma-separated tag block; meta tags from the user's Image Gen settings are prepended automatically after this step. Output prose for the scene only.";
+    } else {
+        styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
+    }
+
+    let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
+
+    let extraStr = "None";
+    if (!booruStd) {
+        extraStr = s.promptExtra || "None";
+        if (li && li.enabled) {
+            const matchedBooru = getMatchedBooruTags(li, charKey);
+            if (matchedBooru.length > 0) {
+                const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
+                extraStr += `\nIMPORTANT - Include these character appearance booru tags in the prompt: ${booruInstr}`;
+            }
         }
     }
 
     activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr };
-    
+
     let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
     let finalPrompt = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
-    if (li && li.enabled && li.useDanbooruTags && !li.compiledPromptOverride && danbooruTagsMap) {
-        const words = finalPrompt.split(',').map(w => w.trim()).filter(w => w);
-        const validated = validateDanbooruTags(words);
-        finalPrompt = validated.map(v => v.tag).join(', ');
+    finalPrompt = sanitizePromptTags(finalPrompt);
+
+    if (booruStd) {
+        const lead = buildBooruStandardTagLead(s, li, charKey);
+        if (lead) finalPrompt = `${lead}, ${finalPrompt}`;
     }
 
     if (li && li.enabled) {
@@ -2820,7 +2871,7 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     const s = localProfile.imageGen;
     ensureImageGenLoraArrays(s);
     igSyncImageGenLoraFromDom(s);
-    let finalPrompt = positivePrompt;
+    let finalPrompt = sanitizePromptTags(positivePrompt);
 
     // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
     if (s.previewPrompt) {
@@ -3378,22 +3429,28 @@ function buildBaseDict() {
         }
 
         if (shouldInject) {
+            const igLi = ig.loraIntel;
+            const booruStd = isBooruStandardImageMode(ig, igLi);
+            const charKeyImg = getCharacterKey() || "default";
+
             let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Use natural descriptive sentences. Focus on photorealism." : "Use keywords.");
+            if (booruStd) {
+                styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; it is supplied separately—your part is prose only.";
+            }
             let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
-            
+
             let liInstructions = "";
-            if (ig.loraIntel && ig.loraIntel.enabled) {
-                const li = ig.loraIntel;
+            if (igLi && igLi.enabled) {
+                const li = igLi;
                 if (li.compiledPromptOverride) {
                     liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
                 } else {
-                    const charKey = getCharacterKey() || "default";
                     const recentChat = getRecentChatForLoraKeywords();
-                    const assignments = li.characterAssignments[charKey] || [];
-                    
+                    const assignments = li.characterAssignments[charKeyImg] || [];
+
                     // Filter assignments present in recent chat
                     const activeAssignments = assignments.filter(a => {
-                        if (!a.match_keywords) return true; 
+                        if (!a.match_keywords) return true;
                         const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
                         if (kws.length === 0) return true;
                         return kws.some(kw => recentChat.includes(kw));
@@ -3401,12 +3458,12 @@ function buildBaseDict() {
 
                     if (activeAssignments.length > 0) {
                         const scope = $("#li_scope_select").val() || "global";
-                        const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
-                        
+                        const activeList = scope === "character" && li.characterActiveLoras[charKeyImg] ? li.characterActiveLoras[charKeyImg] : li.globalActiveLoras;
+
                         let kwStrings = [];
                         let descStrings = [];
                         let booruStrings = [];
-                        
+
                         activeAssignments.forEach(a => {
                             if (li.ensureLoras && a.lora) {
                                 const loraEntry = activeList.find(l => l.name === a.lora);
@@ -3425,7 +3482,7 @@ function buildBaseDict() {
                         if (kwStrings.length > 0) {
                             liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
                         }
-                        if (booruStrings.length > 0) {
+                        if (booruStrings.length > 0 && !booruStd) {
                             liInstructions += `\nInclude these booru tags for character appearances in the prompt: ${booruStrings.join(' | ')}`;
                         }
                         if (descStrings.length > 0) {
@@ -3435,7 +3492,11 @@ function buildBaseDict() {
                 }
             }
 
-            dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${ig.promptExtra ? `\nExtra: ${ig.promptExtra}` : ""}${liInstructions}`;
+            const extraLine = (!booruStd && ig.promptExtra) ? `\nExtra (tags / instructions to keep as comma-separated tags): ${ig.promptExtra}` : '';
+            const tagLeadInject = booruStd ? buildBooruStandardTagLead(ig, igLi, charKeyImg) : '';
+            const tagLeadLine = tagLeadInject ? `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${tagLeadInject}` : '';
+
+            dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}`;
             dict["[[img2]]"] = `<img prompt="prompt">`;
         } else {
             dict["[[img1]]"] = ""; dict["[[img2]]"] = "";
