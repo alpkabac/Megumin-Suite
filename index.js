@@ -2016,6 +2016,7 @@ function renderImageGen(c) {
 
             if (!rawOutput) {
                 toastr.warning("AI returned empty response. Try again.");
+                btn.prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
                 return;
             }
             rawOutput = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
