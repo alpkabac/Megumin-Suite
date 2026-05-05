@@ -2180,6 +2180,19 @@ async function igFetchComfyLists() {
 /** Last POST body sent to ComfyUI `/prompt` (session memory; refreshed on each generation). */
 let igLastComfyApiRequest = null;
 
+/** Replace Megumin %placeholders% in workflow node inputs (strings only). Recurses into plain objects so nested widgets (e.g. rgthree Power Lora Loader `lora_N: { lora, strength }`) are patched; arrays are left as-is (Comfy links). */
+function igSubstituteComfyPlaceholderDeep(val, repl, seedPlaceholderState) {
+    if (typeof val === "string" && Object.prototype.hasOwnProperty.call(repl, val)) {
+        if (val === "%seed%" && seedPlaceholderState) seedPlaceholderState.injected = true;
+        return repl[val];
+    }
+    if (!val || typeof val !== "object" || Array.isArray(val)) return val;
+    for (const k of Object.keys(val)) {
+        val[k] = igSubstituteComfyPlaceholderDeep(val[k], repl, seedPlaceholderState);
+    }
+    return val;
+}
+
 function igCollectWorkflowLoraNodes(workflow) {
     const out = [];
     if (!workflow || typeof workflow !== "object") return out;
@@ -2914,8 +2927,6 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
     let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
 
-    let seedInjected = false;
-
     const comfyLoraFiles = await ensureMeguminComfyLoraList(s);
     let loraPathCanonChanged = false;
     for (let i = 1; i <= 4; i++) {
@@ -3031,34 +3042,36 @@ async function igGenerateWithComfy(positivePrompt, target = null) {
     let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
     let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
 
+    const comfyRepl = {
+        "%prompt%": finalPrompt,
+        "%negative_prompt%": s.customNegative || "",
+        "%seed%": finalSeed,
+        "%sampler%": s.selectedSampler || "euler",
+        "%model%": s.selectedModel || "v1-5-pruned.ckpt",
+        "%steps%": parseInt(s.steps, 10) || 20,
+        "%scale%": parseFloat(s.cfg) || 7.0,
+        "%denoise%": parseFloat(s.denoise) || 1.0,
+        "%clip_skip%": -Math.abs(parseInt(s.clipSkip, 10)) || -1,
+        "%lora1%": l1 || "None",
+        "%lora2%": l2 || "None",
+        "%lora3%": l3 || "None",
+        "%lora4%": l4 || "None",
+        "%lorawt1%": w1,
+        "%lorawt2%": w2,
+        "%lorawt3%": w3,
+        "%lorawt4%": w4,
+        "%width%": parseInt(s.imgWidth, 10) || 512,
+        "%height%": parseInt(s.imgHeight, 10) || 512,
+    };
+    const seedPlaceholderState = { injected: false };
+
     for (const nodeId in workflow) {
         const node = workflow[nodeId];
         if (node.inputs) {
             for (const key in node.inputs) {
-                const val = node.inputs[key];
-                if (val === "%prompt%") node.inputs[key] = finalPrompt;
-                if (val === "%negative_prompt%") node.inputs[key] = s.customNegative || "";
-                if (val === "%seed%") { node.inputs[key] = finalSeed; seedInjected = true; }
-                if (val === "%sampler%") node.inputs[key] = s.selectedSampler || "euler";
-                if (val === "%model%") node.inputs[key] = s.selectedModel || "v1-5-pruned.ckpt";
-                if (val === "%steps%") node.inputs[key] = parseInt(s.steps) || 20;
-                if (val === "%scale%") node.inputs[key] = parseFloat(s.cfg) || 7.0;
-                if (val === "%denoise%") node.inputs[key] = parseFloat(s.denoise) || 1.0;
-                if (val === "%clip_skip%") node.inputs[key] = -Math.abs(parseInt(s.clipSkip)) || -1;
-                
-                if (val === "%lora1%") node.inputs[key] = l1 || "None";
-                if (val === "%lora2%") node.inputs[key] = l2 || "None";
-                if (val === "%lora3%") node.inputs[key] = l3 || "None";
-                if (val === "%lora4%") node.inputs[key] = l4 || "None";
-                if (val === "%lorawt1%") node.inputs[key] = w1;
-                if (val === "%lorawt2%") node.inputs[key] = w2;
-                if (val === "%lorawt3%") node.inputs[key] = w3;
-                if (val === "%lorawt4%") node.inputs[key] = w4;
-                
-                if (val === "%width%") node.inputs[key] = parseInt(s.imgWidth) || 512;
-                if (val === "%height%") node.inputs[key] = parseInt(s.imgHeight) || 512;
+                node.inputs[key] = igSubstituteComfyPlaceholderDeep(node.inputs[key], comfyRepl, seedPlaceholderState);
             }
-            if (!seedInjected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
+            if (!seedPlaceholderState.injected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
         }
     }
 
