@@ -2006,12 +2006,18 @@ function renderImageGen(c) {
             if (s.generatorBackend === "direct") {
                 rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
             } else {
+                let presetResult;
                 await useMeguminEngine(async () => {
-                    rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
+                    presetResult = await generateQuietPrompt({ prompt: "___PS_LORA_ASSIGN___" });
                 });
+                rawOutput = presetResult;
             }
             activeLoraAssignRequest = null;
 
+            if (!rawOutput) {
+                toastr.warning("AI returned empty response. Try again.");
+                return;
+            }
             rawOutput = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
             // Parse the AI response
