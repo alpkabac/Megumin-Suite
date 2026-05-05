@@ -1572,7 +1572,7 @@ function renderImageGen(c) {
                     </div>
                     <div style="margin-bottom: 8px;">
                         <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Leading tags (comma-separated)</div>
-                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended verbatim before the generated scene when Model Style is SDXL, or Standard with LoRA Intelligence → Booru Tags on. The Extra field below is not added here—it is sent to the image-prompt model as instructions. Leave empty to skip.</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended to the Comfy positive prompt when LoRA Intelligence is on, Booru Tags mode is enabled, and this field is non-empty. Does not depend on Model Style. Extra below is separate (image-prompt instructions). Leave empty to skip.</div>
                         <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${(s.standardBooruLeadTags || '').replace(/"/g, '&quot;')}" style="padding: 8px; font-size: 0.8rem;" />
                     </div>
                     <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Extra (tags / cues, comma-separated)</div>
@@ -2803,13 +2803,20 @@ function isBooruStandardImageMode(s, li) {
     return !!(s && li && li.enabled && li.useDanbooruTags && s.promptStyle === 'standard');
 }
 
-/** Mechanical prefix from `standardBooruLeadTags` when Model Style is SDXL, or Standard + LoRA Intel Booru Tags. `promptExtra` and match-keyword character tags are handled separately (Extra Details / keyword path). */
+/**
+ * LoRA Intelligence → Booru Tags toggle only (not Ensure LoRAs, not Character descriptions).
+ * Stable leading-tags prepend and [[img1]] prefix line both use buildBooruStandardTagLead(), which checks this.
+ */
+function isLoraIntelBooruTagsMode(li) {
+    return !!(li && li.enabled && li.useDanbooruTags);
+}
+
+/** Comfy / preview prefix from `standardBooruLeadTags` when Booru Tags mode is on; empty otherwise. */
 function buildBooruStandardTagLead(s, li) {
-    const lead = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
-    if (!lead) return '';
-    if (s.promptStyle === 'sdxl') return sanitizePromptTags(lead);
-    if (isBooruStandardImageMode(s, li)) return sanitizePromptTags(lead);
-    return '';
+    if (!s || !isLoraIntelBooruTagsMode(li)) return '';
+    const raw = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
+    if (!raw) return '';
+    return sanitizePromptTags(raw);
 }
 
 async function generateImagePromptText() {
@@ -2829,17 +2836,22 @@ async function generateImagePromptText() {
     }).join("\n\n");
 
     const booruStd = isBooruStandardImageMode(s, li);
+    const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
 
     let styleStr;
     if (s.promptStyle === "illustrious") {
         styleStr = "Use Danbooru-style tags separated by commas.";
     } else if (s.promptStyle === "sdxl") {
         styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
-        if (s.standardBooruLeadTags && s.standardBooruLeadTags.trim()) {
-            styleStr += " Do NOT prepend or repeat the user's fixed leading-tags field; it is inserted automatically after your output.";
+        if (booruStableLeadPrepend) {
+            styleStr += " Do NOT prepend or repeat the user's fixed leading-tags field; it is inserted automatically after your output when LoRA Intelligence Booru Tags mode is on.";
         }
     } else if (booruStd) {
-        styleStr = "Write ONLY a flowing natural-language image description (full sentences, not comma-separated tag lists). Turn visual shorthand into prose—for example \"1girl, blue eyes, huge breasts\" becomes \"a woman with blue eyes and huge breasts.\" Describe actions, poses, and interactions in clear descriptive language. Do NOT output a leading comma-separated tag block; only the user's fixed \"leading tags\" field is prepended automatically after this step. If Extra Details lists scene cues and/or character-appearance Danbooru-style tags, merge them into your prose (translate into natural descriptions; do not paste them as a tag dump). Output prose for the scene only.";
+        styleStr = "Write ONLY a flowing natural-language image description (full sentences, not comma-separated tag lists). Turn visual shorthand into prose—for example \"1girl, blue eyes, huge breasts\" becomes \"a woman with blue eyes and huge breasts.\" Describe actions, poses, and interactions in clear descriptive language.";
+        if (booruStableLeadPrepend) {
+            styleStr += " Do NOT output a leading comma-separated tag block; only the user's fixed \"leading tags\" field is prepended automatically after this step.";
+        }
+        styleStr += " If Extra Details lists scene cues and/or character-appearance Danbooru-style tags, merge them into your prose (translate into natural descriptions; do not paste them as a tag dump). Output prose for the scene only.";
     } else {
         styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
     }
@@ -2851,7 +2863,11 @@ async function generateImagePromptText() {
         const extraParts = [];
         const pe = (s.promptExtra && s.promptExtra.trim()) ? s.promptExtra.trim() : "";
         if (pe) {
-            extraParts.push(`Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed. Do not paste this block unchanged as a prefix or suffix—the only automatic prefix is the separate \"leading tags\" field.\n${pe}`);
+            extraParts.push(
+                booruStableLeadPrepend
+                    ? `Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed. Do not paste this block unchanged as a prefix or suffix—the only automatic prefix is the separate \"leading tags\" field.\n${pe}`
+                    : `Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed.\n${pe}`
+            );
         }
         if (li && li.enabled) {
             const matchedBooru = getMatchedBooruTags(li, charKey);
@@ -3469,10 +3485,12 @@ function buildBaseDict() {
             const booruStd = isBooruStandardImageMode(ig, igLi);
             const charKeyImg = getCharacterKey() || "default";
 
+            const booruStableLead = buildBooruStandardTagLead(ig, igLi);
+
             let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description." : "Use keywords.");
             if (booruStd) {
                 styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list).";
-            } else if (ig.promptStyle === "sdxl" && ig.standardBooruLeadTags && String(ig.standardBooruLeadTags).trim()) {
+            } else if (ig.promptStyle === "sdxl" && booruStableLead) {
                 styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
             }
             let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
@@ -3544,11 +3562,10 @@ function buildBaseDict() {
                         ? `\nExtra (scene cues—translate into flowing English inside the prompt; no comma-tag or underscore fragments):\n${peTrim}`
                         : `\nExtra (tags / instructions to keep as comma-separated tags): ${peTrim}`))
                 : "";
-            const tagLeadInject = buildBooruStandardTagLead(ig, igLi);
-            const tagLeadLine = tagLeadInject
+            const tagLeadLine = booruStableLead
                 ? (ig.promptStyle === "sdxl"
-                    ? `\nReference leading tags (the app prepends these; do NOT paste them into the attribute—write prose only inside prompt=\"\"): ${tagLeadInject}`
-                    : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${tagLeadInject}`)
+                    ? `\nReference leading tags (the app prepends these; do NOT paste them into the attribute—write prose only inside prompt=\"\"): ${booruStableLead}`
+                    : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
                 : "";
 
             dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}`;
@@ -3565,7 +3582,7 @@ function buildBaseDict() {
 
 function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-/** Idempotent prepend of leading tags for SDXL / Standard+Booru. Use on every path to Comfy (manual, <img> extract, overswipe). */
+/** Prepends stable leading tags via buildBooruStandardTagLead (Booru Tags mode only). */
 function ensureImageLeadPrefix(rawPrompt) {
     const s = localProfile?.imageGen;
     let p = sanitizePromptTags(String(rawPrompt ?? "")).trim();
