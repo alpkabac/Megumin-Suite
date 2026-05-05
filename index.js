@@ -2023,7 +2023,16 @@ function renderImageGen(c) {
 
             // Parse the AI response
             try {
-                const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
+                let jsonText = rawOutput;
+                let jsonMatch = jsonText.match(/\[[\s\S]*\]/);
+                if (!jsonMatch) {
+                    const trimmed = jsonText.trim();
+                    if (trimmed.startsWith('{') || trimmed.startsWith('"')) {
+                        jsonText = '[' + trimmed;
+                        if (!jsonText.trim().endsWith(']')) jsonText = jsonText.trim() + ']';
+                        jsonMatch = jsonText.match(/\[[\s\S]*\]/);
+                    }
+                }
                 if (jsonMatch) {
                     const assignments = JSON.parse(jsonMatch[0]);
 
@@ -3545,7 +3554,7 @@ function handlePromptInjection(data) {
         jsonFormat += `}`;
 
         let loraSection = "";
-        if (activeLoraAssignRequest.hasLoras) {
+        if (activeLoraAssignRequest.ensureLoras && activeLoraAssignRequest.hasLoras) {
             loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
         }
 
