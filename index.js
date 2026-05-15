@@ -10,6 +10,7 @@ import { KAZUMA_PLACEHOLDERS, RESOLUTIONS } from "./data/image_data.js";
 const extensionName = "Megumin-Suite";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const TARGET_PRESET_NAME = "Megumin Engine";
+const LAST_TAB_SETTING_KEY = "lastOpenTab";
 
 // -------------------------------------------------------------
 // STATE MANAGEMENT
@@ -169,7 +170,7 @@ function initProfile() {
             aspectPreset: "9:16 - Social",
             swapAspect: false,
             outputPrefix: "video/%date%/%time%",
-            outputFormat: "video/h265-mp4",
+            outputFormat: "video/h264-mp4",
             crf: 22,
             enableUpscale: true,
             upscaleMultiplier: 2,
@@ -497,6 +498,12 @@ const tabsUI =[
 ];
 
 function switchTab(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= tabsUI.length) index = 0;
+    if (extension_settings[extensionName]) {
+        extension_settings[extensionName][LAST_TAB_SETTING_KEY] = index;
+        saveSettingsDebounced();
+    }
+
     $(".dock").show(); 
     $("#ps_btn_save_close").show();
     
@@ -570,6 +577,12 @@ function applyTabToAll() {
         saveSettingsDebounced();
         toastr.success(`Synced ${tabsUI[currentTab].title} across all profiles!`);
     }
+}
+
+function getLastOpenTabIndex() {
+    const idx = parseInt(extension_settings?.[extensionName]?.[LAST_TAB_SETTING_KEY], 10);
+    if (Number.isInteger(idx) && idx >= 0 && idx < tabsUI.length) return idx;
+    return 0;
 }
 
 function renderMode(c) {
@@ -2267,7 +2280,7 @@ function renderVideoGen(c) {
                 <div style="display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; margin-bottom: 15px;">
                     ${vgSelectField("vg_sampler", "Sampler", s.sampler, ["euler", "euler_ancestral", "heun", "dpm_2", "dpmpp_2m", "dpmpp_sde"])}
                     ${vgSelectField("vg_scheduler", "Scheduler", s.scheduler, ["linear_quadratic", "simple", "normal", "karras", "exponential", "sgm_uniform"])}
-                    ${vgSelectField("vg_format", "Output Format", s.outputFormat, ["video/h265-mp4", "video/h264-mp4", "video/webm", "image/gif"])}
+                    ${vgSelectField("vg_format", "Output Format", s.outputFormat, ["video/h264-mp4", "image/gif", "video/webm", "video/h265-mp4"])}
                     ${vgSelectField("vg_precision", "Precision", s.precisionPreset, ["0.65 MP - Balanced", "0.35 MP - Fast", "1.0 MP - Quality"])}
                     ${vgSelectField("vg_resolution", "Resolution", s.resolutionPreset, ["480p", "540p", "720p"])}
                     ${vgSelectField("vg_aspect", "Aspect", s.aspectPreset, ["9:16 - Social", "16:9 - Widescreen", "1:1 - Square", "4:3 - Classic", "3:4 - Portrait"])}
@@ -3614,11 +3627,12 @@ function vgPatchWorkflow(workflow, promptText) {
     const prefix = vgResolveOutputPrefix(s.outputPrefix);
     const firstFrame = String(s.firstFrameImage || "").trim();
     const lastFrame = String(s.lastFrameImage || "").trim();
+    const useLastFrame = !!(s.useLastFrame && lastFrame);
 
     vgPatchNode(workflow, "2368", (i) => { i.value = promptText; });
     vgPatchNode(workflow, "2371", (i) => { i.value = s.customNegative || ""; });
     vgPatchNode(workflow, "23", (i) => { if (firstFrame) i.image = firstFrame; });
-    vgPatchNode(workflow, "2509", (i) => { if (lastFrame) i.image = lastFrame; });
+    vgPatchNode(workflow, "2509", (i) => { if (useLastFrame) i.image = lastFrame; });
     vgPatchNode(workflow, "1512:1670", (i) => { i.value = finalSeed; });
     vgPatchNode(workflow, "1512:1668", (i) => { i.value = parseInt(s.seconds, 10) || 5; });
     vgPatchNode(workflow, "1512:1669", (i) => { i.value = parseFloat(s.fps) || 16; });
@@ -3638,7 +3652,7 @@ function vgPatchWorkflow(workflow, promptText) {
         i.no_scale = false;
         i.mode = "WAN/LTX (Div32)";
     });
-    vgPatchNode(workflow, "1512:2336", (i) => { i.value = !!(s.useLastFrame && lastFrame); });
+    vgPatchNode(workflow, "1512:2336", (i) => { i.value = !useLastFrame; });
     vgPatchNode(workflow, "28", (i) => {
         i.filename_prefix = prefix;
         i.format = s.outputFormat || "video/h265-mp4";
@@ -4987,7 +5001,7 @@ jQuery(async () => {
             }
         }
 
-        $("body").on("click", "#prompt-slot-fixed-btn", function() { initProfile(); updateCharacterDisplay(); switchTab(0); $("#prompt-slot-modal-overlay").fadeIn(250).css("display", "flex"); });
+        $("body").on("click", "#prompt-slot-fixed-btn", function() { initProfile(); updateCharacterDisplay(); switchTab(getLastOpenTabIndex()); $("#prompt-slot-modal-overlay").fadeIn(250).css("display", "flex"); });
         $("body").off("click", "#close-prompt-slot-modal, #prompt-slot-modal-overlay").on("click", "#close-prompt-slot-modal, #prompt-slot-modal-overlay", function(e) { 
         if (e.target === this) { 
             if (isDevEngineDirty) {
