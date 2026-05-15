@@ -3683,6 +3683,7 @@ function vgPatchWorkflow(workflow, promptText) {
     vgPatchNode(workflow, "2502", (i) => {
         i.filename_prefix = `${prefix}MINIMEME`;
         i.images = ["1512:2089", 0];
+        i.save_output = false;
     });
     vgPatchNode(workflow, "2503", (i) => { i.filename_prefix = `${prefix}LASTFRAME`; });
     vgPatchNode(workflow, "1512:2089", (i) => {
