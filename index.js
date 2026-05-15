@@ -387,6 +387,34 @@ function sanitizePromptTags(promptText) {
     return cleaned.join(', ');
 }
 
+function escapeLiteralComfyParentheses(text) {
+    return String(text ?? "").replace(/[()]/g, (match, offset, source) => {
+        return offset > 0 && source[offset - 1] === '\\' ? match : `\\${match}`;
+    });
+}
+
+function normalizeAnimaGeneratedTag(rawTag) {
+    let tag = String(rawTag ?? "").trim().toLowerCase();
+    if (!tag) return "";
+
+    const weightedMatch = tag.match(/^\((.*):([0-9]+(?:\.[0-9]+)?)\)$/);
+    if (weightedMatch) {
+        const inner = weightedMatch[1].trim().replace(/_/g, ' ');
+        return `(${escapeLiteralComfyParentheses(inner)}:${weightedMatch[2]})`;
+    }
+
+    if (/^score_[1-9]$/.test(tag)) return tag;
+
+    tag = tag.replace(/_/g, ' ');
+    return escapeLiteralComfyParentheses(tag);
+}
+
+function normalizeAnimaGeneratedTags(tagString) {
+    if (!tagString || typeof tagString !== 'string') return tagString || "";
+    const tags = tagString.split(',').map(normalizeAnimaGeneratedTag).filter(t => t);
+    return tags.join(', ');
+}
+
 function psEscapeAttr(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -2124,10 +2152,11 @@ function renderImageGen(c) {
                 if (jsonMatch) {
                     const assignments = JSON.parse(jsonMatch[0]);
 
-                    if (li.useDanbooruTags && danbooruTagsMap && danbooruTagsMap.size > 0) {
+                    if (li.useDanbooruTags) {
                         for (const a of assignments) {
                             if (a.booru_tags) {
-                                a.booru_tags = sanitizePromptTags(repairBooruTags(a.booru_tags));
+                                const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a.booru_tags) : a.booru_tags;
+                                a.booru_tags = normalizeAnimaGeneratedTags(sanitizePromptTags(repairedTags));
                             }
                         }
                     }
@@ -3206,7 +3235,7 @@ async function generateImagePromptText() {
         finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
     }
 
-    finalPrompt = sanitizePromptTags(finalPrompt);
+    finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
 
     if (li && li.enabled) {
         $("#li_compiled_prompt").val(ensureImageLeadPrefix(finalPrompt));
@@ -3224,6 +3253,9 @@ async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
         raw = stripPreambleBeforeBooruTags(raw);
     }
     let finalPrompt = sanitizePromptTags(raw);
+    if (opts && opts.normalizeGeneratedPrompt) {
+        finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+    }
     if (!opts || !opts.skipLeadPrefix) {
         finalPrompt = ensureImageLeadPrefix(finalPrompt);
     }
@@ -5018,7 +5050,7 @@ jQuery(async () => {
                     // 2. Send the extracted prompt to ComfyUI!
                     setTimeout(() => {
                         toastr.info("Image tag detected. Sending to ComfyUI...");
-                        igGenerateWithComfy(extractedPrompt, null);
+                        igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true });
                     }, 500);
                 } 
             });
