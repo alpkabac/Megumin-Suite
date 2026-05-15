@@ -3645,7 +3645,10 @@ function vgPatchWorkflow(workflow, promptText) {
         i.crf = parseInt(s.crf, 10) || 22;
         i.save_output = true;
     });
-    vgPatchNode(workflow, "2502", (i) => { i.filename_prefix = `${prefix}MINIMEME`; });
+    vgPatchNode(workflow, "2502", (i) => {
+        i.filename_prefix = `${prefix}MINIMEME`;
+        i.images = ["1512:2089", 0];
+    });
     vgPatchNode(workflow, "2503", (i) => { i.filename_prefix = `${prefix}LASTFRAME`; });
     vgPatchNode(workflow, "1512:2089", (i) => {
         i["resize_type.scale"] = parseFloat(s.upscaleMultiplier) || 2;
