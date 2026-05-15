@@ -23,6 +23,8 @@ let activeImageGenRequest = null;
 let activeVideoGenRequest = null;
 let activeStoryPlanRequest = null;
 let activeLoraAssignRequest = null;
+let activeVideoGenJob = false;
+const completedVideoPromptIds = new Set();
 let isDevEngineDirty = false;
 let danbooruTagsMap = null;
 let civitaiKeywordCache = {};
@@ -3682,7 +3684,6 @@ function vgPatchWorkflow(workflow, promptText) {
     });
     vgPatchNode(workflow, "2502", (i) => {
         i.filename_prefix = `${prefix}MINIMEME`;
-        i.images = ["1512:2089", 0];
         i.save_output = false;
     });
     vgPatchNode(workflow, "2503", (i) => { i.filename_prefix = `${prefix}LASTFRAME`; });
@@ -3728,7 +3729,7 @@ function vgInferFormat(filename, bucket) {
     return "mp4";
 }
 
-async function vgAttachGeneratedMedia(mediaInfo, finalPrompt) {
+async function vgAttachGeneratedMedia(mediaInfo, finalPrompt, promptId = "") {
     const s = localProfile.videoGen;
     const media = mediaInfo.media;
     const url = `${s.comfyUrl}/view?filename=${encodeURIComponent(media.filename)}&subfolder=${encodeURIComponent(media.subfolder || "")}&type=${encodeURIComponent(media.type || "output")}`;
@@ -3751,7 +3752,7 @@ async function vgAttachGeneratedMedia(mediaInfo, finalPrompt) {
         title: finalPrompt,
         generation_type: "free"
     };
-    const newMsg = { name: "Video Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
+    const newMsg = { name: "Video Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0, megumin_video_prompt_id: promptId }, force_avatar: "img/five.png" };
     getContext().chat.push(newMsg);
     await saveChat();
     if (typeof addOneMessage === "function") addOneMessage(newMsg);
@@ -3795,6 +3796,10 @@ async function generateVideoPromptText() {
 
 async function vgRenderPromptWithComfy(finalPrompt, allowPreview = true) {
     const s = localProfile.videoGen;
+    if (activeVideoGenJob) {
+        toastr.warning("A video render is already running.");
+        return false;
+    }
     finalPrompt = stripUtilityThinkingWrapper(finalPrompt || "").trim();
     if (!finalPrompt) throw new Error("Video prompt was empty.");
 
@@ -3820,33 +3825,53 @@ async function vgRenderPromptWithComfy(finalPrompt, allowPreview = true) {
         }
     }
 
+    activeVideoGenJob = true;
     showKazumaProgress("Preparing WAN Workflow...");
-    const rawWorkflow = await vgLoadWorkflow(s);
-    const { workflow } = vgPatchWorkflow(rawWorkflow, finalPrompt);
-    const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    try {
+        const rawWorkflow = await vgLoadWorkflow(s);
+        const { workflow } = vgPatchWorkflow(rawWorkflow, finalPrompt);
+        const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const promptId = data.prompt_id;
 
-    showKazumaProgress("Rendering Video...");
-    const checkInterval = setInterval(async () => {
-        try {
-            const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
-            if (!h[data.prompt_id]) return;
-            clearInterval(checkInterval);
-            const mediaInfo = vgFindMediaOutput(h[data.prompt_id]);
-            if (!mediaInfo) {
+        showKazumaProgress("Rendering Video...");
+        const checkInterval = setInterval(async () => {
+            try {
+                const h = await (await fetch(`${s.comfyUrl}/history/${promptId}`)).json();
+                if (!h[promptId]) return;
+                clearInterval(checkInterval);
+                if (completedVideoPromptIds.has(promptId)) {
+                    activeVideoGenJob = false;
+                    $("#kazuma_progress_overlay").hide();
+                    return;
+                }
+                completedVideoPromptIds.add(promptId);
+                const mediaInfo = vgFindMediaOutput(h[promptId]);
+                if (!mediaInfo) {
+                    activeVideoGenJob = false;
+                    $("#kazuma_progress_overlay").hide();
+                    return toastr.warning("ComfyUI finished, but no video output was found.");
+                }
+                try {
+                    showKazumaProgress("Downloading Video...");
+                    await vgAttachGeneratedMedia(mediaInfo, finalPrompt, promptId);
+                    toastr.success("Video inserted!");
+                } finally {
+                    activeVideoGenJob = false;
+                    $("#kazuma_progress_overlay").hide();
+                }
+            } catch (e) {
+                activeVideoGenJob = false;
                 $("#kazuma_progress_overlay").hide();
-                return toastr.warning("ComfyUI finished, but no video output was found.");
+                console.warn(`[${extensionName}] Video poll failed`, e);
             }
-            showKazumaProgress("Downloading Video...");
-            await vgAttachGeneratedMedia(mediaInfo, finalPrompt);
-            $("#kazuma_progress_overlay").hide();
-            toastr.success("Video inserted!");
-        } catch (e) {
-            console.warn(`[${extensionName}] Video poll failed`, e);
-        }
-    }, 1500);
-    return true;
+        }, 1500);
+        return true;
+    } catch (e) {
+        activeVideoGenJob = false;
+        throw e;
+    }
 }
 
 async function vgRenderManualPrompt() {
