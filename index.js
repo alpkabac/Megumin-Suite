@@ -177,7 +177,9 @@ function initProfile() {
             upscaleQuality: "ULTRA",
             enableSmoothLora: false,
             lowLoraStrength: 0.8,
-            highLoraStrength: 0.8
+            highLoraStrength: 0.8,
+            settingsLocked: false,
+            manualPrompt: ""
         }
     };
 
@@ -2161,6 +2163,9 @@ function renderVideoGen(c) {
     const s = localProfile.videoGen;
     const workflowPath = s.workflowPath || "wan-api.json";
     const negative = psEscapeText(s.customNegative || "");
+    const locked = !!s.settingsLocked;
+    const lockDisabled = locked ? "disabled" : "";
+    const lockStyle = locked ? "opacity: 0.65; pointer-events: none;" : "";
 
     c.append(`
         <div class="ps-toggle-card ${s.enabled ? 'active' : ''}" id="vg_enable_card" style="border-color: ${s.enabled ? 'var(--gold)' : 'var(--border-color)'};">
@@ -2173,25 +2178,30 @@ function renderVideoGen(c) {
 
         <div id="vg_main_content" style="display: ${s.enabled ? 'block' : 'none'};">
             <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-link"></i> ComfyUI Server & WAN Workflow</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap: 12px; margin-bottom: 12px;">
+                    <div class="ps-rule-title" style="margin-bottom: 0;"><i class="fa-solid fa-link"></i> ComfyUI Server & WAN Workflow</div>
+                    <button id="vg_lock_settings" class="ps-modern-btn secondary" title="Lock video settings except frame images" style="padding: 7px 12px; color: ${locked ? 'var(--gold)' : 'var(--text-main)'}; border-color: ${locked ? 'rgba(245,158,11,0.45)' : 'var(--border-color)'};">
+                        <i class="fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}"></i> ${locked ? 'Locked' : 'Lock'}
+                    </button>
+                </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <input type="text" id="vg_url" class="ps-modern-input" value="${psEscapeAttr(s.comfyUrl)}" placeholder="http://127.0.0.1:8188" style="flex: 1;" />
-                    <button id="vg_test_btn" class="ps-modern-btn secondary" style="padding: 0 15px;"><i class="fa-solid fa-wifi"></i> Test</button>
+                    <input type="text" id="vg_url" class="ps-modern-input vg-lockable" value="${psEscapeAttr(s.comfyUrl)}" placeholder="http://127.0.0.1:8188" style="flex: 1;" ${lockDisabled} />
+                    <button id="vg_test_btn" class="ps-modern-btn secondary vg-lockable" style="padding: 0 15px;" ${lockDisabled}><i class="fa-solid fa-wifi"></i> Test</button>
                 </div>
                 <div style="display:flex; gap: 10px; align-items: center;">
-                    <input type="text" id="vg_workflow_path" class="ps-modern-input" value="${psEscapeAttr(workflowPath)}" placeholder="wan-api.json" style="flex: 1;" />
-                    <button id="vg_preview_workflow" class="ps-modern-btn secondary" title="Preview patched API JSON"><i class="fa-solid fa-code"></i> Preview</button>
+                    <input type="text" id="vg_workflow_path" class="ps-modern-input vg-lockable" value="${psEscapeAttr(workflowPath)}" placeholder="wan-api.json" style="flex: 1;" ${lockDisabled} />
+                    <button id="vg_preview_workflow" class="ps-modern-btn secondary vg-lockable" title="Preview patched API JSON" ${lockDisabled}><i class="fa-solid fa-code"></i> Preview</button>
                 </div>
             </div>
 
-            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; ${lockStyle}">
                 <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-pen-nib"></i> Prompt Generation</div>
                 <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
                     <div style="flex: 1;">
                         <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Generation Method</div>
                         <div style="font-size: 0.75rem; color: var(--text-muted);">Direct is faster. Preset mode temporarily uses Megumin Image for richer prompt writing.</div>
                     </div>
-                    <select id="vg_gen_backend" class="ps-modern-input" style="width: 220px; cursor: pointer;">
+                    <select id="vg_gen_backend" class="ps-modern-input vg-lockable" style="width: 220px; cursor: pointer;" ${lockDisabled}>
                         <option value="direct" ${s.generatorBackend === 'direct' ? 'selected' : ''}>Direct API Call</option>
                         <option value="preset" ${s.generatorBackend === 'preset' ? 'selected' : ''}>Megumin Image Preset</option>
                     </select>
@@ -2207,7 +2217,7 @@ function renderVideoGen(c) {
                     <div style="display: flex; gap: 15px; margin-bottom: 10px;">
                         <div style="flex: 1;">
                             <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Prompt Style</div>
-                            <select id="vg_prompt_style" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">
+                            <select id="vg_prompt_style" class="ps-modern-input vg-lockable" style="padding: 8px; font-size: 0.8rem;" ${lockDisabled}>
                                 <option value="cinematic" ${s.promptStyle === 'cinematic' ? 'selected' : ''}>Cinematic Prose</option>
                                 <option value="anime" ${s.promptStyle === 'anime' ? 'selected' : ''}>Anime Visual Tags</option>
                                 <option value="realistic" ${s.promptStyle === 'realistic' ? 'selected' : ''}>Realistic Camera</option>
@@ -2215,7 +2225,7 @@ function renderVideoGen(c) {
                         </div>
                         <div style="flex: 1;">
                             <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Motion Style</div>
-                            <select id="vg_motion_style" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">
+                            <select id="vg_motion_style" class="ps-modern-input vg-lockable" style="padding: 8px; font-size: 0.8rem;" ${lockDisabled}>
                                 <option value="smooth" ${s.motionStyle === 'smooth' ? 'selected' : ''}>Smooth Natural Motion</option>
                                 <option value="subtle" ${s.motionStyle === 'subtle' ? 'selected' : ''}>Subtle Living Still</option>
                                 <option value="dynamic" ${s.motionStyle === 'dynamic' ? 'selected' : ''}>Dynamic Action</option>
@@ -2224,7 +2234,7 @@ function renderVideoGen(c) {
                         </div>
                     </div>
                     <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Extra Motion / Scene Cues</div>
-                    <input type="text" id="vg_extra" class="ps-modern-input" placeholder="camera, gesture, expression change, wind, lighting shift..." value="${psEscapeAttr(s.promptExtra)}" style="padding: 8px; font-size: 0.8rem;" />
+                    <input type="text" id="vg_extra" class="ps-modern-input vg-lockable" placeholder="camera, gesture, expression change, wind, lighting shift..." value="${psEscapeAttr(s.promptExtra)}" style="padding: 8px; font-size: 0.8rem;" ${lockDisabled} />
                 </div>
             </div>
 
@@ -2250,7 +2260,7 @@ function renderVideoGen(c) {
                 </div>
                 <input type="file" id="vg_upload_first_file" accept="image/*" style="display:none;" />
                 <input type="file" id="vg_upload_last_file" accept="image/*" style="display:none;" />
-                <div class="ps-toggle-card ${s.useLastFrame ? 'active' : ''}" id="vg_use_last_card" style="padding: 12px 18px; margin-bottom: 15px;">
+                <div class="ps-toggle-card ${s.useLastFrame ? 'active' : ''}" id="vg_use_last_card" style="padding: 12px 18px; margin-bottom: 15px; ${lockStyle}">
                     <div style="display:flex; flex-direction:column;">
                         <span style="font-weight:600; font-size:0.85rem;">Use First + Last Frame Mode</span>
                         <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Routes the WAN workflow through the first/last-frame node when a last image is supplied.</div>
@@ -2260,14 +2270,14 @@ function renderVideoGen(c) {
                 <div style="display:flex; gap: 10px;">
                     <div style="flex: 1;">
                         <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Negative Prompt</div>
-                        <textarea id="vg_negative" class="ps-modern-input" style="height: 95px; resize: vertical; font-size: 0.75rem;">${negative}</textarea>
+                        <textarea id="vg_negative" class="ps-modern-input vg-lockable" style="height: 95px; resize: vertical; font-size: 0.75rem;" ${lockDisabled}>${negative}</textarea>
                     </div>
                 </div>
             </div>
 
-            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; ${lockStyle}">
                 <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-sliders"></i> Video Parameters</div>
-                <div style="display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin-bottom: 15px;">
+                <div class="vg-param-grid" style="display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin-bottom: 15px;">
                     ${vgNumberField("vg_seconds", "Seconds", s.seconds, 1, 60, 1)}
                     ${vgNumberField("vg_fps", "FPS", s.fps, 1, 60, 1)}
                     ${vgNumberField("vg_seed", "Seed (-1 random)", s.customSeed, -1, "", 1)}
@@ -2277,7 +2287,7 @@ function renderVideoGen(c) {
                     ${vgNumberField("vg_crf", "MP4 CRF", s.crf, 0, 51, 1)}
                     ${vgNumberField("vg_upscale_mult", "Upscale x", s.upscaleMultiplier, 1, 4, 0.5)}
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; margin-bottom: 15px;">
+                <div class="vg-select-grid" style="display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; margin-bottom: 15px;">
                     ${vgSelectField("vg_sampler", "Sampler", s.sampler, ["euler", "euler_ancestral", "heun", "dpm_2", "dpmpp_2m", "dpmpp_sde"])}
                     ${vgSelectField("vg_scheduler", "Scheduler", s.scheduler, ["linear_quadratic", "simple", "normal", "karras", "exponential", "sgm_uniform"])}
                     ${vgSelectField("vg_format", "Output Format", s.outputFormat, ["video/h264-mp4", "image/gif", "video/webm", "video/h265-mp4"])}
@@ -2298,8 +2308,16 @@ function renderVideoGen(c) {
                 </div>
             </div>
 
-            <div style="display:flex; justify-content:flex-end; gap: 10px; margin-bottom: 20px;">
+            <div style="display:flex; justify-content:flex-end; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
                 <button id="vg_generate_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; font-weight: 800;"><i class="fa-solid fa-film"></i> Generate Video</button>
+            </div>
+
+            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-keyboard"></i> Manual Render</div>
+                <textarea id="vg_manual_prompt" class="ps-modern-input" style="height: 130px; resize: vertical; font-size: 0.85rem; line-height: 1.45; margin-bottom: 12px;" placeholder="Type the exact WAN video prompt to render. This bypasses prompt generation.">${psEscapeText(s.manualPrompt || "")}</textarea>
+                <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap;">
+                    <button id="vg_manual_render_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; font-weight: 800;"><i class="fa-solid fa-play"></i> Render Manual Prompt</button>
+                </div>
             </div>
         </div>
     `);
@@ -2313,6 +2331,9 @@ function renderVideoGen(c) {
     $("#vg_test_btn").on("click", vgTestConnection);
     $("#vg_preview_workflow").on("click", vgPreviewWorkflowClick);
     $("#vg_generate_btn").on("click", vgManualGenerate);
+    $("#vg_manual_render_btn").on("click", vgRenderManualPrompt);
+    $("#vg_manual_prompt").on("input", (e) => { s.manualPrompt = $(e.target).val(); saveProfileToMemory(); });
+    $("#vg_lock_settings").on("click", function() { s.settingsLocked = !s.settingsLocked; saveProfileToMemory(); renderVideoGen(c); });
     $("#vg_upload_first").on("click", () => $("#vg_upload_first_file").trigger("click"));
     $("#vg_upload_last").on("click", () => $("#vg_upload_last_file").trigger("click"));
     $("#vg_upload_first_file").on("change", (e) => vgUploadFrameFile(e.target.files?.[0], "first"));
@@ -3771,6 +3792,81 @@ async function generateVideoPromptText() {
     }
 }
 
+async function vgRenderPromptWithComfy(finalPrompt, allowPreview = true) {
+    const s = localProfile.videoGen;
+    finalPrompt = stripUtilityThinkingWrapper(finalPrompt || "").trim();
+    if (!finalPrompt) throw new Error("Video prompt was empty.");
+
+    if (allowPreview && s.previewPrompt) {
+        $("#kazuma_progress_overlay").hide();
+        const $content = $(`
+            <div style="display:flex; flex-direction:column; gap:10px; font-family: 'Inter', sans-serif;">
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the WAN prompt before it goes to ComfyUI.</div>
+                <textarea class="ps-modern-input vg-preview-textarea" style="height: 170px; resize: vertical; font-family: monospace; font-size: 0.85rem; padding: 10px;">${psEscapeText(finalPrompt)}</textarea>
+            </div>
+        `);
+        let liveText = finalPrompt;
+        $content.find(".vg-preview-textarea").on("input", function() { liveText = $(this).val(); });
+        const popup = new Popup($content, POPUP_TYPE.CONFIRM, "Preview Video Prompt", { okButton: "Send to ComfyUI", cancelButton: "Cancel", wide: true });
+        if (!await popup.show()) {
+            toastr.info("Generation cancelled.");
+            return false;
+        }
+        finalPrompt = liveText.trim();
+        if (!finalPrompt) {
+            toastr.warning("Prompt cannot be empty.");
+            return false;
+        }
+    }
+
+    showKazumaProgress("Preparing WAN Workflow...");
+    const rawWorkflow = await vgLoadWorkflow(s);
+    const { workflow } = vgPatchWorkflow(rawWorkflow, finalPrompt);
+    const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    showKazumaProgress("Rendering Video...");
+    const checkInterval = setInterval(async () => {
+        try {
+            const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
+            if (!h[data.prompt_id]) return;
+            clearInterval(checkInterval);
+            const mediaInfo = vgFindMediaOutput(h[data.prompt_id]);
+            if (!mediaInfo) {
+                $("#kazuma_progress_overlay").hide();
+                return toastr.warning("ComfyUI finished, but no video output was found.");
+            }
+            showKazumaProgress("Downloading Video...");
+            await vgAttachGeneratedMedia(mediaInfo, finalPrompt);
+            $("#kazuma_progress_overlay").hide();
+            toastr.success("Video inserted!");
+        } catch (e) {
+            console.warn(`[${extensionName}] Video poll failed`, e);
+        }
+    }, 1500);
+    return true;
+}
+
+async function vgRenderManualPrompt() {
+    const s = localProfile?.videoGen;
+    if (!s || !s.enabled) return toastr.warning("Enable Video Generation first.");
+    if (!String(s.firstFrameImage || "").trim()) return toastr.warning("First Frame Image is required for the WAN workflow.");
+    const promptText = String($("#vg_manual_prompt").val() || s.manualPrompt || "").trim();
+    if (!promptText) return toastr.warning("Manual prompt cannot be empty.");
+    s.manualPrompt = promptText;
+    saveProfileToMemory();
+
+    showKazumaProgress("Preparing Manual Render...");
+    try {
+        await vgRenderPromptWithComfy(promptText, false);
+    } catch (e) {
+        console.error(e);
+        $("#kazuma_progress_overlay").hide();
+        toastr.error("Manual video render failed: " + e.message);
+    }
+}
+
 async function vgManualGenerate() {
     const s = localProfile?.videoGen;
     if (!s || !s.enabled) return toastr.warning("Enable Video Generation first.");
@@ -3788,51 +3884,7 @@ async function vgManualGenerate() {
             }, "Megumin Image");
         }
 
-        finalPrompt = stripUtilityThinkingWrapper(finalPrompt || "").trim();
-        if (!finalPrompt) throw new Error("Video prompt was empty.");
-
-        if (s.previewPrompt) {
-            $("#kazuma_progress_overlay").hide();
-            const $content = $(`
-                <div style="display:flex; flex-direction:column; gap:10px; font-family: 'Inter', sans-serif;">
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the WAN prompt before it goes to ComfyUI.</div>
-                    <textarea class="ps-modern-input vg-preview-textarea" style="height: 170px; resize: vertical; font-family: monospace; font-size: 0.85rem; padding: 10px;">${psEscapeText(finalPrompt)}</textarea>
-                </div>
-            `);
-            let liveText = finalPrompt;
-            $content.find(".vg-preview-textarea").on("input", function() { liveText = $(this).val(); });
-            const popup = new Popup($content, POPUP_TYPE.CONFIRM, "Preview Video Prompt", { okButton: "Send to ComfyUI", cancelButton: "Cancel", wide: true });
-            if (!await popup.show()) return toastr.info("Generation cancelled.");
-            finalPrompt = liveText.trim();
-            if (!finalPrompt) return toastr.warning("Prompt cannot be empty.");
-        }
-
-        showKazumaProgress("Preparing WAN Workflow...");
-        const rawWorkflow = await vgLoadWorkflow(s);
-        const { workflow } = vgPatchWorkflow(rawWorkflow, finalPrompt);
-        const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-
-        showKazumaProgress("Rendering Video...");
-        const checkInterval = setInterval(async () => {
-            try {
-                const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
-                if (!h[data.prompt_id]) return;
-                clearInterval(checkInterval);
-                const mediaInfo = vgFindMediaOutput(h[data.prompt_id]);
-                if (!mediaInfo) {
-                    $("#kazuma_progress_overlay").hide();
-                    return toastr.warning("ComfyUI finished, but no video output was found.");
-                }
-                showKazumaProgress("Downloading Video...");
-                await vgAttachGeneratedMedia(mediaInfo, finalPrompt);
-                $("#kazuma_progress_overlay").hide();
-                toastr.success("Video inserted!");
-            } catch (e) {
-                console.warn(`[${extensionName}] Video poll failed`, e);
-            }
-        }, 1500);
+        await vgRenderPromptWithComfy(finalPrompt, true);
     } catch (e) {
         console.error(e);
         $("#kazuma_progress_overlay").hide();

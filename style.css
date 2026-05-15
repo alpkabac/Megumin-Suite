@@ -114,13 +114,13 @@
 .ps-tooltip-title { color: var(--gold); font-weight: 700; }
 
 /* ================================================================
-   MOBILE RESPONSIVE — All rules scoped to @media only.
+   MOBILE RESPONSIVE â€” All rules scoped to @media only.
    Desktop UI is completely untouched.
    ================================================================ */
 
 @media (max-width: 768px) {
 
-    /* ── Modal: full-screen takeover ── */
+    /* â”€â”€ Modal: full-screen takeover â”€â”€ */
     .ps-modern-modal.app-container {
         width: 100% !important;
         max-width: 100% !important;
@@ -140,7 +140,7 @@
         padding: 0 !important;
     }
 
-    /* ── Floating open button: larger touch target ── */
+    /* â”€â”€ Floating open button: larger touch target â”€â”€ */
     #prompt-slot-fixed-btn {
         width: 44px;
         height: 44px;
@@ -150,7 +150,7 @@
         border-radius: 50%;
     }
 
-    /* ── Dock → Horizontal bottom tab bar ── */
+    /* â”€â”€ Dock â†’ Horizontal bottom tab bar â”€â”€ */
     .dock {
         position: absolute !important; /* Safer than fixed on mobile */
         top: auto !important;
@@ -226,7 +226,7 @@
         border-top: 2px solid var(--gold) !important;
     }
 
-    /* ── Hero banner: keep it, slightly shorter ── */
+    /* â”€â”€ Hero banner: keep it, slightly shorter â”€â”€ */
     .hero-banner {
         height: 150px !important;
     }
@@ -243,7 +243,7 @@
         font-size: 0.6rem !important;
     }
 
-    /* ── Top app bar: compact action buttons ── */
+    /* â”€â”€ Top app bar: compact action buttons â”€â”€ */
     .top-app-bar {
         padding: 10px 12px !important;
     }
@@ -270,12 +270,12 @@
         font-size: 0.85rem !important;
     }
 
-    /* ── Main content area: adjust padding for bottom dock ── */
+    /* â”€â”€ Main content area: adjust padding for bottom dock â”€â”€ */
     .main-content {
         padding: 10px 14px calc(100px + env(safe-area-inset-bottom, 0px)) 14px !important;
     }
 
-    /* ── Cards grid: single column ── */
+    /* â”€â”€ Cards grid: single column â”€â”€ */
     .ps-grid {
         grid-template-columns: 1fr !important;
         gap: 10px !important;
@@ -289,31 +289,31 @@
         font-size: 0.95rem !important;
     }
 
-    /* ── Toggle cards: tighter ── */
+    /* â”€â”€ Toggle cards: tighter â”€â”€ */
     .ps-toggle-card {
         padding: 14px 16px !important;
     }
 
-    /* ── Inputs: full width on small screens ── */
+    /* â”€â”€ Inputs: full width on small screens â”€â”€ */
     .ps-modern-input {
         font-size: 0.85rem !important;
     }
 
-    /* ── Tags: slightly smaller for wrapping ── */
+    /* â”€â”€ Tags: slightly smaller for wrapping â”€â”€ */
     .ps-modern-tag {
         padding: 5px 10px !important;
         font-size: 0.75rem !important;
         margin: 2px !important;
     }
 
-    /* ── Buttons: touch-friendly sizing ── */
+    /* â”€â”€ Buttons: touch-friendly sizing â”€â”€ */
     .ps-modern-btn {
         padding: 10px 14px !important;
         font-size: 0.8rem !important;
         min-height: 40px;
     }
 
-    /* ── Fix inline flex rows that overflow on mobile ── */
+    /* â”€â”€ Fix inline flex rows that overflow on mobile â”€â”€ */
     /* Settings rows (word count, language, pronouns) */
     .main-content div[style*="display: flex"][style*="align-items: center"][style*="gap: 15px"] {
         flex-wrap: wrap !important;
@@ -338,6 +338,19 @@
     div[style*="display: flex"][style*="gap: 10px"] select[style*="flex: 2"],
     div[style*="display: flex"][style*="gap: 10px"] select[style*="flex: 1"] {
         min-width: 0 !important;
+    }
+
+    .vg-param-grid,
+    .vg-select-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    #vg_main_content .ps-modern-btn {
+        min-height: 40px;
+    }
+
+    #vg_main_content textarea {
+        min-height: 120px;
     }
 
     /* Dev mode: editor top bar */
@@ -437,4 +450,4 @@
 
 #li_prompt_preview_header:hover {
     background: rgba(59, 130, 246, 0.1) !important;
-}
+}
