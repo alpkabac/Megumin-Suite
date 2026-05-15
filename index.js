@@ -140,6 +140,8 @@ function initProfile() {
                 useDanbooruTags: true,
                 ensureCharacterTag: false,
                 useCharDescriptions: false,
+                descriptionStyle: 'booru',
+                promptAssemblyMode: 'structured',
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},
@@ -413,6 +415,51 @@ function normalizeAnimaGeneratedTags(tagString) {
     if (!tagString || typeof tagString !== 'string') return tagString || "";
     const tags = tagString.split(',').map(normalizeAnimaGeneratedTag).filter(t => t);
     return tags.join(', ');
+}
+
+function normalizeGeneratedTagField(tagString) {
+    return normalizeAnimaGeneratedTags(sanitizePromptTags(tagString || ""));
+}
+
+function ensureStructuredCharacterAssignment(a) {
+    if (!a || typeof a !== 'object') return a;
+    if (a.character_tag === undefined) a.character_tag = "";
+    if (a.series_tag === undefined) a.series_tag = "";
+    if (a.physical_tags === undefined) a.physical_tags = a.booru_tags || "";
+    if (a.clothing_tags === undefined) a.clothing_tags = "";
+    if (a.pose_expression_tags === undefined) a.pose_expression_tags = "";
+    if (a.current_state_tags === undefined) a.current_state_tags = "";
+    return a;
+}
+
+function normalizeStructuredCharacterAssignment(a) {
+    ensureStructuredCharacterAssignment(a);
+    if (!a || typeof a !== 'object') return a;
+
+    ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+        if (a[key]) a[key] = normalizeGeneratedTagField(a[key]);
+    });
+
+    const mergedTags = [
+        a.character_tag,
+        a.series_tag,
+        a.physical_tags,
+        a.clothing_tags,
+        a.pose_expression_tags,
+        a.current_state_tags
+    ].filter(Boolean).join(', ');
+
+    a.booru_tags = mergedTags || normalizeGeneratedTagField(a.booru_tags || "");
+    return a;
+}
+
+function ensureStructuredCharacterAssignments(li, charKey = null) {
+    if (!li || !li.characterAssignments) return;
+    const keys = charKey ? [charKey] : Object.keys(li.characterAssignments);
+    keys.forEach(key => {
+        if (!Array.isArray(li.characterAssignments[key])) return;
+        li.characterAssignments[key].forEach(ensureStructuredCharacterAssignment);
+    });
 }
 
 function psEscapeAttr(value) {
@@ -1576,10 +1623,13 @@ function renderImageGen(c) {
     if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
 
     // LoRA Intelligence state
-    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
     if (s.loraIntel.ensureCharacterTag === undefined) s.loraIntel.ensureCharacterTag = false;
+    if (s.loraIntel.descriptionStyle === undefined) s.loraIntel.descriptionStyle = 'booru';
+    if (s.loraIntel.promptAssemblyMode === undefined) s.loraIntel.promptAssemblyMode = 'structured';
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
+    ensureStructuredCharacterAssignments(li, charKey);
     const liScope = li.characterActiveLoras[charKey] ? 'character' : 'global';
     const liAssignments = (li.characterAssignments[charKey] || []);
 
@@ -1831,6 +1881,20 @@ function renderImageGen(c) {
                         </div>
                     </div>
 
+                    <!-- Prompt Assembly -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 220px;">
+                                <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-main);">Prompt Assembly</div>
+                                <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">Structured keeps exact Anima character tags in code; LLM Full lets the model write the whole prompt.</div>
+                            </div>
+                            <select id="li_prompt_assembly_mode" class="ps-modern-input" style="width: 240px; padding: 8px; font-size: 0.75rem;">
+                                <option value="structured" ${li.promptAssemblyMode === 'structured' ? 'selected' : ''}>Structured Character Blocks</option>
+                                <option value="llm" ${li.promptAssemblyMode === 'llm' ? 'selected' : ''}>LLM Full Prompt</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <!-- LoRA Browser -->
                     <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -2025,6 +2089,10 @@ function renderImageGen(c) {
         li.descriptionStyle = $(this).val();
         saveProfileToMemory();
     });
+    $("#li_prompt_assembly_mode").on("change", function() {
+        li.promptAssemblyMode = $(this).val();
+        saveProfileToMemory();
+    });
 
     // Scope select
     $("#li_scope_select").on("change", function() {
@@ -2154,10 +2222,13 @@ function renderImageGen(c) {
 
                     if (li.useDanbooruTags) {
                         for (const a of assignments) {
-                            if (a.booru_tags) {
-                                const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a.booru_tags) : a.booru_tags;
-                                a.booru_tags = normalizeAnimaGeneratedTags(sanitizePromptTags(repairedTags));
-                            }
+                            ensureStructuredCharacterAssignment(a);
+                            ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+                                if (!a[key]) return;
+                                const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a[key]) : a[key];
+                                a[key] = normalizeGeneratedTagField(repairedTags);
+                            });
+                            normalizeStructuredCharacterAssignment(a);
                         }
                     }
 
@@ -2862,7 +2933,7 @@ function liRenderAssignmentTable(li, charKey, s) {
     `);
 
     header.find("#li_add_custom_assign").on("click", function() {
-        assignments.push({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "" });
+        assignments.push({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", pose_expression_tags: "", current_state_tags: "" });
         li.characterAssignments[charKey] = assignments;
         saveProfileToMemory();
         liRenderAssignmentTable(li, charKey, s);
@@ -2876,6 +2947,71 @@ function liRenderAssignmentTable(li, charKey, s) {
     }
 
     assignments.forEach((a, idx) => {
+        ensureStructuredCharacterAssignment(a);
+
+        if (showBooru) {
+            const tagField = (key, label, placeholder) => `
+                <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+                    <span style="font-size: 0.62rem; font-weight: 800; color: #10b981; text-transform: uppercase;">${label}</span>
+                    <input class="ps-modern-input li-edit-tag-field" data-key="${key}" type="text" placeholder="${psEscapeAttr(placeholder)}" value="${psEscapeAttr(a[key] || '')}" style="font-size: 0.68rem; color: #10b981; padding: 6px; min-width: 0;" />
+                </label>
+            `;
+
+            const row = $(`
+                <div style="display: flex; flex-direction: column; gap: 10px; padding: 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
+                        ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
+                        <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+                        ${tagField('character_tag', 'Character Tag', 'saber \\(fate\\)')}
+                        ${tagField('series_tag', 'Series Tag', 'fate \\(series\\)')}
+                        ${tagField('physical_tags', 'Body / Face', 'blonde hair, blue eyes')}
+                        ${tagField('clothing_tags', 'Clothing', 'black jacket, dark jeans')}
+                        ${tagField('pose_expression_tags', 'Pose / Expression', 'arms crossed, frown')}
+                        ${tagField('current_state_tags', 'Current State', 'wet hair, bruised cheek')}
+                    </div>
+                    ${showDesc ? `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${psEscapeAttr(a.description || '')}" style="font-size: 0.68rem; color: #3b82f6; padding: 6px;" />` : ''}
+                </div>
+            `);
+
+            row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
+            if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+            if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+            if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+            row.find(".li-edit-tag-field").on("input", function() {
+                a[$(this).attr("data-key")] = $(this).val();
+                a.booru_tags = [
+                    a.character_tag,
+                    a.series_tag,
+                    a.physical_tags,
+                    a.clothing_tags,
+                    a.pose_expression_tags,
+                    a.current_state_tags
+                ].filter(Boolean).join(', ');
+                saveProfileToMemory();
+            });
+            row.find(".li-edit-tag-field").on("blur", function() {
+                const key = $(this).attr("data-key");
+                let value = a[key] || "";
+                if (value && danbooruTagsMap && danbooruTagsMap.size > 0) value = repairBooruTags(value);
+                a[key] = normalizeGeneratedTagField(value);
+                normalizeStructuredCharacterAssignment(a);
+                $(this).val(a[key]);
+                saveProfileToMemory();
+            });
+            row.find(".li-remove-assign").on("click", function() {
+                assignments.splice(idx, 1);
+                li.characterAssignments[charKey] = assignments;
+                saveProfileToMemory();
+                liRenderAssignmentTable(li, charKey, s);
+            });
+            table.append(row);
+            return;
+        }
+
         let rowHtml = `<div style="display: grid; grid-template-columns: ${gridCols}; gap: 8px; flex: 1;">
             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${a.character ? a.character.replace(/"/g, '&quot;') : ''}" style="font-size: 0.75rem; font-weight: 600; padding: 4px; border: 1px solid transparent; background: transparent; color: var(--text-main);" />`;
         if (showMatchKw) {
@@ -3117,21 +3253,82 @@ function getMatchedBooruTags(li, charKey) {
     const matched = [];
     
     for (const a of assignments) {
-        if (!a.booru_tags) continue;
+        ensureStructuredCharacterAssignment(a);
+        const tagBlock = getAssignmentTagBlock(a) || a.booru_tags;
+        if (!tagBlock) continue;
         if (!a.match_keywords) {
-            matched.push({ character: a.character, tags: a.booru_tags });
+            matched.push({ character: a.character, tags: tagBlock });
             continue;
         }
         const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
         if (kws.length === 0) {
-            matched.push({ character: a.character, tags: a.booru_tags });
+            matched.push({ character: a.character, tags: tagBlock });
             continue;
         }
         if (kws.some(kw => recentChat.includes(kw))) {
-            matched.push({ character: a.character, tags: a.booru_tags });
+            matched.push({ character: a.character, tags: tagBlock });
         }
     }
     return matched;
+}
+
+function getMatchedCharacterAssignments(li, charKey) {
+    if (!li || !li.enabled) return [];
+    const assignments = li.characterAssignments[charKey] || [];
+    if (assignments.length === 0) return [];
+
+    const recentChat = getRecentChatForLoraKeywords();
+    return assignments
+        .map(ensureStructuredCharacterAssignment)
+        .filter(a => {
+            if (!a.match_keywords) return true;
+            const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+            if (kws.length === 0) return true;
+            return kws.some(kw => recentChat.includes(kw));
+        });
+}
+
+function getCharacterSlotLabel(index, total) {
+    if (total <= 1) return "main character";
+    const labels = ["first character", "second character", "third character", "fourth character", "fifth character", "sixth character"];
+    return labels[index] || `character ${index + 1}`;
+}
+
+function getAssignmentTagBlock(a) {
+    ensureStructuredCharacterAssignment(a);
+    const parts = [
+        a.character_tag,
+        a.series_tag,
+        a.physical_tags,
+        a.clothing_tags,
+        a.pose_expression_tags,
+        a.current_state_tags
+    ].filter(Boolean);
+    return normalizeGeneratedTagField(parts.join(', '));
+}
+
+function buildStructuredCharacterPromptBlocks(assignments) {
+    if (!Array.isArray(assignments) || assignments.length === 0) return "";
+    const total = assignments.length;
+    return assignments.map((a, idx) => {
+        const block = getAssignmentTagBlock(a);
+        if (!block) return "";
+        if (total <= 1) return block;
+        return `${getCharacterSlotLabel(idx, total)}, ${block}`;
+    }).filter(Boolean).join(', ');
+}
+
+function buildStructuredCharacterActionReference(assignments) {
+    if (!Array.isArray(assignments) || assignments.length === 0) return "";
+    const total = assignments.length;
+    return assignments.map((a, idx) => {
+        const name = (a.character || `character ${idx + 1}`).trim();
+        return `${getCharacterSlotLabel(idx, total)} = ${name}`;
+    }).join(' | ');
+}
+
+function shouldUseStructuredCharacterBlocks(s, li) {
+    return !!(s && li && li.enabled && li.useDanbooruTags && li.promptAssemblyMode === 'structured');
 }
 
 function isBooruStandardImageMode(s, li) {
@@ -3172,6 +3369,10 @@ async function generateImagePromptText() {
 
     const booruStd = isBooruStandardImageMode(s, li);
     const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
+    const structuredBlocks = shouldUseStructuredCharacterBlocks(s, li);
+    const matchedAssignments = structuredBlocks ? getMatchedCharacterAssignments(li, charKey) : [];
+    const structuredCharacterBlocks = structuredBlocks ? buildStructuredCharacterPromptBlocks(matchedAssignments) : "";
+    const structuredActionReference = structuredBlocks ? buildStructuredCharacterActionReference(matchedAssignments) : "";
 
     let styleStr;
     if (s.promptStyle === "illustrious") {
@@ -3190,6 +3391,9 @@ async function generateImagePromptText() {
     } else {
         styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
     }
+    if (li && li.enabled && li.useDanbooruTags && !structuredBlocks && s.promptStyle !== "sdxl" && !booruStd) {
+        styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
+    }
 
     let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
 
@@ -3202,9 +3406,11 @@ async function generateImagePromptText() {
                 booruStableLeadPrepend
                     ? `Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed. Do not paste this block unchanged as a prefix or suffix—the only automatic prefix is the separate \"leading tags\" field.\n${pe}`
                     : `Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed.\n${pe}`
-            );
+                );
         }
-        if (li && li.enabled) {
+        if (structuredActionReference) {
+            extraParts.push(`Character action slots: ${structuredActionReference}. You may describe what each slot is doing, wearing generally, or where they stand, but do NOT output story character names and do NOT output/copy appearance, clothing, series, or known-character tags. The app appends exact character tags separately.`);
+        } else if (li && li.enabled) {
             const matchedBooru = getMatchedBooruTags(li, charKey);
             if (matchedBooru.length > 0) {
                 const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
@@ -3214,14 +3420,16 @@ async function generateImagePromptText() {
         if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
     } else {
         extraStr = s.promptExtra || "None";
-        if (li && li.enabled) {
+        if (structuredActionReference) {
+            extraStr += `\nCharacter action slots: ${structuredActionReference}. Write scene/action/pose/composition tags for these slots only. Do not output story character names. Do not output, copy, summarize, or rewrite character appearance tags, clothing tags, series tags, or known character tags; the app appends those exact tags separately.`;
+        } else if (li && li.enabled) {
             const matchedBooru = getMatchedBooruTags(li, charKey);
             if (matchedBooru.length > 0) {
                 const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 if (s.promptStyle === "sdxl") {
                     extraStr += `\nCharacter appearance shorthand (per role). Fold ONLY into flowing English prose—translate hair, eyes, figure, outfit, and any look-alike references; NEVER output as comma tags, underscores, or token lists: ${booruInstr}`;
                 } else {
-                    extraStr += `\nCharacter appearance: integrate these Danbooru tags throughout your keyword prompt (vary phrasing and order; do not paste unchanged as an opening blob): ${booruInstr}`;
+                    extraStr += `\nCharacter appearance tags by role. Use these as Anima-style comma tags with spaces instead of underscores. Keep known character/series tags exact and escaped when they have parentheses. Do not combine story names with look-alike tags: ${booruInstr}`;
                 }
             }
         }
@@ -3236,6 +3444,10 @@ async function generateImagePromptText() {
     }
 
     finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+    if (structuredCharacterBlocks) {
+        finalPrompt = [finalPrompt, structuredCharacterBlocks].filter(Boolean).join(', ');
+        finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+    }
 
     if (li && li.enabled) {
         $("#li_compiled_prompt").val(ensureImageLeadPrefix(finalPrompt));
@@ -3255,6 +3467,16 @@ async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
     let finalPrompt = sanitizePromptTags(raw);
     if (opts && opts.normalizeGeneratedPrompt) {
         finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+    }
+    if (opts && opts.appendStructuredCharacterBlocks) {
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        const matchedAssignments = shouldUseStructuredCharacterBlocks(s, li) ? getMatchedCharacterAssignments(li, charKey) : [];
+        const structuredCharacterBlocks = buildStructuredCharacterPromptBlocks(matchedAssignments);
+        if (structuredCharacterBlocks) {
+            finalPrompt = [finalPrompt, structuredCharacterBlocks].filter(Boolean).join(', ');
+            finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+        }
     }
     if (!opts || !opts.skipLeadPrefix) {
         finalPrompt = ensureImageLeadPrefix(finalPrompt);
@@ -4303,6 +4525,9 @@ function buildBaseDict() {
             } else if (ig.promptStyle === "sdxl" && booruStableLead) {
                 styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
             }
+            if (igLi && igLi.enabled && igLi.useDanbooruTags && igLi.promptAssemblyMode !== 'structured' && ig.promptStyle !== "sdxl" && !booruStd) {
+                styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
+            }
             let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
 
             let liInstructions = "";
@@ -4313,9 +4538,11 @@ function buildBaseDict() {
                 } else {
                     const recentChat = getRecentChatForLoraKeywords();
                     const assignments = li.characterAssignments[charKeyImg] || [];
+                    const structuredBlocks = shouldUseStructuredCharacterBlocks(ig, li);
 
                     // Filter assignments present in recent chat
                     const activeAssignments = assignments.filter(a => {
+                        ensureStructuredCharacterAssignment(a);
                         if (!a.match_keywords) return true;
                         const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
                         if (kws.length === 0) return true;
@@ -4337,8 +4564,9 @@ function buildBaseDict() {
                                     kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
                                 }
                             }
-                            if (li.useDanbooruTags && a.booru_tags) {
-                                booruStrings.push(`${a.character}: ${a.booru_tags}`);
+                            const tagBlock = getAssignmentTagBlock(a) || a.booru_tags;
+                            if (li.useDanbooruTags && tagBlock && !structuredBlocks) {
+                                booruStrings.push(`${a.character}: ${tagBlock}`);
                             }
                             if (li.useCharDescriptions && a.description) {
                                 descStrings.push(`${a.character}: ${a.description}`);
@@ -4348,13 +4576,16 @@ function buildBaseDict() {
                         if (kwStrings.length > 0) {
                             liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
                         }
+                        if (structuredBlocks) {
+                            liInstructions += `\nCharacter action slots: ${buildStructuredCharacterActionReference(activeAssignments)}. Inside the <img prompt=""> value, use these slot labels only for actions, poses, placement, and expressions. Do not output story character names. Do not output, copy, summarize, or rewrite character appearance tags, clothing tags, series tags, or known character tags; the app appends exact character tags after generation.`;
+                        }
                         if (booruStrings.length > 0) {
                             if (booruStd) {
                                 liInstructions += `\nCharacter appearance (per role); merge into your flowing prose naturally—do not paste as a comma tag block after the mandatory prefix: ${booruStrings.join(' | ')}`;
                             } else if (ig.promptStyle === "sdxl") {
                                 liInstructions += `\nCharacter cues (per role)—weave into English prose in the prompt value only; no underscore tokens or comma tag lists: ${booruStrings.join(' | ')}`;
                             } else {
-                                liInstructions += `\nInclude these booru tags for character appearances in the prompt: ${booruStrings.join(' | ')}`;
+                                liInstructions += `\nCharacter appearance tags by role. Use these as Anima-style comma tags with spaces instead of underscores. Keep known character/series tags exact and escaped when they have parentheses. Do not combine story names with look-alike tags: ${booruStrings.join(' | ')}`;
                             }
                         }
                         if (descStrings.length > 0) {
@@ -4511,10 +4742,10 @@ function handlePromptInjection(data) {
             modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
         }
         if (activeLoraAssignRequest.useTags) {
-            jsonFormat += `, "booru_tags": "danbooru_tag1, danbooru_tag2, ..."`;
-            let booruInstr = "You MUST provide Danbooru-style booru tags describing each character's facial features and body characteristics (e.g. 'blue_eyes, long_hair, large_breasts, ponytail, school_uniform'). Focus on visual/physical traits. ";
+            jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "pose_expression_tags": "default pose/expression tags", "current_state_tags": "temporary visual state tags"`;
+            let booruInstr = "You MUST provide Danbooru-style tag fields for each character. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes in physical_tags, outfit/accessories in clothing_tags, default pose/expression in pose_expression_tags, and temporary scene-specific visual state in current_state_tags. ";
             if (activeLoraAssignRequest.ensureCharacterTag) {
-                booruInstr += "ADDITIONALLY: For EACH character, you MUST also include a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. This character tag MUST be included in booru_tags. ";
+                booruInstr += "ADDITIONALLY: For EACH character, character_tag MUST contain a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. ";
             }
             booruInstr += "Use 'match_keywords' to list name variations for keyword detection. ";
             modeInstructions += booruInstr;
@@ -5050,7 +5281,7 @@ jQuery(async () => {
                     // 2. Send the extracted prompt to ComfyUI!
                     setTimeout(() => {
                         toastr.info("Image tag detected. Sending to ComfyUI...");
-                        igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true });
+                        igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true, appendStructuredCharacterBlocks: true });
                     }, 500);
                 } 
             });
