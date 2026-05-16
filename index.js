@@ -145,6 +145,7 @@ function initProfile() {
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},
+                lastCharacterAnalysisResponse: "",
                 compiledPromptOverride: ""
             }
         },
@@ -1623,10 +1624,11 @@ function renderImageGen(c) {
     if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
 
     // LoRA Intelligence state
-    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, compiledPromptOverride: "" };
+    if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
     if (s.loraIntel.ensureCharacterTag === undefined) s.loraIntel.ensureCharacterTag = false;
     if (s.loraIntel.descriptionStyle === undefined) s.loraIntel.descriptionStyle = 'booru';
     if (s.loraIntel.promptAssemblyMode === undefined) s.loraIntel.promptAssemblyMode = 'structured';
+    if (s.loraIntel.lastCharacterAnalysisResponse === undefined) s.loraIntel.lastCharacterAnalysisResponse = "";
     const li = s.loraIntel;
     const charKey = getCharacterKey() || "default";
     ensureStructuredCharacterAssignments(li, charKey);
@@ -1823,21 +1825,6 @@ function renderImageGen(c) {
                     </div>
                 </div>
 
-                <div id="li_last_comfy_api_wrap" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
-                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-paper-plane" style="color: #a855f7; margin-right: 6px;"></i>Last ComfyUI <span style="font-family: Consolas, Monaco, monospace; font-size: 0.8rem;">/prompt</span> request</span>
-                        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-                            <label for="li_last_comfy_req_view" style="font-size: 0.7rem; color: var(--text-muted); margin: 0;">View</label>
-                            <select id="li_last_comfy_req_view" class="ps-modern-input" style="width: auto; max-width: 280px; padding: 6px 10px; font-size: 0.75rem; cursor: pointer;">
-                                <option value="summary">Summary (prompts, LoRAs, samplers)</option>
-                                <option value="json">Full JSON (entire graph)</option>
-                            </select>
-                            <button type="button" id="li_last_comfy_req_copy" class="ps-modern-btn secondary" style="padding: 6px 12px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
-                        </div>
-                    </div>
-                    <textarea id="li_last_comfy_req_body" readonly class="ps-modern-input" style="height: 220px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.72rem; background: #0c0c0e; color: var(--text-main); cursor: default;" spellcheck="false"></textarea>
-                </div>
-
                 <div id="li_main_content" style="display: ${li.enabled ? 'block' : 'none'};">
                     <!-- Mode Toggles -->
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
@@ -1928,17 +1915,33 @@ function renderImageGen(c) {
                         </div>
                     </div>
 
-                    <!-- Compiled Prompt Preview -->
+                    <!-- Debug Viewers -->
                     <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
                         <div id="li_prompt_preview_header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; cursor: pointer; user-select: none;">
-                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-eye" style="color: #3b82f6; margin-right: 6px;"></i>Compiled Prompt Preview</span>
+                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-bug" style="color: #3b82f6; margin-right: 6px;"></i>Debug Viewers</span>
                             <i id="li_prompt_chevron" class="fa-solid fa-chevron-down" style="color: var(--text-muted); transition: transform 0.2s;"></i>
                         </div>
                         <div id="li_prompt_preview_body" style="display: none; padding: 0 15px 15px 15px;">
-                            <textarea id="li_compiled_prompt" class="ps-modern-input" style="height: 120px; resize: vertical; font-family: monospace; font-size: 0.75rem; background: #000;" placeholder="The compiled prompt based on your toggle settings will appear here during generation. You can also manually override it.">${li.compiledPromptOverride || ''}</textarea>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-                                <span style="font-size: 0.65rem; color: var(--text-muted);">Manual overrides will be used instead of AI compilation.</span>
-                                <button id="li_clear_override" class="ps-modern-btn secondary" style="padding: 3px 10px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);">Clear Override</button>
+                            <div id="li_last_comfy_api_wrap" style="margin-bottom: 14px;">
+                                <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-main);"><i class="fa-solid fa-paper-plane" style="color: #a855f7; margin-right: 6px;"></i>Last ComfyUI <span style="font-family: Consolas, Monaco, monospace; font-size: 0.78rem;">/prompt</span> request</span>
+                                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                                        <label for="li_last_comfy_req_view" style="font-size: 0.7rem; color: var(--text-muted); margin: 0;">View</label>
+                                        <select id="li_last_comfy_req_view" class="ps-modern-input" style="width: auto; max-width: 280px; padding: 6px 10px; font-size: 0.75rem; cursor: pointer;">
+                                            <option value="summary">Summary (prompts, LoRAs, samplers)</option>
+                                            <option value="json">Full JSON (entire graph)</option>
+                                        </select>
+                                        <button type="button" id="li_last_comfy_req_copy" class="ps-modern-btn secondary" style="padding: 6px 12px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
+                                    </div>
+                                </div>
+                                <textarea id="li_last_comfy_req_body" readonly class="ps-modern-input" style="height: 220px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.72rem; background: #0c0c0e; color: var(--text-main); cursor: default;" spellcheck="false"></textarea>
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-main);"><i class="fa-solid fa-users-gear" style="color: var(--gold); margin-right: 6px;"></i>Last character analysis response</span>
+                                    <button type="button" id="li_last_analysis_copy" class="ps-modern-btn secondary" style="padding: 6px 12px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
+                                </div>
+                                <textarea id="li_last_analysis_body" readonly class="ps-modern-input" style="height: 180px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.72rem; background: #0c0c0e; color: var(--text-main); cursor: default;" spellcheck="false">${psEscapeText(li.lastCharacterAnalysisResponse || "")}</textarea>
                             </div>
                         </div>
                     </div>
@@ -2111,12 +2114,18 @@ function renderImageGen(c) {
         if (body.is(":visible")) { body.slideUp(200); chevron.css("transform", "rotate(0deg)"); }
         else { body.slideDown(200); chevron.css("transform", "rotate(180deg)"); }
     });
-    $("#li_compiled_prompt").on("input", function() { li.compiledPromptOverride = $(this).val(); saveProfileToMemory(); });
-    $("#li_clear_override").on("click", function() { li.compiledPromptOverride = ""; $("#li_compiled_prompt").val(""); saveProfileToMemory(); toastr.info("Override cleared."); });
-
     $("#li_last_comfy_req_view").on("change", function() { igRefreshLastComfyApiPanel(); });
     $("#li_last_comfy_req_copy").on("click", async function() {
         const t = $("#li_last_comfy_req_body").val();
+        try {
+            await navigator.clipboard.writeText(t);
+            toastr.success("Copied to clipboard");
+        } catch (e) {
+            toastr.error("Copy failed");
+        }
+    });
+    $("#li_last_analysis_copy").on("click", async function() {
+        const t = $("#li_last_analysis_body").val();
         try {
             await navigator.clipboard.writeText(t);
             toastr.success("Copied to clipboard");
@@ -2204,6 +2213,9 @@ function renderImageGen(c) {
                 return;
             }
             rawOutput = stripUtilityThinkingWrapper(rawOutput);
+            li.lastCharacterAnalysisResponse = rawOutput;
+            $("#li_last_analysis_body").val(rawOutput);
+            saveProfileToMemory();
 
             // Parse the AI response
             try {
@@ -3307,17 +3319,6 @@ function getAssignmentTagBlock(a) {
     return normalizeGeneratedTagField(parts.join(', '));
 }
 
-function buildStructuredCharacterPromptBlocks(assignments) {
-    if (!Array.isArray(assignments) || assignments.length === 0) return "";
-    const total = assignments.length;
-    return assignments.map((a, idx) => {
-        const block = getAssignmentTagBlock(a);
-        if (!block) return "";
-        if (total <= 1) return block;
-        return `${getCharacterSlotLabel(idx, total)}, ${block}`;
-    }).filter(Boolean).join(', ');
-}
-
 function buildStructuredCharacterActionReference(assignments) {
     if (!Array.isArray(assignments) || assignments.length === 0) return "";
     const total = assignments.length;
@@ -3325,6 +3326,86 @@ function buildStructuredCharacterActionReference(assignments) {
         const name = (a.character || `character ${idx + 1}`).trim();
         return `${getCharacterSlotLabel(idx, total)} = ${name}`;
     }).join(' | ');
+}
+
+function normalizeStructuredPromptValue(value) {
+    return normalizeGeneratedTagField(String(value || "").replace(/\n+/g, ', '));
+}
+
+function parseStructuredSceneResponse(rawText, assignments) {
+    const parsed = { background: "", composition: "", actions: {} };
+    const fallback = [];
+    const total = Array.isArray(assignments) ? assignments.length : 0;
+    const slotLabels = (assignments || []).map((_, idx) => getCharacterSlotLabel(idx, total).toLowerCase());
+
+    String(rawText || "").split(/\r?\n/).forEach(line => {
+        const clean = line.trim().replace(/^[-*]\s*/, "");
+        if (!clean) return;
+        const match = clean.match(/^([^:]+):\s*(.+)$/);
+        if (!match) {
+            fallback.push(clean);
+            return;
+        }
+
+        const key = match[1].trim().toLowerCase();
+        const value = match[2].trim();
+        if (!value) return;
+
+        if (key === "background" || key === "scene" || key === "environment") {
+            parsed.background = value;
+            return;
+        }
+        if (key === "composition" || key === "camera" || key === "layout") {
+            parsed.composition = value;
+            return;
+        }
+
+        const slot = slotLabels.find(label => key.includes(label));
+        if (slot && (key.includes("action") || key.includes("pose") || key.includes("expression") || key.includes("placement"))) {
+            parsed.actions[slot] = value;
+            return;
+        }
+
+        fallback.push(value);
+    });
+
+    if (!parsed.background && fallback.length > 0) parsed.background = fallback.join(', ');
+    return parsed;
+}
+
+function buildStructuredKeyValuePrompt({ s, li, sceneText, assignments }) {
+    const lead = normalizeStructuredPromptValue(buildBooruStandardTagLead(s, li));
+    const extraTags = normalizeStructuredPromptValue(s?.promptExtra || "");
+    const parsed = parseStructuredSceneResponse(sceneText, assignments);
+    const total = Array.isArray(assignments) ? assignments.length : 0;
+    const lines = [];
+
+    const tags = [lead, extraTags].filter(Boolean).join(', ');
+    if (tags) lines.push(`tags: ${tags}`);
+    lines.push("characters:");
+
+    (assignments || []).forEach((a, idx) => {
+        ensureStructuredCharacterAssignment(a);
+        const label = getCharacterSlotLabel(idx, total);
+        const slotKey = label.toLowerCase();
+        const identity = normalizeStructuredPromptValue([a.character_tag, a.series_tag].filter(Boolean).join(', '));
+        const appearance = normalizeStructuredPromptValue([a.physical_tags, a.current_state_tags].filter(Boolean).join(', '));
+        const clothes = normalizeStructuredPromptValue(a.clothing_tags);
+        const action = normalizeStructuredPromptValue([parsed.actions[slotKey], a.pose_expression_tags].filter(Boolean).join(', '));
+
+        lines.push(`${label}:`);
+        if (identity) lines.push(`identity: ${identity}`);
+        if (appearance) lines.push(`appearance: ${appearance}`);
+        if (clothes) lines.push(`clothes: ${clothes}`);
+        if (action) lines.push(`action: ${action}`);
+    });
+
+    const background = normalizeStructuredPromptValue(parsed.background);
+    const composition = normalizeStructuredPromptValue(parsed.composition);
+    if (background) lines.push(`background: ${background}`);
+    if (composition) lines.push(`composition: ${composition}`);
+
+    return lines.join('\n');
 }
 
 function shouldUseStructuredCharacterBlocks(s, li) {
@@ -3348,16 +3429,12 @@ function buildBooruStandardTagLead(s, li) {
     if (!s || !isLoraIntelBooruTagsMode(li)) return '';
     const raw = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
     if (!raw) return '';
-    return sanitizePromptTags(raw);
+    return normalizeGeneratedTagField(raw);
 }
 
 async function generateImagePromptText() {
     const s = localProfile.imageGen;
     const li = s.loraIntel;
-
-    if (li && li.enabled && li.compiledPromptOverride && li.compiledPromptOverride.trim() !== "") {
-        return { prompt: li.compiledPromptOverride.trim(), skipLeadPrefix: true };
-    }
 
     const chat = getContext().chat;
     const charKey = getCharacterKey() || "default";
@@ -3369,13 +3446,15 @@ async function generateImagePromptText() {
 
     const booruStd = isBooruStandardImageMode(s, li);
     const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
-    const structuredBlocks = shouldUseStructuredCharacterBlocks(s, li);
-    const matchedAssignments = structuredBlocks ? getMatchedCharacterAssignments(li, charKey) : [];
-    const structuredCharacterBlocks = structuredBlocks ? buildStructuredCharacterPromptBlocks(matchedAssignments) : "";
+    const structuredMode = shouldUseStructuredCharacterBlocks(s, li);
+    const matchedAssignments = structuredMode ? getMatchedCharacterAssignments(li, charKey) : [];
+    const structuredBlocks = structuredMode && matchedAssignments.length > 0;
     const structuredActionReference = structuredBlocks ? buildStructuredCharacterActionReference(matchedAssignments) : "";
 
     let styleStr;
-    if (s.promptStyle === "illustrious") {
+    if (structuredBlocks) {
+        styleStr = "Structured Anima prompt planning. Output ONLY key-value lines for scene/action planning, not the final prompt. Required keys: background, composition, and one '<slot> action' line for each listed character slot. Do not output character appearance, clothing, series, known character tags, story character names, JSON, markdown, bullets, or explanations.";
+    } else if (s.promptStyle === "illustrious") {
         styleStr = "Use Danbooru-style tags separated by commas.";
     } else if (s.promptStyle === "sdxl") {
         styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
@@ -3409,7 +3488,7 @@ async function generateImagePromptText() {
                 );
         }
         if (structuredActionReference) {
-            extraParts.push(`Character action slots: ${structuredActionReference}. You may describe what each slot is doing, wearing generally, or where they stand, but do NOT output story character names and do NOT output/copy appearance, clothing, series, or known-character tags. The app appends exact character tags separately.`);
+            extraParts.push(`Character slots: ${structuredActionReference}. Output lines like "background: ...", "composition: ...", and "${getCharacterSlotLabel(0, matchedAssignments.length)} action: ...". Keep actions/poses/placement only.`);
         } else if (li && li.enabled) {
             const matchedBooru = getMatchedBooruTags(li, charKey);
             if (matchedBooru.length > 0) {
@@ -3421,7 +3500,7 @@ async function generateImagePromptText() {
     } else {
         extraStr = s.promptExtra || "None";
         if (structuredActionReference) {
-            extraStr += `\nCharacter action slots: ${structuredActionReference}. Write scene/action/pose/composition tags for these slots only. Do not output story character names. Do not output, copy, summarize, or rewrite character appearance tags, clothing tags, series tags, or known character tags; the app appends those exact tags separately.`;
+            extraStr += `\nCharacter slots: ${structuredActionReference}. Output lines like "background: ...", "composition: ...", and "${getCharacterSlotLabel(0, matchedAssignments.length)} action: ...". Keep actions/poses/placement only.`;
         } else if (li && li.enabled) {
             const matchedBooru = getMatchedBooruTags(li, charKey);
             if (matchedBooru.length > 0) {
@@ -3443,17 +3522,13 @@ async function generateImagePromptText() {
         finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
     }
 
-    finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
-    if (structuredCharacterBlocks) {
-        finalPrompt = [finalPrompt, structuredCharacterBlocks].filter(Boolean).join(', ');
+    if (structuredBlocks && matchedAssignments.length > 0) {
+        finalPrompt = buildStructuredKeyValuePrompt({ s, li, sceneText: finalPrompt, assignments: matchedAssignments });
+    } else {
         finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
     }
 
-    if (li && li.enabled) {
-        $("#li_compiled_prompt").val(ensureImageLeadPrefix(finalPrompt));
-    }
-
-    return { prompt: finalPrompt, skipLeadPrefix: false };
+    return { prompt: finalPrompt, skipLeadPrefix: structuredBlocks && matchedAssignments.length > 0 };
 }
 
 async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
@@ -3464,21 +3539,22 @@ async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
     if (s.promptStyle === "illustrious") {
         raw = stripPreambleBeforeBooruTags(raw);
     }
+    const rawSceneText = raw;
     let finalPrompt = sanitizePromptTags(raw);
     if (opts && opts.normalizeGeneratedPrompt) {
         finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
     }
+    let builtStructuredPrompt = false;
     if (opts && opts.appendStructuredCharacterBlocks) {
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
         const matchedAssignments = shouldUseStructuredCharacterBlocks(s, li) ? getMatchedCharacterAssignments(li, charKey) : [];
-        const structuredCharacterBlocks = buildStructuredCharacterPromptBlocks(matchedAssignments);
-        if (structuredCharacterBlocks) {
-            finalPrompt = [finalPrompt, structuredCharacterBlocks].filter(Boolean).join(', ');
-            finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+        if (matchedAssignments.length > 0) {
+            finalPrompt = buildStructuredKeyValuePrompt({ s, li, sceneText: rawSceneText, assignments: matchedAssignments });
+            builtStructuredPrompt = true;
         }
     }
-    if (!opts || !opts.skipLeadPrefix) {
+    if (!builtStructuredPrompt && (!opts || !opts.skipLeadPrefix)) {
         finalPrompt = ensureImageLeadPrefix(finalPrompt);
     }
 
@@ -4516,11 +4592,14 @@ function buildBaseDict() {
             const igLi = ig.loraIntel;
             const booruStd = isBooruStandardImageMode(ig, igLi);
             const charKeyImg = getCharacterKey() || "default";
+            const promptUsesStructuredBlocks = shouldUseStructuredCharacterBlocks(ig, igLi) && getMatchedCharacterAssignments(igLi, charKeyImg).length > 0;
 
             const booruStableLead = buildBooruStandardTagLead(ig, igLi);
 
             let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description." : "Use keywords.");
-            if (booruStd) {
+            if (promptUsesStructuredBlocks) {
+                styleStr = "Inside the <img prompt=\"\"> value, output ONLY key-value lines for scene/action planning, not the final prompt. Required keys: background, composition, and one '<slot> action' line for each listed character slot. Do not output character appearance, clothing, series, known character tags, story character names, JSON, markdown, bullets, or explanations.";
+            } else if (booruStd) {
                 styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list).";
             } else if (ig.promptStyle === "sdxl" && booruStableLead) {
                 styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
@@ -4533,12 +4612,10 @@ function buildBaseDict() {
             let liInstructions = "";
             if (igLi && igLi.enabled) {
                 const li = igLi;
-                if (li.compiledPromptOverride) {
-                    liInstructions = `\n[OVERRIDE]\nUse exactly this prompt: ${li.compiledPromptOverride}`;
-                } else {
+                {
                     const recentChat = getRecentChatForLoraKeywords();
                     const assignments = li.characterAssignments[charKeyImg] || [];
-                    const structuredBlocks = shouldUseStructuredCharacterBlocks(ig, li);
+                    const structuredBlocks = promptUsesStructuredBlocks;
 
                     // Filter assignments present in recent chat
                     const activeAssignments = assignments.filter(a => {
@@ -4604,9 +4681,11 @@ function buildBaseDict() {
                         : `\nExtra (tags / instructions to keep as comma-separated tags): ${peTrim}`))
                 : "";
             const tagLeadLine = booruStableLead
-                ? (ig.promptStyle === "sdxl"
+                ? (promptUsesStructuredBlocks
+                    ? ""
+                    : (ig.promptStyle === "sdxl"
                     ? `\nReference leading tags (the app prepends these; do NOT paste them into the attribute—write prose only inside prompt=\"\"): ${booruStableLead}`
-                    : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
+                    : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`))
                 : "";
 
             dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}`;
