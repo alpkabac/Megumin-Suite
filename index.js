@@ -4705,7 +4705,9 @@ function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 /** Prepends stable leading tags via buildBooruStandardTagLead (Booru Tags mode only). */
 function ensureImageLeadPrefix(rawPrompt) {
     const s = localProfile?.imageGen;
-    let p = sanitizePromptTags(String(rawPrompt ?? "")).trim();
+    const raw = String(rawPrompt ?? "").trim();
+    if (/^tags\s*:/i.test(raw)) return raw;
+    let p = sanitizePromptTags(raw).trim();
     if (!s || !s.enabled) return p;
     const lead = buildBooruStandardTagLead(s, s.loraIntel);
     if (!lead) return p;
