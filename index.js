@@ -23,6 +23,7 @@ let activeImageGenRequest = null;
 let activeVideoGenRequest = null;
 let activeStoryPlanRequest = null;
 let activeLoraAssignRequest = null;
+let activeLoraStateUpdateRequest = null;
 let activeVideoGenJob = false;
 const completedVideoPromptIds = new Set();
 let isDevEngineDirty = false;
@@ -2974,6 +2975,7 @@ function liRenderAssignmentTable(li, charKey, s) {
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                         ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
+                        <button type="button" class="ps-modern-btn secondary li-update-state" title="Update clothing, pose, and current state from the latest chat messages" style="padding: 5px 8px; font-size: 0.65rem; color: #3b82f6; border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-rotate"></i> State</button>
                         <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                     ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
@@ -3013,6 +3015,9 @@ function liRenderAssignmentTable(li, charKey, s) {
                 normalizeStructuredCharacterAssignment(a);
                 $(this).val(a[key]);
                 saveProfileToMemory();
+            });
+            row.find(".li-update-state").on("click", function() {
+                liUpdateCharacterStateTags(li, charKey, s, a, $(this));
             });
             row.find(".li-remove-assign").on("click", function() {
                 assignments.splice(idx, 1);
@@ -3300,6 +3305,18 @@ function getMatchedCharacterAssignments(li, charKey) {
         });
 }
 
+function getRecentVisualContext(messageCount = 2) {
+    const chat = getContext().chat || [];
+    return chat
+        .filter(m => !m.is_system)
+        .slice(-messageCount)
+        .map(m => {
+            const text = cleanMessageTextForKeywords(m.mes);
+            return `${m.name}: ${text.trim()}`;
+        })
+        .join("\n\n");
+}
+
 function getCharacterSlotLabel(index, total) {
     if (total <= 1) return "main character";
     const labels = ["first character", "second character", "third character", "fourth character", "fifth character", "sixth character"];
@@ -3406,6 +3423,88 @@ function buildStructuredKeyValuePrompt({ s, li, sceneText, assignments }) {
     if (composition) lines.push(`composition: ${composition}`);
 
     return lines.join('\n');
+}
+
+async function liUpdateCharacterStateTags(li, charKey, s, assignment, btn = null) {
+    ensureStructuredCharacterAssignment(assignment);
+    const chatText = getRecentVisualContext(2);
+    if (chatText.length < 20) {
+        toastr.warning("Not enough recent chat to update visual state.");
+        return;
+    }
+
+    const originalHtml = btn ? btn.html() : "";
+    if (btn) btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+
+    try {
+        if (li.useDanbooruTags) await loadDanbooruTags();
+
+        activeLoraStateUpdateRequest = {
+            chatText,
+            character: assignment.character || "",
+            match_keywords: assignment.match_keywords || "",
+            current: {
+                clothing_tags: assignment.clothing_tags || "",
+                pose_expression_tags: assignment.pose_expression_tags || "",
+                current_state_tags: assignment.current_state_tags || ""
+            }
+        };
+
+        let rawOutput;
+        if (s.generatorBackend === "direct") {
+            rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_STATE_UPDATE___" });
+        } else {
+            let presetResult;
+            await useMeguminEngine(async () => {
+                presetResult = await generateQuietPrompt({ prompt: "___PS_LORA_STATE_UPDATE___" });
+            });
+            rawOutput = presetResult;
+        }
+
+        activeLoraStateUpdateRequest = null;
+        rawOutput = stripUtilityThinkingWrapper(rawOutput || "").trim();
+        if (!rawOutput) {
+            toastr.warning("AI returned empty state update.");
+            return;
+        }
+
+        li.lastCharacterAnalysisResponse = rawOutput;
+        $("#li_last_analysis_body").val(rawOutput);
+
+        let jsonText = rawOutput;
+        let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            const trimmed = jsonText.trim();
+            if (trimmed.startsWith('"')) {
+                jsonText = `{${trimmed}`;
+                if (!jsonText.trim().endsWith('}')) jsonText = jsonText.trim() + '}';
+                jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            }
+        }
+        if (!jsonMatch) {
+            toastr.warning("State update response was not valid JSON.");
+            saveProfileToMemory();
+            return;
+        }
+
+        const update = JSON.parse(jsonMatch[0]);
+        ['clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+            if (update[key] === undefined) return;
+            const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(update[key]) : update[key];
+            assignment[key] = normalizeGeneratedTagField(repairedTags);
+        });
+        normalizeStructuredCharacterAssignment(assignment);
+
+        saveProfileToMemory();
+        liRenderAssignmentTable(li, charKey, s);
+        toastr.success("Updated current visual tags.");
+    } catch (e) {
+        toastr.error("State update failed.");
+        console.error(e);
+    } finally {
+        activeLoraStateUpdateRequest = null;
+        if (btn) btn.prop("disabled", false).html(originalHtml);
+    }
 }
 
 function shouldUseStructuredCharacterBlocks(s, li) {
@@ -4804,6 +4903,27 @@ function handlePromptInjection(data) {
     }
 
         console.log(`[${extensionName}] 🎯 Injected Image Gen array in memory.`);
+        return;
+    }
+
+    // --- INJECT LORA STATE UPDATE PROMPT ---
+    if (activeLoraStateUpdateRequest) {
+        messages.length = 0;
+        messages.push({
+            "role": "system",
+            "content": "You update temporary visual metadata for image generation. Return exactly one JSON object and nothing else. Never update permanent identity, body, face, hair, eye color, known character tags, series tags, or match keywords."
+        });
+        messages.push({
+            "role": "user",
+            "content": `Update only the temporary visual tags for this character using the latest chat.\n\n<character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\nCurrent clothing_tags: ${activeLoraStateUpdateRequest.current.clothing_tags || ""}\nCurrent pose_expression_tags: ${activeLoraStateUpdateRequest.current.pose_expression_tags || ""}\nCurrent current_state_tags: ${activeLoraStateUpdateRequest.current.current_state_tags || ""}\n</character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n  "clothing_tags": "current outfit/accessory tags only",\n  "pose_expression_tags": "current pose/expression/action tags only",\n  "current_state_tags": "temporary state tags only, such as wet hair, bruised cheek, blood, torn clothes, holding object, empty if none"\n}\n\nRules:\n- Use concise Danbooru-style comma-separated tags.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
+        });
+        if (!disablePrefill) {
+            messages.push({
+                "role": "assistant",
+                "content": "{\n"
+            });
+        }
+        console.log(`[${extensionName}] Injected LoRA state update array in memory.`);
         return;
     }
 
