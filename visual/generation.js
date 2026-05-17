@@ -203,7 +203,23 @@ export function createVisualGeneration(api) {
         if (a.clothing_tags === undefined) a.clothing_tags = "";
         if (a.pose_expression_tags === undefined) a.pose_expression_tags = "";
         if (a.current_state_tags === undefined) a.current_state_tags = "";
+        if (!a.tagFieldToggles) a.tagFieldToggles = {};
+        getTagFieldToggleDefaults().forEach(({ key }) => {
+            if (a.tagFieldToggles[key] === undefined) a.tagFieldToggles[key] = true;
+        });
         return a;
+    }
+
+    function getTagFieldToggleDefaults() {
+        return [
+            { key: "characterTag", label: "Char" },
+            { key: "seriesTag", label: "Series" },
+            { key: "physicalTags", label: "Phys" },
+            { key: "clothingTags", label: "Clothes" },
+            { key: "poseExpressionTags", label: "Pose" },
+            { key: "currentStateTags", label: "State" },
+            { key: "sceneAction", label: "Action" }
+        ];
     }
 
     function ensureLoraIntelDefaults(li) {
@@ -215,16 +231,10 @@ export function createVisualGeneration(api) {
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
         if (!li.tagFieldToggles) li.tagFieldToggles = {};
         const defaults = {
-            characterTag: true,
-            seriesTag: true,
-            physicalTags: true,
-            clothingTags: true,
-            poseExpressionTags: true,
-            currentStateTags: true,
-            sceneAction: true,
             background: true,
             composition: true
         };
+        getTagFieldToggleDefaults().forEach(({ key }) => { defaults[key] = true; });
         Object.keys(defaults).forEach(key => {
             if (li.tagFieldToggles[key] === undefined) li.tagFieldToggles[key] = defaults[key];
         });
@@ -1765,7 +1775,7 @@ export function createVisualGeneration(api) {
         `);
 
         header.find("#li_add_custom_assign").on("click", function() {
-            assignments.push({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", pose_expression_tags: "", current_state_tags: "" });
+            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", pose_expression_tags: "", current_state_tags: "" }));
             li.characterAssignments[charKey] = assignments;
             saveProfileToMemory();
             liRenderAssignmentTable(li, charKey, s);
@@ -1782,6 +1792,10 @@ export function createVisualGeneration(api) {
             ensureStructuredCharacterAssignment(a);
 
             if (showBooru) {
+                const rowToggle = (key, label) => {
+                    const enabled = a.tagFieldToggles?.[key] !== false;
+                    return `<button type="button" class="ps-modern-btn secondary li-row-field-toggle ${enabled ? 'active' : ''}" data-field="${key}" title="Include ${label} for this character" style="padding: 4px 7px; font-size: 0.62rem; min-width: auto; border-color: ${enabled ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'}; color: ${enabled ? '#10b981' : 'var(--text-muted)'};">${label}</button>`;
+                };
                 const tagField = (key, label, placeholder) => `
                     <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
                         <span style="font-size: 0.62rem; font-weight: 800; color: #10b981; text-transform: uppercase;">${label}</span>
@@ -1798,6 +1812,10 @@ export function createVisualGeneration(api) {
                             <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                         ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <span style="font-size: 0.62rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Include</span>
+                            ${getTagFieldToggleDefaults().map(t => rowToggle(t.key, t.label)).join("")}
+                        </div>
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
                             ${tagField('character_tag', 'Character Tag', 'saber \\(fate\\)')}
                             ${tagField('series_tag', 'Series Tag', 'fate \\(series\\)')}
@@ -1814,6 +1832,13 @@ export function createVisualGeneration(api) {
                 if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                 if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                 if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+                row.find(".li-row-field-toggle").on("click", function() {
+                    const key = $(this).attr("data-field");
+                    ensureStructuredCharacterAssignment(a);
+                    a.tagFieldToggles[key] = !a.tagFieldToggles[key];
+                    saveProfileToMemory();
+                    liRenderAssignmentTable(li, charKey, s);
+                });
                 row.find(".li-edit-tag-field").on("input", function() {
                     a[$(this).attr("data-key")] = $(this).val();
                     a.booru_tags = [
@@ -2107,8 +2132,7 @@ export function createVisualGeneration(api) {
 
         const snippets = assignments.map((a) => {
             const tagBlock = getAssignmentTagBlock(a, li);
-            if (!tagBlock) return "";
-            return a.character ? `${a.character}: ${tagBlock}` : tagBlock;
+            return tagBlock || "";
         }).filter(Boolean);
 
         if (snippets.length === 0) {
@@ -2179,8 +2203,9 @@ export function createVisualGeneration(api) {
 
     function getAssignmentTagParts(a, li) {
         ensureStructuredCharacterAssignment(a);
-        const toggles = li?.tagFieldToggles || {};
-        const enabled = (key) => toggles[key] !== false;
+        const globalToggles = li?.tagFieldToggles || {};
+        const rowToggles = a?.tagFieldToggles || {};
+        const enabled = (key) => globalToggles[key] !== false && rowToggles[key] !== false;
         return [
             enabled("characterTag") ? a.character_tag : "",
             enabled("seriesTag") ? a.series_tag : "",
@@ -2250,8 +2275,9 @@ export function createVisualGeneration(api) {
         const extraTags = normalizeStructuredPromptValue(s?.promptExtra || "");
         const parsed = parseStructuredSceneResponse(sceneText, assignments);
         const total = Array.isArray(assignments) ? assignments.length : 0;
-        const toggles = li?.tagFieldToggles || {};
-        const enabled = (key) => toggles[key] !== false;
+        const globalToggles = li?.tagFieldToggles || {};
+        const enabled = (a, key) => globalToggles[key] !== false && (!a || a.tagFieldToggles?.[key] !== false);
+        const globalEnabled = (key) => globalToggles[key] !== false;
         const lines = [];
 
         const tags = [lead, extraTags].filter(Boolean).join(', ');
@@ -2263,17 +2289,17 @@ export function createVisualGeneration(api) {
             const label = getCharacterSlotLabel(idx, total);
             const slotKey = label.toLowerCase();
             const identity = normalizeStructuredPromptValue([
-                enabled("characterTag") ? a.character_tag : "",
-                enabled("seriesTag") ? a.series_tag : ""
+                enabled(a, "characterTag") ? a.character_tag : "",
+                enabled(a, "seriesTag") ? a.series_tag : ""
             ].filter(Boolean).join(', '));
             const appearance = normalizeStructuredPromptValue([
-                enabled("physicalTags") ? a.physical_tags : "",
-                enabled("currentStateTags") ? a.current_state_tags : ""
+                enabled(a, "physicalTags") ? a.physical_tags : "",
+                enabled(a, "currentStateTags") ? a.current_state_tags : ""
             ].filter(Boolean).join(', '));
-            const clothes = normalizeStructuredPromptValue(enabled("clothingTags") ? a.clothing_tags : "");
+            const clothes = normalizeStructuredPromptValue(enabled(a, "clothingTags") ? a.clothing_tags : "");
             const action = normalizeStructuredPromptValue([
-                enabled("sceneAction") ? parsed.actions[slotKey] : "",
-                enabled("poseExpressionTags") ? a.pose_expression_tags : ""
+                enabled(a, "sceneAction") ? parsed.actions[slotKey] : "",
+                enabled(a, "poseExpressionTags") ? a.pose_expression_tags : ""
             ].filter(Boolean).join(', '));
 
             lines.push(`${label}:`);
@@ -2285,8 +2311,8 @@ export function createVisualGeneration(api) {
 
         const background = normalizeStructuredPromptValue(parsed.background);
         const composition = normalizeStructuredPromptValue(parsed.composition);
-        if (enabled("background") && background) lines.push(`background: ${background}`);
-        if (enabled("composition") && composition) lines.push(`composition: ${composition}`);
+        if (globalEnabled("background") && background) lines.push(`background: ${background}`);
+        if (globalEnabled("composition") && composition) lines.push(`composition: ${composition}`);
 
         return lines.join('\n');
     }
