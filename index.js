@@ -423,6 +423,44 @@ function normalizeGeneratedTagField(tagString) {
     return normalizeAnimaGeneratedTags(sanitizePromptTags(tagString || ""));
 }
 
+function parseMatchKeywords(matchKeywords) {
+    if (!matchKeywords || typeof matchKeywords !== 'string') return [];
+    const seen = new Set();
+    return matchKeywords
+        .split(',')
+        .map(k => k.trim().toLowerCase())
+        .filter(k => k)
+        .map(k => k.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim())
+        .filter(k => {
+            if (!k || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+}
+
+function normalizeTextForKeywordMatching(text) {
+    return String(text || "")
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function keywordAppearsInText(keyword, normalizedText) {
+    const kw = parseMatchKeywords(keyword).join(' ');
+    if (!kw || !normalizedText) return false;
+    const tokens = kw.split(' ').map(escapeRegex).filter(Boolean);
+    if (tokens.length === 0) return false;
+    const phrase = tokens.join('[\\s_\\-]+');
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${phrase}(?=$|[^\\p{L}\\p{N}])`, 'u').test(normalizedText);
+}
+
+function assignmentMatchesRecentChat(a, recentChat) {
+    const kws = parseMatchKeywords(a?.match_keywords);
+    if (kws.length === 0) return true;
+    const normalizedText = normalizeTextForKeywordMatching(recentChat);
+    return kws.some(kw => keywordAppearsInText(kw, normalizedText));
+}
+
 function ensureStructuredCharacterAssignment(a) {
     if (!a || typeof a !== 'object') return a;
     if (a.character_tag === undefined) a.character_tag = "";
@@ -3273,16 +3311,7 @@ function getMatchedBooruTags(li, charKey) {
         ensureStructuredCharacterAssignment(a);
         const tagBlock = getAssignmentTagBlock(a) || a.booru_tags;
         if (!tagBlock) continue;
-        if (!a.match_keywords) {
-            matched.push({ character: a.character, tags: tagBlock });
-            continue;
-        }
-        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
-        if (kws.length === 0) {
-            matched.push({ character: a.character, tags: tagBlock });
-            continue;
-        }
-        if (kws.some(kw => recentChat.includes(kw))) {
+        if (assignmentMatchesRecentChat(a, recentChat)) {
             matched.push({ character: a.character, tags: tagBlock });
         }
     }
@@ -3297,12 +3326,7 @@ function getMatchedCharacterAssignments(li, charKey) {
     const recentChat = getRecentChatForLoraKeywords();
     return assignments
         .map(ensureStructuredCharacterAssignment)
-        .filter(a => {
-            if (!a.match_keywords) return true;
-            const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
-            if (kws.length === 0) return true;
-            return kws.some(kw => recentChat.includes(kw));
-        });
+        .filter(a => assignmentMatchesRecentChat(a, recentChat));
 }
 
 function getRecentVisualContext(messageCount = 2) {
@@ -3728,12 +3752,7 @@ async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
         const recentChat = getRecentChatForLoraKeywords();
         
         const assignments = li.characterAssignments[charKey];
-        const activeAssignments = assignments.filter(a => {
-            if (!a.match_keywords) return true; 
-            const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
-            if (kws.length === 0) return true;
-            return kws.some(kw => recentChat.includes(kw));
-        });
+        const activeAssignments = assignments.filter(a => assignmentMatchesRecentChat(a, recentChat));
 
         const occupiedKeys = new Set();
         slots.forEach((sl, idx) => {
@@ -4719,10 +4738,7 @@ function buildBaseDict() {
                     // Filter assignments present in recent chat
                     const activeAssignments = assignments.filter(a => {
                         ensureStructuredCharacterAssignment(a);
-                        if (!a.match_keywords) return true;
-                        const kws = a.match_keywords.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
-                        if (kws.length === 0) return true;
-                        return kws.some(kw => recentChat.includes(kw));
+                        return assignmentMatchesRecentChat(a, recentChat);
                     });
 
                     if (activeAssignments.length > 0) {
