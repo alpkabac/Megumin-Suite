@@ -1,122 +1,97 @@
-![Nexa Screenshot](./img/default1.png)
-# 💥 Megumin Suite V6 for SillyTavern
+# beta 17/05/26
+* added full mamory manager change from Cohee/jina-embeddings-v2-base-en to Xenova/all-MiniLM-L6-v2 if you going to use Semantic Embeddings. i recommend only using the keywords its faster and do 90% like Semantic Embeddings.
+* added NPC bank.
+* added v7 core more balaned less edgy.
+* some bug fixes.
+# beta 11/05/26
+* added CYOA cleanup.
+# beta 30/04/26
+* Fixes for GLM and DS4.
+note: enable prefill only for Gemini.
+# beta 26/04/26
+* fixed multi thinking box with models like GLM and Deepseek.
+* fixed thinking for GLM and DS 4.
+* DeepSeek 4 support test.
+* Dialogue & Narration Format toggle for better narration style adherence in some models recommended.
+* fixed color charcater in DS4 *maybe*.
+* added thinking effort control.
+* you can now edit every thing inside dev mode i mean every thing all.
+* added export/import to banlist. and fixed banlist ui.
+* added thinking v2 in cot this give more freedom to the ai thinking while following the cot. only for gemini 3.1 pro and 3 flash. put <think> and </think> inside the Reasoning Formatting.
+Note: use only english COT for deepseek 4.
+# beta 23/04/26
+* added Dream team v6 and v6 lite.
+* fixed some under the hood stuff.
+# beta 18/04/26
+* change COT off now will remove <think>\n{Thinking}\n</think> so the ai will not be forced to use thinking.
+* added Dialogue / Narration Ratio slider so now you can choose how mush narration you want (i know you dont like to read you dummy)
+* added new "Precooked" styles for fast style pick.
+* Added a filter bar (All, Precooked, AI Generators, My Library) to organize the style tab.
+* added Megumin image for manual image gen.
+* added token counter.
+* added Cinematic Sounds (onomatopoeia) and animation toggle.
+* added cleaning Function to clean character profile if the character was deleted.
+* added Story Planner.
+* fixed GLM error with banlist and image_gen.
+* added Disable prefill to fix opus error when generating banlist or image_gen.
+* new ui more clean, more modern for mobile and disktop.
+* nanogpt not working for Rules and insight generating fixed.
+* added apply Specific tab to all profile.
+* some under the hood fixes for better rule Generating.
+* added the ability to edit Custom User Engines right from the Core Engine menu.
+* added the ability to use direct api call or Specific preset for image gen and bed list.
+* Dev mode fixed and added:
+  - The engine renaming and "Save Engine" bar now sticks to the top of the screen when you scroll through long prompt blocks.
+  - Implemented a "Dirty State" tracker. If you edit an engine and try to click "Back," "Exit Dev," or "Close" without saving, a confirmation popup will warn you.
+# beta 08/04/26
+* added the ability to choose between no change or Default in dev mode COT.
+# beta 06/04/26
+* the button is fixed now (removed the draggable function).
+* Optimized the ext.
+# beta 06/04/26
+* added new image gen stage.
+* new and improved Dev mode.
+# beta 02/04/26
+* fixed a Stupid error from my side i forget to enable Forbid Overrides so some cards was changing the main prompts and making the output bad. use the new json files.
+* added MVU Compatibility read here https://github.com/KritBlade/MVU_Game_Maker
+# beta 01/04/26
+* fixed some misspelling.
+* redesigned the model tab to have more language options for the new v2 COT.
+* **Completely Overhauled Stage 3 (Writing Style):** Redesigned the UI from a grid into a clean, full-width list layout.
+* **Added Pre-Configured Templates:** Included 11 ready-to-use style templates (inspired by authors like George R.R. Martin, Stephen King, Jane Austen, etc.). You can now generate a complex rule directly from the library with one click!
+* **Added "No Style" Toggle:** Placed a convenient "Off" option at the top of the style library to easily disable extra writing directives without deleting your saved profiles.
 
-**The Ultimate Automated Prompt Management, Writers' Room & Roleplay Configuration Engine.**
+# beta 31/03/26
+* added new test cot that aim for me NPCs agency and self goals.
+* added v5 Slice of Reality mode New and improved balance mode that aim to use less token, more writing Creativity, better NPCs.
+* added nora because why not.
+# beta 30/03/26
+* now the button is Draggable WOW
+# Beta 29/03/26
 
-Megumin Suite completely revolutionizes how you manage your preset prompts, writing styles, and AI behavior in SillyTavern. No more manually toggling prompts on and off every time you switch from a gritty dark fantasy to a lighthearted romance. The engine automatically generates optimized rules tailored to your exact preferences, applying them dynamically on a **per-character basis**.
+**✨ New Features & Enhancements**
+*   **Style Profile Library:** Transitioned from a single writing style configuration to a comprehensive Library. Users can now create, save, and manage multiple style profiles for different needs.
+*   **Style Management:** Added quick-action buttons (**Regenerate, Edit, Delete**) to all style cards for faster workflow.
+*   **Iterative AI Refinement:** Introduced a new 7th stage (Beta) designed for AI self-correction, allowing the model to identify and rectify its own systemic writing habits.
+*   **Target Word Count Macro:** Added a new `[[count]]` macro in Stage 4 (Add-ons > Extra), allowing users to set specific maximum word counts for generated responses.
+*   **Advanced CoT Framework:** Completely overhauled the Chain of Thought (`<think>`) logic in Stage 6 for improved reasoning and output quality.
+*   **Multilingual Support:** Added full support for Japanese (日本語) within the Chain of Thought process.
+*   **Output Language Optimization:** The engine now defaults to English if the "Language Output" field is left blank, effectively preventing CoT leakage into the final response.
 
----
+**🛠️ Developer Tools & Safety**
+*   **Global Dev Mode Toggle:** Introduced a global override switch. When enabled, saving or restoring a prompt override applies the change across all profiles (Characters, Groups, and Defaults) simultaneously.
+*   **Prompt Safety Guard:** Implemented a fail-safe for the Global Dev Mode; `[[aiprompt]]` overrides are now restricted to local application to prevent the accidental erasure of unique style profiles.
 
-## 🤔 Why Do You Need Megumin Suite?
+**🐛 Bug Fixes & Optimizations**
+*   **Group Chat Compatibility:** Resolved issues preventing the extension from detecting group chat environments.
+*   **Stability Improvements:** Fixed a crash occurring when the "Generate Insights" button was triggered within the Style Editor during group chats.
+**Under-the-Hood Preset Improvements**
+Updated core prompting rules within `[[prompt3]]` to include:
+*   Better introduction of new NPCs
+*   Anti-passive voice enforcement
+*   Enhanced living world dynamics
+*   NPC agency prioritization
+*   Scene continuation logic
 
-Before Megumin Suite, changing how the AI writes — its length, its tone, the narrator's perspective — meant manually editing text boxes and swapping presets every single time. Megumin Suite automates all of that through a sleek wizard GUI.
-
-* **Global Defaults vs. Custom Profiles:** Set a "Global Default" configuration for all new chats. The moment you tweak a setting inside a specific character's chat, the ext creates an isolated **Custom Character Profile** that only affects *that* character, leaving your other roleplays untouched.
-
----
-
-## 🌟 The V6 Flagship: The "Dream Team" Engines
-
-The headline feature of V6 is the **V6 Dream Team** preset. Instead of just giving the AI a flat list of rules, this engine forces the model to operate as a 5-person collaborative writers' room. Each "specialist" has a very specific job, ensuring unprecedented narrative consistency, psychological realism, and lore tracking.
-
-### Meet the Team:
-* 🎬 **NORA (The Director & Continuity):** Monitors rule adherence and tracks narrative consistency. She initiates and concludes every interaction with a strict quality check to ensure player autonomy isn't stolen.
-* 🧠 **ANVIL (The Psychologist):** Determines character motivations, fears, and emotional histories. He prioritizes psychological accuracy over plot convenience—meaning NPCs won't just blindly agree with you anymore.
-* 🏗️ **OPUS (The Story Architect):** Manages pacing, stakes, and narrative branches. Ensures outcomes are derived from player choices without railroading the story.
-* 🖋️ **JULIA (The Prose Stylist):** Authors all non-spoken descriptions. She utilizes an atmospheric, non-neutral voice and aggressively avoids standard AI-slop language.
-* 💬 **MIKI (The Dialogue Specialist):** Drafts NPC speech. She implements verbal tics, subtext, and era-appropriate vocabulary to reflect actual emotional states.
-
-**V6 Dream Team Lite:** A streamlined version designed for local models and smaller context windows. It compresses the workflow to roughly 700 tokens while maintaining the core narrative rules!
-
-*(Note: V5 Slice of Reality and V4 Cinematic/Dark are still fully available in the engine selection!)*
-
----
-
-## 🛠️ The Dev Mode
-
-Say goodbye to messy text files. Megumin Suite V6 introduces a full **Dev Mode Builder**.
-* **Create & Clone:** Build your own chronological AI logic flows from scratch, or clone an existing template (like V4 Balance or V5 Slice of Reality) to modify it.
-* **Custom Modules:** Add, edit, and rearrange custom injection blocks exactly where you want them.
-* **Import & Export:** Save your custom engines and export them as `.json` files to share with others!
-
----
-
-## 🗺️ The Story Planner
-
-The new **Story Planner tab**. 
-* It analyzes your recent chat history and brainstorms a menu of 10 medium-to-long-term plot milestones (Arcs, Chapters, Episodes).
-* It automatically injects these possibilities into the AI's context (`[[storyplan]]` and `[[storytracker]]`), allowing the AI to naturally steer the story toward actual narrative goals instead of just reacting to your last message.
-* **Auto-Trigger:** Set it to run automatically every X messages, or trigger it manually!
-
----
-
-## 🎨 Complete Writing Style Overhaul
-
-Stage 3 has been rebuilt from the ground up into a full **Style Library**.
-
-* **Filter Bar:** Easily sort through your styles using the new filters: *All, Precooked, AI Generators, and My Library*.
-* **Precooked Styles:** Instant, hardcoded narrative styles (like *Clinical & Objective* or *Sensory-Rich*) that cost zero API calls to generate. Just click and go.
-* **Dialogue / Narration Ratio Slider:** Hate reading walls of text? Use the new slider to dynamically force the AI to favor spoken dialogue (e.g., 80% Dialogue / 20% Narration) or heavy description via the `[[DNRATIO]]` macro.
-
----
-
-## 🔊 Cinematic Sounds & Animation
-
-A brand new global setting that forces the AI to use precise **Onomatopoeia** (phonetic sound words like *click* or *thud*) instead of abstract descriptions.
-* **Animate Sounds:** For highly capable models, you can enable a sub-toggle that forces the AI to wrap these sounds in HTML/CSS animation tags (like `<fade>` or `<slide>`), bringing your chat window to life!
-
----
-
-## 📊 Live Token Counter & UI Upgrades
-
-* **Modern UI:** The entire interface has been redesigned to be cleaner, faster, and perfectly responsive for both Mobile and Desktop.
-* **Live Token Breakdown:** A real-time token counter sits at the top of your window. **Hover over it** to see a detailed breakdown of exactly how many tokens your Engine Core, CoT, Writing Style, and Add-ons are consuming.
-* **Sync Tab Globally:** A new 1-click button allows you to apply the exact settings of your current tab to *every* character profile at once.
-* **Fixed Position Button:** The main extension button is now fixed and anchored safely, preventing it from getting lost or disappearing off-screen on mobile devices.
-
----
-
-## 🚫 Dynamic Ban List & Under The Hood
-
-* **Disable Utility Prefills:** A new toggle in Global Settings. Turn this ON if your API (like Claude/Anthropic) errors out during Image Gen, Banlist, or Story Planner generation. It stops the engine from forcing an 'assistant' message prefill.
-* **Garbage Collection:** The extension now automatically detects if a character has been deleted from SillyTavern and purges their ghost profile data to keep your settings file clean and fast.
-* **CoT "Off" Fix:** Turning CoT off now properly strips all `<think>` tags, preventing the AI from getting stuck in a thinking loop.
-* **Megumin Image Preset:** Added a specific preset option for manual image generation to get better, more creative ComfyUI prompt conversions.
-* Fixed GLM API errors and NanoGPT generation bugs.
-
----
-
-## 🤖 Recommended AI Models
-
-For the best experience, use models with strong instruction-following and reasoning:
-
-*  **Gemini 3.1 pro**
-*  **Claude opus 4.6**
-*  **GLM 5 and 4.7**
-*  **Kimi k2.5** (Tested lightly, performs well)
-
-*Megumin Suite is flexible, but weaker/smaller local models may struggle with the complex 5-man writers' room rules of V6. Use V6 Lite for local models!*
-
----
-
-## ⚠️ Troubleshooting & Tips
-
-* **Thinking Block Won't Close:** If `<think>` tags bleed into the chat, enable the **Think Bug Toggle** in your settings.
-* **Generation Hanging / Formatting Issues:** Try **disabling "Prefill"** in the presets.
-* **Does this extension mess with my other presets?** No — your other presets will work just fine. Megumin Suite only injects its rules into its own designated preset (`Megumin Suite`). Your existing presets remain completely untouched.
-* **Old Versions:** Legacy docs are here: [Megumin Suite v4 Legacy Readme](https://github.com/Arif-salah/Megumin-Suite/tree/V4.1)  [Megumin Suite v5 Legacy Readme](https://github.com/Arif-salah/Megumin-Suite/tree/V5)
-
----
-
-## Install & Support
-
-**Install Link:** [GitHub Repository](https://www.youtube.com/watch?v=Q-iaz9mBFrA)  
-**Discord Community:** [https://discord.gg/gnbFRu9g](https://discord.gg/HkxgN8r3jx)
-
-*(If you're coming from V4 or V5, your profiles will auto-migrate gracefully. Let me know in the Discord if you run into anything weird!)*
-
-If you love the extension and want to support the countless hours of development:
-* ☕ [Ko-fi (Buy me a coffee)](https://ko-fi.com/kasumaoniisan)
-* 🪙 **Crypto (LTC)**: `LSjf1DczHxs3GEbkoMmi1UWH2GikmXDtis`
-
-**Enjoy the ultimate SillyTavern roleplay experience with Megumin Suite V6.**
+# how to install:
+[You know how to do it.](https://drive.google.com/file/d/16Ps0byP9zDDLJSX5fqNbFmq-DBTjPlMT/view)
