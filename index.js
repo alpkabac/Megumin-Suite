@@ -160,6 +160,7 @@ function initProfile() {
             promptStyle: "standard",
             promptPerspective: "scene",
             promptExtra: "",
+            manualPrompt: "",
             standardBooruLeadTags: "",
             triggerMode: "always",
             autoGenFreq: 1,
@@ -178,6 +179,17 @@ function initProfile() {
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},
+                tagFieldToggles: {
+                    characterTag: true,
+                    seriesTag: true,
+                    physicalTags: true,
+                    clothingTags: true,
+                    poseExpressionTags: true,
+                    currentStateTags: true,
+                    sceneAction: true,
+                    background: true,
+                    composition: true
+                },
                 lastCharacterAnalysisResponse: "",
                 compiledPromptOverride: ""
             }
