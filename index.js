@@ -11,6 +11,7 @@ import { createVisualGeneration } from "./visual/generation.js";
 const extensionName = "Megumin-Suite";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const TARGET_PRESET_NAME = "Megumin Engine";
+const LAST_TAB_SETTING_KEY = "lastOpenTab";
 
 const visualGeneration = createVisualGeneration({
     extensionName,
@@ -462,6 +463,7 @@ const tabsUI = [
 ];
 
 function switchTab(index) {
+    index = Number.isInteger(index) && index >= 0 && index < tabsUI.length ? index : 0;
     $(".dock").show();
     $("#ps_btn_save_close").show();
 
@@ -479,6 +481,10 @@ function switchTab(index) {
     }
 
     currentTab = index;
+    if (extension_settings[extensionName]) {
+        extension_settings[extensionName][LAST_TAB_SETTING_KEY] = index;
+        saveSettingsDebounced();
+    }
     const tab = tabsUI[index];
 
     // Generate Icons
@@ -507,6 +513,11 @@ function switchTab(index) {
     }
 
     updateLiveTokenCount();
+}
+
+function getLastOpenTab() {
+    const idx = parseInt(extension_settings?.[extensionName]?.[LAST_TAB_SETTING_KEY], 10);
+    return Number.isInteger(idx) && idx >= 0 && idx < tabsUI.length ? idx : 0;
 }
 
 function applyTabToAll() {
@@ -4771,7 +4782,7 @@ jQuery(async () => {
             visualGeneration.registerImageSwipeHandler();
         }
 
-        $("body").on("click", "#prompt-slot-fixed-btn", function () { initProfile(); updateCharacterDisplay(); switchTab(0); $("#prompt-slot-modal-overlay").fadeIn(250).css("display", "flex"); });
+        $("body").on("click", "#prompt-slot-fixed-btn", function () { initProfile(); updateCharacterDisplay(); switchTab(getLastOpenTab()); $("#prompt-slot-modal-overlay").fadeIn(250).css("display", "flex"); });
         $("body").off("click", "#close-prompt-slot-modal, #prompt-slot-modal-overlay").on("click", "#close-prompt-slot-modal, #prompt-slot-modal-overlay", function (e) {
             if (e.target === this) {
                 if (isDevEngineDirty) {

@@ -37,6 +37,37 @@ export function createVisualGeneration(api) {
     let danbooruTagsMap = null;
     let civitaiKeywordCache = {};
 
+    const NSFW_POSITION_PRESETS = [
+        { label: "None", prompt: "" },
+        { label: "Missionary", prompt: "missionary position, face-to-face intimacy, bodies close together, natural hip movement" },
+        { label: "Cowgirl", prompt: "cowgirl position, partner on top, straddling hips, rhythmic motion, intimate eye contact" },
+        { label: "Reverse Cowgirl", prompt: "reverse cowgirl position, partner on top facing away, arched back, rhythmic hip movement" },
+        { label: "Doggy Style", prompt: "doggy style position, from-behind angle, hands on hips, dynamic thrusting motion" },
+        { label: "Spooning", prompt: "spooning position, side-by-side bodies, intimate close contact, slow sensual movement" },
+        { label: "Lotus", prompt: "lotus position, seated face-to-face embrace, legs wrapped, close kissing and grinding motion" },
+        { label: "Standing", prompt: "standing position, bodies pressed together, lifted leg, passionate movement" },
+        { label: "Against Wall", prompt: "against the wall position, pinned close together, one leg raised, urgent passionate motion" },
+        { label: "Legs Over Shoulders", prompt: "legs over shoulders position, deep intimate angle, close body contact, rhythmic motion" },
+        { label: "Mating Press", prompt: "mating press position, knees pushed up, intense close body contact, passionate thrusting" },
+        { label: "Oral 69", prompt: "69 position, mutual pleasure, intertwined bodies, intimate sensual movement" },
+        { label: "Blowjob", prompt: "blowjob, kneeling pose, intimate close-up, sensual mouth movement" },
+        { label: "Deepthroat", prompt: "deepthroat, kneeling pose, intense intimate close-up, rhythmic mouth movement" },
+        { label: "Face Sitting", prompt: "face sitting position, partner seated over face, intimate sensual movement" },
+        { label: "Cunnilingus", prompt: "cunnilingus, thighs parted, intimate close-up, sensual licking motion" },
+        { label: "Titfuck", prompt: "titfuck, breasts pressed around penis, intimate close-up, rhythmic sliding motion" },
+        { label: "Footjob", prompt: "footjob, feet wrapped around penis, intimate close-up, rhythmic stroking motion" },
+        { label: "Handjob", prompt: "handjob, hand wrapped around penis, intimate close-up, rhythmic stroking motion" },
+        { label: "Fingering", prompt: "fingering, intimate close-up, hand between thighs, sensual finger motion" },
+        { label: "Grinding", prompt: "clothed or nude grinding, hips pressed together, rhythmic friction, close body contact" },
+        { label: "Lap Dance", prompt: "lap dance, straddling lap, teasing hip movement, intimate close body contact" },
+        { label: "Riding Face", prompt: "riding face, thighs around head, partner on top, intimate sensual movement" },
+        { label: "Standing Oral", prompt: "standing oral position, kneeling partner, intimate close-up, sensual mouth movement" },
+        { label: "Anal", prompt: "intimate from-behind angle, close body contact, rhythmic thrusting motion" },
+        { label: "Double Penetration", prompt: "double penetration, three adult participants, intense close body contact, synchronized rhythmic motion" },
+        { label: "Threesome", prompt: "threesome, three adult participants, intertwined bodies, shared intimate motion" },
+        { label: "Paizuri POV", prompt: "paizuri, first-person perspective, breasts pressed around penis, rhythmic sliding motion" }
+    ];
+
     function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     function ensureImageLeadPrefix(rawPrompt) {
@@ -1081,7 +1112,7 @@ export function createVisualGeneration(api) {
                         ${vgSelectField("vg_sampler", "Sampler", s.sampler, ["euler", "euler_ancestral", "heun", "dpm_2", "dpmpp_2m", "dpmpp_sde"])}
                         ${vgSelectField("vg_scheduler", "Scheduler", s.scheduler, ["linear_quadratic", "simple", "normal", "karras", "exponential", "sgm_uniform"])}
                         ${vgSelectField("vg_format", "Output Format", s.outputFormat, ["video/h264-mp4", "image/gif", "video/webm", "video/h265-mp4"])}
-                        ${vgSelectField("vg_precision", "Precision", s.precisionPreset, ["0.65 MP - Balanced", "0.35 MP - Fast", "1.0 MP - Quality"])}
+                        ${vgSelectField("vg_precision", "Precision", s.precisionPreset, ["0.26 MP - Preview", "0.36 MP - Small", "0.52 MP - SD", "0.65 MP - Balanced", "0.83 MP - HD", "1.05 MP - HD+", "1.20 MP - HD++", "1.35 MP - 2K lite", "1.55 MP - 2K", "1.65 MP - 2K+", "1.75 MP - QHD", "2.10 MP - FHD", "3.30 MP - QHD+", "4.75 MP - 2K Pro", "6.50 MP - Production", "8.30 MP - UHD"])}
                         ${vgSelectField("vg_resolution", "Resolution", s.resolutionPreset, ["480p", "540p", "720p"])}
                         ${vgSelectField("vg_aspect", "Aspect", s.aspectPreset, ["9:16 - Social", "16:9 - Widescreen", "1:1 - Square", "4:3 - Classic", "3:4 - Portrait"])}
                     </div>
@@ -1104,6 +1135,15 @@ export function createVisualGeneration(api) {
 
                 <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-keyboard"></i> Manual Render</div>
+                    <div style="display:flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 220px;">
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">NSFW Position Preset</div>
+                            <select id="vg_nsfw_position_preset" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">
+                                ${NSFW_POSITION_PRESETS.map(p => `<option value="${psEscapeAttr(p.prompt)}">${psEscapeText(p.label)}</option>`).join("")}
+                            </select>
+                        </div>
+                        <button id="vg_apply_position_preset" class="ps-modern-btn secondary" style="padding: 8px 12px;"><i class="fa-solid fa-plus"></i> Add Preset</button>
+                    </div>
                     <textarea id="vg_manual_prompt" class="ps-modern-input" style="height: 130px; resize: vertical; font-size: 0.85rem; line-height: 1.45; margin-bottom: 12px;" placeholder="Type the exact WAN video prompt to render. This bypasses prompt generation.">${psEscapeText(s.manualPrompt || "")}</textarea>
                     <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap;">
                         <button id="vg_manual_render_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; font-weight: 800;"><i class="fa-solid fa-play"></i> Render Manual Prompt</button>
@@ -1123,6 +1163,7 @@ export function createVisualGeneration(api) {
         $("#vg_generate_btn").on("click", vgManualGenerate);
         $("#vg_manual_render_btn").on("click", vgRenderManualPrompt);
         $("#vg_manual_prompt").on("input", (e) => { s.manualPrompt = $(e.target).val(); saveProfileToMemory(); });
+        $("#vg_apply_position_preset").on("click", () => vgApplyPositionPreset(s));
         $("#vg_lock_settings").on("click", function() { s.settingsLocked = !s.settingsLocked; saveProfileToMemory(); renderVideoGen(c); });
         $("#vg_upload_first").on("click", () => $("#vg_upload_first_file").trigger("click"));
         $("#vg_upload_last").on("click", () => $("#vg_upload_last_file").trigger("click"));
@@ -1178,6 +1219,17 @@ export function createVisualGeneration(api) {
 
     function vgSelectField(id, label, value, options) {
         return `<div><div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">${label}</div><select id="${id}" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">${options.map(o => `<option value="${psEscapeAttr(o)}" ${value === o ? "selected" : ""}>${psEscapeText(o)}</option>`).join("")}</select></div>`;
+    }
+
+    function vgApplyPositionPreset(s) {
+        const preset = String($("#vg_nsfw_position_preset").val() || "").trim();
+        if (!preset) return;
+        const current = String($("#vg_manual_prompt").val() || "").trim();
+        const next = current ? `${current}, ${preset}` : preset;
+        $("#vg_manual_prompt").val(next);
+        s.manualPrompt = next;
+        saveProfileToMemory();
+        toastr.success("Position preset added to manual prompt.");
     }
 
     // -------------------------------------------------------------
