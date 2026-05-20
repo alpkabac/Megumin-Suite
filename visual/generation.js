@@ -306,6 +306,7 @@ export function createVisualGeneration(api) {
     }
 
     let danbooruAliasMap = null;
+    let danbooruAutocompleteRows = null;
 
     function ensureDanbooruAliasMap() {
         if (danbooruAliasMap) return danbooruAliasMap;
@@ -322,6 +323,155 @@ export function createVisualGeneration(api) {
         return danbooruAliasMap;
     }
 
+    function normalizeDanbooruLookupKey(value) {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\\([()])/g, '$1')
+            .replace(/\s+/g, '_');
+    }
+
+    function ensureDanbooruAutocompleteRows() {
+        if (danbooruAutocompleteRows) return danbooruAutocompleteRows;
+        if (!danbooruTagsMap || danbooruTagsMap.size === 0) return [];
+        const aliasMap = ensureDanbooruAliasMap();
+        const rows = [];
+        for (const [canonical, data] of danbooruTagsMap) {
+            const count = Number(data?.count || 0);
+            rows.push({ search: canonical, canonical, alias: "", count });
+            if (!data?.aliases) continue;
+            data.aliases.split(',').map(a => a.trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean).forEach(alias => {
+                rows.push({ search: alias, canonical: aliasMap?.get(alias) || canonical, alias, count });
+            });
+        }
+        danbooruAutocompleteRows = rows;
+        return danbooruAutocompleteRows;
+    }
+
+    function getBooruAutocompleteSuggestions(query, limit = 12) {
+        const q = normalizeDanbooruLookupKey(query);
+        if (q.length < 2 || !danbooruTagsMap || danbooruTagsMap.size === 0) return [];
+        const seen = new Set();
+        return ensureDanbooruAutocompleteRows()
+            .map(row => {
+                if (!row.search.includes(q)) return null;
+                const starts = row.search.startsWith(q);
+                const canonicalStarts = row.canonical.startsWith(q);
+                return {
+                    ...row,
+                    score: (canonicalStarts ? 0 : starts ? 1 : 2),
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.score - b.score || b.count - a.count || a.canonical.localeCompare(b.canonical))
+            .filter(row => {
+                if (seen.has(row.canonical)) return false;
+                seen.add(row.canonical);
+                return true;
+            })
+            .slice(0, limit);
+    }
+
+    function getCurrentCommaToken(input) {
+        const el = input?.[0];
+        const value = String(input?.val() || "");
+        const pos = el && typeof el.selectionStart === "number" ? el.selectionStart : value.length;
+        const start = value.lastIndexOf(',', Math.max(0, pos - 1)) + 1;
+        const endIdx = value.indexOf(',', pos);
+        const end = endIdx === -1 ? value.length : endIdx;
+        return { value, pos, start, end, token: value.slice(start, end).trim() };
+    }
+
+    function insertCanonicalBooruTag(input, canonical) {
+        const el = input?.[0];
+        const { value, start, end } = getCurrentCommaToken(input);
+        const tag = normalizeAnimaGeneratedTag(canonical);
+        const before = value.slice(0, start).replace(/\s+$/g, "");
+        const after = value.slice(end).replace(/^\s*,?\s*/g, "");
+        const prefix = before ? `${before}, ` : "";
+        const next = `${prefix}${tag}, ${after}`.replace(/\s+$/g, " ");
+        input.val(next).trigger("input");
+        const caret = `${prefix}${tag}, `.length;
+        if (el && typeof el.setSelectionRange === "function") {
+            requestAnimationFrame(() => {
+                el.focus();
+                el.setSelectionRange(caret, caret);
+            });
+        }
+    }
+
+    function closeBooruAutocomplete() {
+        $("#megumin_booru_autocomplete").remove();
+    }
+
+    async function attachBooruAutocomplete(input) {
+        if (!input || input.length === 0 || input.data("meguminBooruAutocomplete")) return;
+        input.data("meguminBooruAutocomplete", true);
+        input.attr("autocomplete", "off");
+
+        input.on("input focus click", async function() {
+            if (!danbooruTagsMap || danbooruTagsMap.size === 0) await loadDanbooruTags();
+            const $input = $(this);
+            const token = getCurrentCommaToken($input).token;
+            const suggestions = getBooruAutocompleteSuggestions(token);
+            closeBooruAutocomplete();
+            if (suggestions.length === 0) return;
+
+            const rect = this.getBoundingClientRect();
+            const maxHeight = Math.min(280, window.innerHeight - rect.bottom - 12);
+            const top = maxHeight > 120 ? rect.bottom + 6 : Math.max(8, rect.top - 286);
+            const panel = $(`<div id="megumin_booru_autocomplete" class="megumin-booru-autocomplete"></div>`).css({
+                left: `${Math.max(8, Math.min(rect.left, window.innerWidth - Math.min(420, window.innerWidth - 16)))}px`,
+                top: `${top}px`,
+                width: `${Math.min(Math.max(rect.width, 280), window.innerWidth - 16)}px`,
+                maxHeight: `${Math.max(120, maxHeight)}px`
+            });
+
+            suggestions.forEach(row => {
+                const label = normalizeAnimaGeneratedTag(row.canonical);
+                const alias = row.alias && row.alias !== row.canonical ? normalizeAnimaGeneratedTag(row.alias) : "";
+                const item = $(`
+                    <button type="button" class="megumin-booru-autocomplete-item">
+                        <span class="megumin-booru-autocomplete-tag">${psEscapeText(label)}</span>
+                        ${alias ? `<span class="megumin-booru-autocomplete-alias">alias: ${psEscapeText(alias)}</span>` : ""}
+                    </button>
+                `);
+                item.on("mousedown touchstart", function(e) {
+                    e.preventDefault();
+                    insertCanonicalBooruTag($input, row.canonical);
+                    closeBooruAutocomplete();
+                });
+                panel.append(item);
+            });
+            $("body").append(panel);
+        });
+
+        input.on("keydown", function(e) {
+            const panel = $("#megumin_booru_autocomplete");
+            if (!panel.length) return;
+            const items = panel.find(".megumin-booru-autocomplete-item");
+            let active = items.index(items.filter(".active"));
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                active = Math.min(items.length - 1, active + 1);
+                items.removeClass("active").eq(active).addClass("active")[0]?.scrollIntoView({ block: "nearest" });
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                active = Math.max(0, active - 1);
+                items.removeClass("active").eq(active).addClass("active")[0]?.scrollIntoView({ block: "nearest" });
+            } else if (e.key === "Enter" && active >= 0) {
+                e.preventDefault();
+                items.eq(active).trigger("mousedown");
+            } else if (e.key === "Escape") {
+                closeBooruAutocomplete();
+            }
+        });
+
+        input.on("blur", function() {
+            setTimeout(closeBooruAutocomplete, 160);
+        });
+    }
+
     function repairBooruTags(tagString) {
         if (!tagString || typeof tagString !== 'string') return tagString || "";
         if (!danbooruTagsMap || danbooruTagsMap.size === 0) return tagString;
@@ -330,7 +480,7 @@ export function createVisualGeneration(api) {
 
         const tags = tagString.split(',').map(t => t.trim()).filter(t => t);
         const repaired = tags.map(rawTag => {
-            const normalized = rawTag.toLowerCase().replace(/\s+/g, '_');
+            const normalized = normalizeDanbooruLookupKey(rawTag);
             if (danbooruTagsMap.has(normalized)) return normalized;
             if (aliasMap && aliasMap.has(normalized)) return aliasMap.get(normalized);
             return normalized;
@@ -803,6 +953,16 @@ export function createVisualGeneration(api) {
         $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_std_booru_lead").on("input", (e) => { s.standardBooruLeadTags = $(e.target).val(); saveProfileToMemory(); });
+        if (li.enabled && li.useDanbooruTags) {
+            attachBooruAutocomplete($("#ig_std_booru_lead"));
+            $("#ig_std_booru_lead").on("blur", async function() {
+                if (!danbooruTagsMap || danbooruTagsMap.size === 0) await loadDanbooruTags();
+                const repaired = normalizeGeneratedTagField(repairBooruTags($(this).val()));
+                s.standardBooruLeadTags = repaired;
+                $(this).val(repaired);
+                saveProfileToMemory();
+            });
+        }
         $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_w, #ig_h").on("input", (e) => { s[e.target.id === "ig_w" ? "imgWidth" : "imgHeight"] = parseInt($(e.target).val()); saveProfileToMemory(); });
         $("#ig_neg").on("input", (e) => { s.customNegative = $(e.target).val(); saveProfileToMemory(); });
@@ -2018,8 +2178,8 @@ export function createVisualGeneration(api) {
                     if (a.booru_tags && danbooruTagsMap && danbooruTagsMap.size > 0) {
                         const repaired = repairBooruTags(a.booru_tags);
                         if (repaired !== a.booru_tags) {
-                            a.booru_tags = repaired;
-                            $(this).val(repaired);
+                            a.booru_tags = normalizeGeneratedTagField(repaired);
+                            $(this).val(a.booru_tags);
                             saveProfileToMemory();
                         }
                     }
@@ -2039,6 +2199,12 @@ export function createVisualGeneration(api) {
             });
             table.append(row);
         });
+
+        if (li.enabled && li.useDanbooruTags) {
+            table.find(".li-edit-tag-field, .li-edit-booru").each(function() {
+                attachBooruAutocomplete($(this));
+            });
+        }
     }
 
     function toggleQuickGenButton() {
