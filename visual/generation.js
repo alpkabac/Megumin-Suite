@@ -2563,14 +2563,7 @@ export function createVisualGeneration(api) {
             if (li.useDanbooruTags) await loadDanbooruTags();
             const imageDataUrl = await getCurrentCharacterCardDataUrl();
             const model = li.vlmModel || "qwen/qwen3-vl-32b-instruct";
-            let rawOutput = "";
-            if (s.generatorBackend === "direct") {
-                rawOutput = await requestCardImageVlmDescription({ imageDataUrl, model, style: li.descriptionStyle });
-            } else {
-                await useMeguminEngine(async () => {
-                    rawOutput = await requestCardImageVlmDescription({ imageDataUrl, model, style: li.descriptionStyle });
-                });
-            }
+            const rawOutput = await requestCardImageVlmDescription({ imageDataUrl, model, style: li.descriptionStyle });
             const parsed = extractJsonArrayFromText(rawOutput);
             const previous = Array.isArray(li.characterAssignments?.[charKey]) ? li.characterAssignments[charKey] : [];
             const assignments = parsed.map((item, idx) => {
