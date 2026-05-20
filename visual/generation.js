@@ -2521,38 +2521,38 @@ export function createVisualGeneration(api) {
             : "Use concise Danbooru-style comma-separated tags in the structured fields and plain_description.";
         const prompt = `Analyze the attached character card image. The image may contain one visible character or multiple visible characters in the same card art.\n\nReturn ONLY a JSON array. Use generic labels only: "character 1", "character 2", "character 3", etc. Do not invent story names.\n\nEach object must use this exact shape:\n{\n  "character": "character 1",\n  "match_keywords": "",\n  "character_tag": "",\n  "series_tag": "",\n  "physical_tags": "detailed face, hair, eyes, skin, body shape, chest, height/build tags",\n  "clothing_tags": "visible outfit/accessories only",\n  "action_tags": "visible activity or held objects only",\n  "pose_expression_tags": "pose, gaze, emotion, facial expression",\n  "current_state_tags": "temporary visible state such as wet hair, dirt, injuries, tears, empty if none",\n  "plain_description": "detailed facial and body description",\n  "alwaysInclude": true\n}\n\nRules:\n- Describe only visible adult-presenting characters.\n- If multiple people are visible, create one object per person from left to right.\n- Focus on facial features, hair, eyes, body proportions, outfit, pose, expression, and distinguishing marks.\n- ${styleRule}`;
 
-        const messages = [{
-            role: "user",
-            content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: imageDataUrl } }
-            ]
-        }];
         const headers = { ...getRequestHeaders(), "Content-Type": "application/json" };
-        const body = JSON.stringify({ messages, model, temperature: 0.2, max_tokens: 1600, stream: false });
-        const endpoints = [
-            "/api/backends/chat-completions/generate",
-            "/api/openai/generate"
-        ];
-        let lastError = null;
-        for (const endpoint of endpoints) {
-            try {
-                const res = await fetch(endpoint, { method: "POST", headers, body });
-                const raw = await res.text();
-                let data = raw;
-                try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
-                if (!res.ok) {
-                    lastError = new Error(data?.error?.message || data?.error || `${endpoint} returned ${res.status}`);
-                    continue;
-                }
-                const text = extractAssistantTextFromResponse(data);
-                if (text) return text;
-                lastError = new Error(`${endpoint} returned no text.`);
-            } catch (e) {
-                lastError = e;
-            }
+        const captionSettings = extension_settings?.caption || {};
+        const api = captionSettings.multimodal_api || "openrouter";
+        if (captionSettings.source !== "multimodal") {
+            throw new Error("Set Image Captioning source to Multimodal first.");
         }
-        throw lastError || new Error("VLM request failed.");
+        const body = {
+            image: imageDataUrl,
+            prompt,
+            api,
+            model: model || captionSettings.multimodal_model || "qwen/qwen3-vl-32b-instruct",
+        };
+        if (api === "zai" && captionSettings.zai_endpoint) body.zai_endpoint = captionSettings.zai_endpoint;
+        if (captionSettings.alt_endpoint_enabled && captionSettings.alt_endpoint_url) body.server_url = captionSettings.alt_endpoint_url;
+        if (api === "custom" && captionSettings.custom_model) body.model = captionSettings.custom_model;
+
+        const endpoint = api === "google" || api === "vertexai"
+            ? "/api/google/caption-image"
+            : api === "anthropic"
+                ? "/api/anthropic/caption-image"
+                : api === "ollama"
+                    ? "/api/backends/text-completions/ollama/caption-image"
+                    : "/api/openai/caption-image";
+
+        const res = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+        const raw = await res.text();
+        let data = raw;
+        try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
+        if (!res.ok) {
+            throw new Error(data?.error?.message || data?.error || `${endpoint} returned ${res.status}`);
+        }
+        return extractAssistantTextFromResponse(data) || data?.caption || "";
     }
 
     async function liAnalyzeCardImage(li, charKey, s, btn) {
