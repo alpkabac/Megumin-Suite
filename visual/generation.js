@@ -188,9 +188,10 @@ export function createVisualGeneration(api) {
         return new RegExp(`(^|[^\\p{L}\\p{N}])${phrase}(?=$|[^\\p{L}\\p{N}])`, 'u').test(normalizedText);
     }
 
-    function assignmentMatchesRecentChat(a, recentChat) {
+    function assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch = true) {
+        if (a?.alwaysInclude) return true;
         const kws = parseMatchKeywords(a?.match_keywords);
-        if (kws.length === 0) return true;
+        if (kws.length === 0) return allowEmptyMatch;
         const normalizedText = normalizeTextForKeywordMatching(recentChat);
         return kws.some(kw => keywordAppearsInText(kw, normalizedText));
     }
@@ -201,8 +202,11 @@ export function createVisualGeneration(api) {
         if (a.series_tag === undefined) a.series_tag = "";
         if (a.physical_tags === undefined) a.physical_tags = a.booru_tags || "";
         if (a.clothing_tags === undefined) a.clothing_tags = "";
+        if (a.action_tags === undefined) a.action_tags = "";
         if (a.pose_expression_tags === undefined) a.pose_expression_tags = "";
         if (a.current_state_tags === undefined) a.current_state_tags = "";
+        if (a.plain_description === undefined) a.plain_description = "";
+        if (a.alwaysInclude === undefined) a.alwaysInclude = false;
         if (!a.tagFieldToggles) a.tagFieldToggles = {};
         getTagFieldToggleDefaults().forEach(({ key }) => {
             if (a.tagFieldToggles[key] === undefined) a.tagFieldToggles[key] = true;
@@ -216,9 +220,10 @@ export function createVisualGeneration(api) {
             { key: "seriesTag", label: "Series" },
             { key: "physicalTags", label: "Phys" },
             { key: "clothingTags", label: "Clothes" },
+            { key: "actionTags", label: "Action" },
             { key: "poseExpressionTags", label: "Pose" },
             { key: "currentStateTags", label: "State" },
-            { key: "sceneAction", label: "Action" }
+            { key: "sceneAction", label: "Scene" }
         ];
     }
 
@@ -227,6 +232,7 @@ export function createVisualGeneration(api) {
         if (li.ensureCharacterTag === undefined) li.ensureCharacterTag = false;
         if (li.descriptionStyle === undefined) li.descriptionStyle = 'booru';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
+        if (li.assignmentViewMode === undefined) li.assignmentViewMode = 'structured';
         if (li.lastCharacterAnalysisResponse === undefined) li.lastCharacterAnalysisResponse = "";
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
         if (!li.tagFieldToggles) li.tagFieldToggles = {};
@@ -244,7 +250,7 @@ export function createVisualGeneration(api) {
         ensureStructuredCharacterAssignment(a);
         if (!a || typeof a !== 'object') return a;
 
-        ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+        ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'action_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
             if (a[key]) a[key] = normalizeGeneratedTagField(a[key]);
         });
 
@@ -253,11 +259,15 @@ export function createVisualGeneration(api) {
             a.series_tag,
             a.physical_tags,
             a.clothing_tags,
+            a.action_tags,
             a.pose_expression_tags,
             a.current_state_tags
         ].filter(Boolean).join(', ');
 
         a.booru_tags = mergedTags || normalizeGeneratedTagField(a.booru_tags || "");
+        if (!a.plain_description) {
+            a.plain_description = mergedTags || a.description || "";
+        }
         return a;
     }
 
@@ -618,15 +628,20 @@ export function createVisualGeneration(api) {
                                     <option value="structured" ${li.promptAssemblyMode === 'structured' ? 'selected' : ''}>Structured Character Blocks</option>
                                     <option value="llm" ${li.promptAssemblyMode === 'llm' ? 'selected' : ''}>LLM Full Prompt</option>
                                 </select>
+                                <select id="li_assignment_view_mode" class="ps-modern-input" style="width: 210px; padding: 8px; font-size: 0.75rem;">
+                                    <option value="structured" ${li.assignmentViewMode === 'structured' ? 'selected' : ''}>Structured Fields</option>
+                                    <option value="plain" ${li.assignmentViewMode === 'plain' ? 'selected' : ''}>Plain Text View</option>
+                                </select>
                             </div>
                             <div style="display: ${li.useDanbooruTags ? 'grid' : 'none'}; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 14px;">
                                 ${liTagFieldToggle("li_field_character", "Character Tag", li.tagFieldToggles.characterTag)}
                                 ${liTagFieldToggle("li_field_series", "Series Tag", li.tagFieldToggles.seriesTag)}
                                 ${liTagFieldToggle("li_field_physical", "Physical", li.tagFieldToggles.physicalTags)}
                                 ${liTagFieldToggle("li_field_clothing", "Clothing", li.tagFieldToggles.clothingTags)}
+                                ${liTagFieldToggle("li_field_action_tags", "Action Field", li.tagFieldToggles.actionTags)}
                                 ${liTagFieldToggle("li_field_pose", "Pose / Expression", li.tagFieldToggles.poseExpressionTags)}
                                 ${liTagFieldToggle("li_field_state", "Current State", li.tagFieldToggles.currentStateTags)}
-                                ${liTagFieldToggle("li_field_action", "Scene Action", li.tagFieldToggles.sceneAction)}
+                                ${liTagFieldToggle("li_field_action", "AI Scene Action", li.tagFieldToggles.sceneAction)}
                                 ${liTagFieldToggle("li_field_background", "Background", li.tagFieldToggles.background)}
                                 ${liTagFieldToggle("li_field_composition", "Composition", li.tagFieldToggles.composition)}
                             </div>
@@ -840,28 +855,29 @@ export function createVisualGeneration(api) {
 
         // --- LoRA Intelligence Event Bindings ---
         $("#li_enable_toggle").on("click", function() {
-            li.enabled = !li.enabled; saveProfileToMemory(); switchTab(currentTab);
+            li.enabled = !li.enabled; saveProfileToMemory(); renderImageGen(c);
         });
-        $("#li_toggle_ensure").on("click", function() { li.ensureLoras = !li.ensureLoras; saveProfileToMemory(); switchTab(currentTab); });
+        $("#li_toggle_ensure").on("click", function() { li.ensureLoras = !li.ensureLoras; saveProfileToMemory(); renderImageGen(c); });
         $("#li_toggle_tags").on("click", function(e) {
             if ($(e.target).closest("#li_ensure_char_tag_wrap").length) return;
-            li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); switchTab(currentTab);
+            li.useDanbooruTags = !li.useDanbooruTags; saveProfileToMemory(); renderImageGen(c);
         });
         $("#li_ensure_char_tag_wrap").on("click", function(e) {
             e.stopPropagation();
-            li.ensureCharacterTag = !li.ensureCharacterTag; saveProfileToMemory(); switchTab(currentTab);
+            li.ensureCharacterTag = !li.ensureCharacterTag; saveProfileToMemory(); renderImageGen(c);
         });
         const bindLiTagToggle = (id, key) => {
             $(`#${id}`).on("click", function() {
                 li.tagFieldToggles[key] = !li.tagFieldToggles[key];
                 saveProfileToMemory();
-                switchTab(currentTab);
+                renderImageGen(c);
             });
         };
         bindLiTagToggle("li_field_character", "characterTag");
         bindLiTagToggle("li_field_series", "seriesTag");
         bindLiTagToggle("li_field_physical", "physicalTags");
         bindLiTagToggle("li_field_clothing", "clothingTags");
+        bindLiTagToggle("li_field_action_tags", "actionTags");
         bindLiTagToggle("li_field_pose", "poseExpressionTags");
         bindLiTagToggle("li_field_state", "currentStateTags");
         bindLiTagToggle("li_field_action", "sceneAction");
@@ -875,7 +891,7 @@ export function createVisualGeneration(api) {
             if ($(e.target).is("select") || $(e.target).is("option")) return;
             li.useCharDescriptions = !li.useCharDescriptions;
             saveProfileToMemory();
-            switchTab(currentTab);
+            renderImageGen(c);
         });
         $("#li_desc_style").on("change", function(e) {
             li.descriptionStyle = $(this).val();
@@ -884,6 +900,11 @@ export function createVisualGeneration(api) {
         $("#li_prompt_assembly_mode").on("change", function() {
             li.promptAssemblyMode = $(this).val();
             saveProfileToMemory();
+        });
+        $("#li_assignment_view_mode").on("change", function() {
+            li.assignmentViewMode = $(this).val();
+            saveProfileToMemory();
+            renderImageGen(c);
         });
 
         // Scope select
@@ -1024,7 +1045,7 @@ export function createVisualGeneration(api) {
                         if (li.useDanbooruTags) {
                             for (const a of assignments) {
                                 ensureStructuredCharacterAssignment(a);
-                                ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+                                ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'action_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
                                     if (!a[key]) return;
                                     const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a[key]) : a[key];
                                     a[key] = normalizeGeneratedTagField(repairedTags);
@@ -1775,7 +1796,7 @@ export function createVisualGeneration(api) {
         `);
 
         header.find("#li_add_custom_assign").on("click", function() {
-            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", pose_expression_tags: "", current_state_tags: "" }));
+            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", action_tags: "", pose_expression_tags: "", current_state_tags: "", alwaysInclude: false }));
             li.characterAssignments[charKey] = assignments;
             saveProfileToMemory();
             liRenderAssignmentTable(li, charKey, s);
@@ -1803,11 +1824,42 @@ export function createVisualGeneration(api) {
                     </label>
                 `;
 
+                if (li.assignmentViewMode === 'plain') {
+                    const plainValue = a.plain_description || getAssignmentTagBlock(a, li) || a.description || "";
+                    const row = $(`
+                        <div style="display: flex; flex-direction: column; gap: 10px; padding: 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
+                                ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
+                                <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
+                                <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
+                            <textarea class="ps-modern-input li-edit-plain-desc" placeholder="Plain natural-language or tag-style character description. Used when Plain Text View is active." style="height: 84px; resize: vertical; font-size: 0.72rem; color: #10b981; padding: 8px;">${psEscapeText(plainValue)}</textarea>
+                        </div>
+                    `);
+
+                    row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
+                    if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+                    if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+                    row.find(".li-edit-plain-desc").on("input", function() { a.plain_description = $(this).val(); saveProfileToMemory(); });
+                    row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                    row.find(".li-remove-assign").on("click", function() {
+                        assignments.splice(idx, 1);
+                        li.characterAssignments[charKey] = assignments;
+                        saveProfileToMemory();
+                        liRenderAssignmentTable(li, charKey, s);
+                    });
+                    table.append(row);
+                    return;
+                }
+
                 const row = $(`
                     <div style="display: flex; flex-direction: column; gap: 10px; padding: 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
                         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                             ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
+                            <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
                             <button type="button" class="ps-modern-btn secondary li-update-state" title="Update clothing, pose, and current state from the latest chat messages" style="padding: 5px 8px; font-size: 0.65rem; color: #3b82f6; border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-rotate"></i> State</button>
                             <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                         </div>
@@ -1821,6 +1873,7 @@ export function createVisualGeneration(api) {
                             ${tagField('series_tag', 'Series Tag', 'fate \\(series\\)')}
                             ${tagField('physical_tags', 'Body / Face', 'blonde hair, blue eyes')}
                             ${tagField('clothing_tags', 'Clothing', 'black jacket, dark jeans')}
+                            ${tagField('action_tags', 'Action', 'holding sword, dancing')}
                             ${tagField('pose_expression_tags', 'Pose / Expression', 'arms crossed, frown')}
                             ${tagField('current_state_tags', 'Current State', 'wet hair, bruised cheek')}
                         </div>
@@ -1832,6 +1885,7 @@ export function createVisualGeneration(api) {
                 if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                 if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                 if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-row-field-toggle").on("click", function() {
                     const key = $(this).attr("data-field");
                     ensureStructuredCharacterAssignment(a);
@@ -1846,6 +1900,7 @@ export function createVisualGeneration(api) {
                         a.series_tag,
                         a.physical_tags,
                         a.clothing_tags,
+                        a.action_tags,
                         a.pose_expression_tags,
                         a.current_state_tags
                     ].filter(Boolean).join(', ');
@@ -2149,32 +2204,32 @@ export function createVisualGeneration(api) {
     // New Helper Function for generating the prompt text
     function getMatchedBooruTags(li, charKey) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
-        const assignments = li.characterAssignments[charKey] || [];
-        if (assignments.length === 0) return [];
-
-        const recentChat = getRecentChatForLoraKeywords();
         const matched = [];
 
-        for (const a of assignments) {
+        for (const a of getActiveCharacterAssignments(li, charKey)) {
             ensureStructuredCharacterAssignment(a);
             const tagBlock = getAssignmentTagBlock(a, li) || a.booru_tags;
             if (!tagBlock) continue;
-            if (assignmentMatchesRecentChat(a, recentChat)) {
-                matched.push({ character: a.character, tags: tagBlock });
-            }
+            matched.push({ character: a.character, tags: tagBlock });
         }
         return matched;
     }
 
     function getMatchedCharacterAssignments(li, charKey) {
         if (!li || !li.enabled) return [];
+        return getActiveCharacterAssignments(li, charKey);
+    }
+
+    function getActiveCharacterAssignments(li, charKey) {
+        if (!li || !li.characterAssignments) return [];
         const assignments = li.characterAssignments[charKey] || [];
         if (assignments.length === 0) return [];
 
         const recentChat = getRecentChatForLoraKeywords();
+        const allowEmptyMatch = assignments.length <= 1;
         return assignments
             .map(ensureStructuredCharacterAssignment)
-            .filter(a => assignmentMatchesRecentChat(a, recentChat));
+            .filter(a => assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch));
     }
 
     function getRecentVisualContext(messageCount = 2) {
@@ -2203,6 +2258,9 @@ export function createVisualGeneration(api) {
 
     function getAssignmentTagParts(a, li) {
         ensureStructuredCharacterAssignment(a);
+        if (li?.assignmentViewMode === 'plain') {
+            return [a.plain_description || a.description || a.booru_tags || ""].filter(Boolean);
+        }
         const globalToggles = li?.tagFieldToggles || {};
         const rowToggles = a?.tagFieldToggles || {};
         const enabled = (key) => globalToggles[key] !== false && rowToggles[key] !== false;
@@ -2211,6 +2269,7 @@ export function createVisualGeneration(api) {
             enabled("seriesTag") ? a.series_tag : "",
             enabled("physicalTags") ? a.physical_tags : "",
             enabled("clothingTags") ? a.clothing_tags : "",
+            enabled("actionTags") ? a.action_tags : "",
             enabled("poseExpressionTags") ? a.pose_expression_tags : "",
             enabled("currentStateTags") ? a.current_state_tags : ""
         ].filter(Boolean);
@@ -2288,17 +2347,19 @@ export function createVisualGeneration(api) {
             ensureStructuredCharacterAssignment(a);
             const label = getCharacterSlotLabel(idx, total);
             const slotKey = label.toLowerCase();
-            const identity = normalizeStructuredPromptValue([
+            const usePlain = li?.assignmentViewMode === 'plain';
+            const identity = usePlain ? "" : normalizeStructuredPromptValue([
                 enabled(a, "characterTag") ? a.character_tag : "",
                 enabled(a, "seriesTag") ? a.series_tag : ""
             ].filter(Boolean).join(', '));
-            const appearance = normalizeStructuredPromptValue([
+            const appearance = usePlain ? normalizeStructuredPromptValue(a.plain_description || a.description || a.booru_tags || "") : normalizeStructuredPromptValue([
                 enabled(a, "physicalTags") ? a.physical_tags : "",
                 enabled(a, "currentStateTags") ? a.current_state_tags : ""
             ].filter(Boolean).join(', '));
-            const clothes = normalizeStructuredPromptValue(enabled(a, "clothingTags") ? a.clothing_tags : "");
-            const action = normalizeStructuredPromptValue([
+            const clothes = usePlain ? "" : normalizeStructuredPromptValue(enabled(a, "clothingTags") ? a.clothing_tags : "");
+            const action = usePlain ? normalizeStructuredPromptValue(enabled(a, "sceneAction") ? parsed.actions[slotKey] : "") : normalizeStructuredPromptValue([
                 enabled(a, "sceneAction") ? parsed.actions[slotKey] : "",
+                enabled(a, "actionTags") ? a.action_tags : "",
                 enabled(a, "poseExpressionTags") ? a.pose_expression_tags : ""
             ].filter(Boolean).join(', '));
 
@@ -2617,10 +2678,7 @@ export function createVisualGeneration(api) {
             const locked = s.loraSlotLocked;
             const kwManaged = s.loraSlotKeywordManaged;
 
-            const recentChat = getRecentChatForLoraKeywords();
-
-            const assignments = li.characterAssignments[charKey];
-            const activeAssignments = assignments.filter(a => assignmentMatchesRecentChat(a, recentChat));
+            const activeAssignments = getActiveCharacterAssignments(li, charKey);
 
             const occupiedKeys = new Set();
             slots.forEach((sl, idx) => {
@@ -3377,15 +3435,8 @@ export function createVisualGeneration(api) {
                 if (igLi && igLi.enabled) {
                     const li = igLi;
                     {
-                        const recentChat = getRecentChatForLoraKeywords();
-                        const assignments = li.characterAssignments[charKeyImg] || [];
                         const structuredBlocks = promptUsesStructuredBlocks;
-
-                        // Filter assignments present in recent chat
-                        const activeAssignments = assignments.filter(a => {
-                            ensureStructuredCharacterAssignment(a);
-                            return assignmentMatchesRecentChat(a, recentChat);
-                        });
+                        const activeAssignments = getActiveCharacterAssignments(li, charKeyImg);
 
                         if (activeAssignments.length > 0) {
                             const scope = $("#li_scope_select").val() || "global";
@@ -3543,8 +3594,8 @@ export function createVisualGeneration(api) {
                 modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
             }
             if (activeLoraAssignRequest.useTags) {
-                jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "pose_expression_tags": "default pose/expression tags", "current_state_tags": "temporary visual state tags"`;
-                let booruInstr = "You MUST provide Danbooru-style tag fields for each character. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes in physical_tags, outfit/accessories in clothing_tags, default pose/expression in pose_expression_tags, and temporary scene-specific visual state in current_state_tags. ";
+                jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "action_tags": "default action/interaction tags", "pose_expression_tags": "default pose/expression tags", "current_state_tags": "temporary visual state tags", "plain_description": "natural language visual description"`;
+                let booruInstr = "You MUST provide Danbooru-style tag fields for each character. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes in physical_tags, outfit/accessories in clothing_tags, default action/interaction in action_tags, default pose/expression in pose_expression_tags, and temporary scene-specific visual state in current_state_tags. Also provide plain_description as a detailed natural-language visual description. ";
                 if (activeLoraAssignRequest.ensureCharacterTag) {
                     booruInstr += "ADDITIONALLY: For EACH character, character_tag MUST contain a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. ";
                 }
