@@ -32,6 +32,7 @@ export function createVisualGeneration(api) {
     let activeVideoGenRequest = null;
     let activeLoraAssignRequest = null;
     let activeLoraStateUpdateRequest = null;
+    let activeLoraIdentityResolveRequest = null;
     let activeVideoGenJob = false;
     const completedVideoPromptIds = new Set();
     let danbooruTagsMap = null;
@@ -852,6 +853,9 @@ export function createVisualGeneration(api) {
                                 <button id="li_analyze_card_image_btn" class="ps-modern-btn secondary" style="padding: 7px 12px; font-size: 0.75rem;">
                                     <i class="fa-solid fa-id-card"></i> Analyze Card Image
                                 </button>
+                                <button id="li_resolve_identity_btn" class="ps-modern-btn secondary" style="padding: 7px 12px; font-size: 0.75rem;">
+                                    <i class="fa-solid fa-signature"></i> Resolve Names / Keywords
+                                </button>
                                 <button id="li_refresh_active_states_btn" class="ps-modern-btn secondary" style="padding: 7px 12px; font-size: 0.75rem;">
                                     <i class="fa-solid fa-rotate"></i> Refresh Active States
                                 </button>
@@ -1109,6 +1113,9 @@ export function createVisualGeneration(api) {
         $("#li_analyze_card_image_btn").on("click", function() {
             liAnalyzeCardImage(li, charKey, s, $(this));
         });
+        $("#li_resolve_identity_btn").on("click", function() {
+            liResolveCharacterIdentities(li, charKey, s, $(this));
+        });
         $("#li_refresh_active_states_btn").on("click", function() {
             liRefreshActiveCharacterStates(li, charKey, s, $(this));
         });
@@ -1199,9 +1206,12 @@ export function createVisualGeneration(api) {
                     const kw = l.keywords && l.keywords.length > 0 ? ` (keywords: ${l.keywords.join(', ')})` : '';
                     return `- ${l.name}${kw}`;
                 }).join('\n');
+                const characterTextContext = getCurrentCharacterTextContext();
 
                 activeLoraAssignRequest = {
                     chatText: chatText,
+                    cardDescription: characterTextContext.description,
+                    firstMessage: characterTextContext.firstMessage,
                     loraList: loraListStr,
                     hasLoras: enabledLoras.length > 0,
                     ensureLoras: li.ensureLoras,
@@ -2466,6 +2476,18 @@ export function createVisualGeneration(api) {
             .join("\n\n");
     }
 
+    function getCurrentCharacterTextContext() {
+        const context = getContext();
+        if (context.characterId === undefined || context.characterId === null || !context.characters?.[context.characterId]) {
+            return { description: "", firstMessage: "" };
+        }
+        const character = context.characters[context.characterId];
+        return {
+            description: String(character.description || character.desc || "").trim(),
+            firstMessage: String(character.first_mes || character.first_message || character.firstMessage || "").trim()
+        };
+    }
+
     function getCurrentCharacterCardImageUrl() {
         const context = getContext();
         if (context.characterId !== undefined && context.characterId !== null && context.characters?.[context.characterId]?.avatar) {
@@ -2613,6 +2635,30 @@ export function createVisualGeneration(api) {
         return normalizeGeneratedTagField(parts.join(', '));
     }
 
+    function getAssignmentIdentityContext(a, li) {
+        ensureStructuredCharacterAssignment(a);
+        const visualParts = [
+            a.character_tag,
+            a.series_tag,
+            a.physical_tags,
+            a.clothing_tags,
+            a.pose_expression_tags,
+            a.current_state_tags,
+            a.plain_description,
+            a.description,
+            a.booru_tags
+        ].filter(Boolean);
+        return {
+            character: a.character || "",
+            match_keywords: a.match_keywords || "",
+            visual_description: normalizeGeneratedTagField(visualParts.join(', ')),
+            lora: a.lora || "",
+            alwaysInclude: !!a.alwaysInclude,
+            neverInclude: !!a.neverInclude,
+            enabled_fields: getRefreshableStateFields(li, a).map(f => f.key)
+        };
+    }
+
     function getAssignmentTagParts(a, li) {
         ensureStructuredCharacterAssignment(a);
         if (li?.assignmentViewMode === 'plain') {
@@ -2749,6 +2795,28 @@ export function createVisualGeneration(api) {
         return fields;
     }
 
+    function parseJsonObjectFromText(rawText, label = "response") {
+        let jsonText = stripUtilityThinkingWrapper(rawText || "").trim();
+        let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            const trimmed = jsonText.trim();
+            if (trimmed.startsWith('"')) {
+                jsonText = `{${trimmed}`;
+                if (!jsonText.trim().endsWith('}')) jsonText = jsonText.trim() + '}';
+                jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            }
+        }
+        if (!jsonMatch) throw new Error(`${label} was not valid JSON.`);
+        return JSON.parse(jsonMatch[0]);
+    }
+
+    function parseJsonArrayFromText(rawText, label = "response") {
+        const jsonText = stripUtilityThinkingWrapper(rawText || "").trim();
+        const jsonMatch = jsonText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error(`${label} was not valid JSON.`);
+        return JSON.parse(jsonMatch[0]);
+    }
+
     async function liUpdateCharacterStateTags(li, charKey, s, assignment, btn = null, options = {}) {
         ensureStructuredCharacterAssignment(assignment);
         const refreshFields = getRefreshableStateFields(li, assignment);
@@ -2772,6 +2840,7 @@ export function createVisualGeneration(api) {
                 chatText,
                 character: assignment.character || "",
                 match_keywords: assignment.match_keywords || "",
+                identityContext: getAssignmentIdentityContext(assignment, li),
                 refreshFields,
                 current: {
                     clothing_tags: assignment.clothing_tags || "",
@@ -2801,23 +2870,15 @@ export function createVisualGeneration(api) {
             li.lastCharacterAnalysisResponse = rawOutput;
             $("#li_last_analysis_body").val(rawOutput);
 
-            let jsonText = rawOutput;
-            let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                const trimmed = jsonText.trim();
-                if (trimmed.startsWith('"')) {
-                    jsonText = `{${trimmed}`;
-                    if (!jsonText.trim().endsWith('}')) jsonText = jsonText.trim() + '}';
-                    jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-                }
-            }
-            if (!jsonMatch) {
+            let update;
+            try {
+                update = parseJsonObjectFromText(rawOutput, "State update response");
+            } catch (parseErr) {
                 toastr.warning("State update response was not valid JSON.");
                 saveProfileToMemory();
                 return;
             }
 
-            const update = JSON.parse(jsonMatch[0]);
             refreshFields.map(f => f.key).forEach(key => {
                 if (update[key] === undefined) return;
                 const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(update[key]) : update[key];
@@ -2860,6 +2921,79 @@ export function createVisualGeneration(api) {
             if (updated > 0) toastr.success(`Refreshed ${updated} active character state${updated === 1 ? "" : "s"}.`);
             else toastr.warning("No character states were refreshed.");
         } finally {
+            btn.prop("disabled", false).html(originalHtml);
+        }
+    }
+
+    async function liResolveCharacterIdentities(li, charKey, s, btn) {
+        ensureLoraIntelDefaults(li);
+        if (!li || !li.characterAssignments || !Array.isArray(li.characterAssignments[charKey]) || li.characterAssignments[charKey].length === 0) {
+            return toastr.warning("No character assignments to resolve.");
+        }
+        const assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
+        if (assignments.length === 0) return toastr.warning("All assignments are excluded.");
+
+        const chatText = getCleanedChatHistory();
+        const cardContext = getCurrentCharacterTextContext();
+        if (chatText.length < 20 && !cardContext.description && !cardContext.firstMessage) {
+            return toastr.warning("Not enough text context to resolve names.");
+        }
+
+        const originalHtml = btn.html();
+        btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Resolving...');
+        try {
+            activeLoraIdentityResolveRequest = {
+                chatText,
+                cardDescription: cardContext.description,
+                firstMessage: cardContext.firstMessage,
+                assignments: assignments.map((a, index) => ({ index, ...getAssignmentIdentityContext(a, li) }))
+            };
+
+            let rawOutput;
+            if (s.generatorBackend === "direct") {
+                rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_IDENTITY_RESOLVE___" });
+            } else {
+                let presetResult;
+                await useMeguminEngine(async () => {
+                    presetResult = await generateQuietPrompt({ prompt: "___PS_LORA_IDENTITY_RESOLVE___" });
+                });
+                rawOutput = presetResult;
+            }
+            activeLoraIdentityResolveRequest = null;
+            rawOutput = stripUtilityThinkingWrapper(rawOutput || "").trim();
+            if (!rawOutput) return toastr.warning("AI returned empty identity resolution.");
+
+            li.lastCharacterAnalysisResponse = rawOutput;
+            $("#li_last_analysis_body").val(rawOutput);
+
+            let updates;
+            try {
+                updates = parseJsonArrayFromText(rawOutput, "Identity resolution response");
+            } catch (parseErr) {
+                toastr.warning("Identity resolution response was not valid JSON.");
+                saveProfileToMemory();
+                return;
+            }
+
+            let changed = 0;
+            for (const update of updates) {
+                const idx = Number(update?.index);
+                if (!Number.isInteger(idx) || idx < 0 || idx >= assignments.length) continue;
+                const assignment = assignments[idx];
+                if (typeof update.character === "string" && update.character.trim()) assignment.character = update.character.trim();
+                if (typeof update.match_keywords === "string") assignment.match_keywords = update.match_keywords.trim();
+                changed++;
+            }
+
+            saveProfileToMemory();
+            liRenderAssignmentTable(li, charKey, s);
+            if (changed > 0) toastr.success(`Resolved ${changed} character identit${changed === 1 ? "y" : "ies"}.`);
+            else toastr.warning("No identity rows were updated.");
+        } catch (e) {
+            toastr.error("Identity resolution failed.");
+            console.error(e);
+        } finally {
+            activeLoraIdentityResolveRequest = null;
             btn.prop("disabled", false).html(originalHtml);
         }
     }
@@ -3972,13 +4106,14 @@ export function createVisualGeneration(api) {
             const currentFieldLines = refreshFields.map(f => `Current ${f.key}: ${activeLoraStateUpdateRequest.current[f.key] || ""}`).join("\n");
             const jsonShape = refreshFields.map(f => `  "${f.key}": "${f.hint}"`).join(",\n");
             const fieldNames = refreshFields.map(f => f.key).join(", ");
+            const identityContext = activeLoraStateUpdateRequest.identityContext || {};
             messages.push({
                 "role": "system",
-                "content": "You update temporary visual metadata for image generation. Return exactly one JSON object and nothing else. Never update permanent identity, body, face, hair, eye color, known character tags, series tags, or match keywords."
+                "content": "You update temporary visual metadata for one specified character. Return exactly one JSON object and nothing else. Never update permanent identity, body, face, hair, eye color, known character tags, series tags, or match keywords."
             });
             messages.push({
                 "role": "user",
-                "content": `Update only these enabled temporary visual tag fields for this character using the latest chat: ${fieldNames}.\n\n<character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\n${currentFieldLines}\n</character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n${jsonShape}\n}\n\nRules:\n- Use concise Danbooru-style comma-separated tags.\n- Do not include disabled fields in the JSON.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
+                "content": `Update only these enabled temporary visual tag fields for the specified target character: ${fieldNames}.\n\n<target_character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\nStable visual description: ${identityContext.visual_description || "None"}\nLoRA: ${identityContext.lora || "None"}\n${currentFieldLines}\n</target_character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n${jsonShape}\n}\n\nRules:\n- Update ONLY the target character, not other characters in the scene.\n- Use Name, Match keywords, and Stable visual description to identify the target in chat.\n- If the latest chat does not clearly mention or imply the target character, keep existing values.\n- Use concise Danbooru-style comma-separated tags.\n- Do not include disabled fields in the JSON.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
             });
             if (!disablePrefill) {
                 messages.push({
@@ -3987,6 +4122,36 @@ export function createVisualGeneration(api) {
                 });
             }
             console.log(`[${extensionName}] Injected LoRA state update array in memory.`);
+            return true;
+        }
+
+        // --- INJECT LORA IDENTITY RESOLUTION PROMPT ---
+        if (activeLoraIdentityResolveRequest) {
+            messages.length = 0;
+            const cardContextParts = [];
+            if (activeLoraIdentityResolveRequest.cardDescription) {
+                cardContextParts.push(`<character_card_description>\n${activeLoraIdentityResolveRequest.cardDescription}\n</character_card_description>`);
+            }
+            if (activeLoraIdentityResolveRequest.firstMessage) {
+                cardContextParts.push(`<first_message>\n${activeLoraIdentityResolveRequest.firstMessage}\n</first_message>`);
+            }
+            const cardContextSection = cardContextParts.length > 0 ? `\n\n<character_card_context>\n${cardContextParts.join('\n\n')}\n</character_card_context>` : "";
+
+            messages.push({
+                "role": "system",
+                "content": "You resolve visual assignment placeholders to roleplay character identities. Return exactly one JSON array and nothing else. Update only names and match keywords."
+            });
+            messages.push({
+                "role": "user",
+                "content": `Resolve character names and match keywords for these existing visual assignments.\n\n<assignments>\n${JSON.stringify(activeLoraIdentityResolveRequest.assignments, null, 2)}\n</assignments>\n\n<chat>\n${activeLoraIdentityResolveRequest.chatText}\n</chat>${cardContextSection}\n\nReturn ONLY this JSON array shape:\n[\n  {"index": 0, "character": "resolved story character name or existing label", "match_keywords": "comma-separated names, nicknames, titles, aliases"}\n]\n\nRules:\n- Do not change visual descriptions, LoRAs, tags, clothing, pose, or state.\n- Match each assignment by its visual_description plus chat/card context.\n- If identity is unclear, keep the existing character label and add only safe obvious keywords.\n- Include one object per assignment index.\n- Output ONLY the JSON array.`
+            });
+            if (!disablePrefill) {
+                messages.push({
+                    "role": "assistant",
+                    "content": "[\n"
+                });
+            }
+            console.log(`[${extensionName}] Injected LoRA identity resolution array in memory.`);
             return true;
         }
 
@@ -4025,6 +4190,14 @@ export function createVisualGeneration(api) {
             if (activeLoraAssignRequest.ensureLoras && activeLoraAssignRequest.hasLoras) {
                 loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
             }
+            const cardContextParts = [];
+            if (activeLoraAssignRequest.cardDescription) {
+                cardContextParts.push(`<character_card_description>\n${activeLoraAssignRequest.cardDescription}\n</character_card_description>`);
+            }
+            if (activeLoraAssignRequest.firstMessage) {
+                cardContextParts.push(`<first_message>\n${activeLoraAssignRequest.firstMessage}\n</first_message>`);
+            }
+            const cardContextSection = cardContextParts.length > 0 ? `\n\n<character_card_context>\n${cardContextParts.join('\n\n')}\n</character_card_context>` : "";
 
             messages.push({
                 "role": "system",
@@ -4032,7 +4205,7 @@ export function createVisualGeneration(api) {
             });
             messages.push({
                 "role": "user",
-                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation`
+                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context only to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present and current state.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
             });
         if (!disablePrefill) {
             messages.push({
