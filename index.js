@@ -177,6 +177,7 @@ function initProfile() {
                 descriptionStyle: 'booru',
                 promptAssemblyMode: 'structured',
                 assignmentViewMode: 'structured',
+                vlmModel: 'qwen/qwen3-vl-32b-instruct',
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},

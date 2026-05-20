@@ -68,6 +68,12 @@ export function createVisualGeneration(api) {
         { label: "Paizuri POV", prompt: "paizuri, first-person perspective, breasts pressed around penis, rhythmic sliding motion" }
     ];
 
+    const VLM_CHARACTER_MODELS = [
+        "qwen/qwen3.6-27b",
+        "qwen/qwen3-vl-32b-instruct",
+        "google/gemma-4-31b-it"
+    ];
+
     function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     function ensureImageLeadPrefix(rawPrompt) {
@@ -189,6 +195,7 @@ export function createVisualGeneration(api) {
     }
 
     function assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch = true) {
+        if (a?.neverInclude) return false;
         if (a?.alwaysInclude) return true;
         const kws = parseMatchKeywords(a?.match_keywords);
         if (kws.length === 0) return allowEmptyMatch;
@@ -207,6 +214,8 @@ export function createVisualGeneration(api) {
         if (a.current_state_tags === undefined) a.current_state_tags = "";
         if (a.plain_description === undefined) a.plain_description = "";
         if (a.alwaysInclude === undefined) a.alwaysInclude = false;
+        if (a.neverInclude === undefined) a.neverInclude = false;
+        if (a.neverInclude) a.alwaysInclude = false;
         if (!a.tagFieldToggles) a.tagFieldToggles = {};
         getTagFieldToggleDefaults().forEach(({ key }) => {
             if (a.tagFieldToggles[key] === undefined) a.tagFieldToggles[key] = true;
@@ -233,6 +242,7 @@ export function createVisualGeneration(api) {
         if (li.descriptionStyle === undefined) li.descriptionStyle = 'booru';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
         if (li.assignmentViewMode === undefined) li.assignmentViewMode = 'structured';
+        if (li.vlmModel === undefined) li.vlmModel = 'qwen/qwen3-vl-32b-instruct';
         if (li.lastCharacterAnalysisResponse === undefined) li.lastCharacterAnalysisResponse = "";
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
         if (!li.tagFieldToggles) li.tagFieldToggles = {};
@@ -675,6 +685,27 @@ export function createVisualGeneration(api) {
                                     <i class="fa-solid fa-bolt"></i> Analyze Characters
                                 </button>
                             </div>
+                            <div style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px;">
+                                <div style="flex: 1; min-width: 220px;">
+                                    <div style="font-size: 0.65rem; font-weight: 800; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Card Image VLM Model</div>
+                                    <select id="li_vlm_model" class="ps-modern-input" style="padding: 7px; font-size: 0.75rem;">
+                                        ${VLM_CHARACTER_MODELS.map(m => `<option value="${psEscapeAttr(m)}" ${li.vlmModel === m ? 'selected' : ''}>${psEscapeText(m)}</option>`).join("")}
+                                    </select>
+                                </div>
+                                <div style="width: 180px;">
+                                    <div style="font-size: 0.65rem; font-weight: 800; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Description Style</div>
+                                    <select id="li_vlm_style" class="ps-modern-input" style="padding: 7px; font-size: 0.75rem;">
+                                        <option value="booru" ${li.descriptionStyle === 'booru' ? 'selected' : ''}>Booru Tags</option>
+                                        <option value="natural" ${li.descriptionStyle === 'natural' ? 'selected' : ''}>Natural Language</option>
+                                    </select>
+                                </div>
+                                <button id="li_analyze_card_image_btn" class="ps-modern-btn secondary" style="padding: 7px 12px; font-size: 0.75rem;">
+                                    <i class="fa-solid fa-id-card"></i> Analyze Card Image
+                                </button>
+                                <button id="li_refresh_active_states_btn" class="ps-modern-btn secondary" style="padding: 7px 12px; font-size: 0.75rem;">
+                                    <i class="fa-solid fa-rotate"></i> Refresh Active States
+                                </button>
+                            </div>
                             <div id="li_assignment_table" style="min-height: 40px;">
                                 ${liAssignments.length > 0 ? '' : '<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to let AI map characters to LoRAs.</div>'}
                             </div>
@@ -905,6 +936,21 @@ export function createVisualGeneration(api) {
             li.assignmentViewMode = $(this).val();
             saveProfileToMemory();
             renderImageGen(c);
+        });
+        $("#li_vlm_model").on("change", function() {
+            li.vlmModel = $(this).val();
+            saveProfileToMemory();
+        });
+        $("#li_vlm_style").on("change", function() {
+            li.descriptionStyle = $(this).val();
+            saveProfileToMemory();
+            $("#li_desc_style").val(li.descriptionStyle);
+        });
+        $("#li_analyze_card_image_btn").on("click", function() {
+            liAnalyzeCardImage(li, charKey, s, $(this));
+        });
+        $("#li_refresh_active_states_btn").on("click", function() {
+            liRefreshActiveCharacterStates(li, charKey, s, $(this));
         });
 
         // Scope select
@@ -1796,7 +1842,7 @@ export function createVisualGeneration(api) {
         `);
 
         header.find("#li_add_custom_assign").on("click", function() {
-            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", action_tags: "", pose_expression_tags: "", current_state_tags: "", alwaysInclude: false }));
+            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", action_tags: "", pose_expression_tags: "", current_state_tags: "", alwaysInclude: false, neverInclude: false }));
             li.characterAssignments[charKey] = assignments;
             saveProfileToMemory();
             liRenderAssignmentTable(li, charKey, s);
@@ -1832,6 +1878,7 @@ export function createVisualGeneration(api) {
                                 <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                                 ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
                                 <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
+                                <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i> Never</button>
                                 <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                             </div>
                             ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
@@ -1843,7 +1890,8 @@ export function createVisualGeneration(api) {
                     if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                     if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                     row.find(".li-edit-plain-desc").on("input", function() { a.plain_description = $(this).val(); saveProfileToMemory(); });
-                    row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                    row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                    row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                     row.find(".li-remove-assign").on("click", function() {
                         assignments.splice(idx, 1);
                         li.characterAssignments[charKey] = assignments;
@@ -1860,6 +1908,7 @@ export function createVisualGeneration(api) {
                             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                             ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
                             <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
+                            <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i> Never</button>
                             <button type="button" class="ps-modern-btn secondary li-update-state" title="Update clothing, pose, and current state from the latest chat messages" style="padding: 5px 8px; font-size: 0.65rem; color: #3b82f6; border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-rotate"></i> State</button>
                             <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                         </div>
@@ -1885,7 +1934,8 @@ export function createVisualGeneration(api) {
                 if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                 if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                 if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
-                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-row-field-toggle").on("click", function() {
                     const key = $(this).attr("data-field");
                     ensureStructuredCharacterAssignment(a);
@@ -1947,7 +1997,11 @@ export function createVisualGeneration(api) {
             const row = $(`
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
                     ${rowHtml}
-                    <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3); margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
+                    <div style="display: flex; gap: 6px; align-items: center; margin-left: 10px;">
+                        <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 2px 6px; font-size: 0.6rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i></button>
+                        <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 2px 6px; font-size: 0.6rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i></button>
+                        <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                 </div>
             `);
 
@@ -1974,6 +2028,8 @@ export function createVisualGeneration(api) {
             if (showDesc) {
                 row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
             }
+            row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+            row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
 
             row.find(".li-remove-assign").on("click", function() {
                 assignments.splice(idx, 1);
@@ -2183,7 +2239,7 @@ export function createVisualGeneration(api) {
             return;
         }
         let assignments = getMatchedCharacterAssignments(li, charKey);
-        if (assignments.length === 0) assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment);
+        if (assignments.length === 0) assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
 
         const snippets = assignments.map((a) => {
             const tagBlock = getAssignmentTagBlock(a, li);
@@ -2242,6 +2298,148 @@ export function createVisualGeneration(api) {
                 return `${m.name}: ${text.trim()}`;
             })
             .join("\n\n");
+    }
+
+    function getCurrentCharacterCardImageUrl() {
+        const context = getContext();
+        if (context.characterId !== undefined && context.characterId !== null && context.characters?.[context.characterId]?.avatar) {
+            return `/characters/${context.characters[context.characterId].avatar}`;
+        }
+        if (context.groupId !== undefined && context.groupId !== null && Array.isArray(context.groups)) {
+            const group = context.groups.find(g => String(g.id) === String(context.groupId));
+            const avatar = group?.avatar_url || group?.avatar;
+            if (avatar) return String(avatar).startsWith("/") ? avatar : `/characters/${avatar}`;
+        }
+        return "";
+    }
+
+    function blobToDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async function getCurrentCharacterCardDataUrl() {
+        const imageUrl = getCurrentCharacterCardImageUrl();
+        if (!imageUrl) throw new Error("No character card image is available for this chat.");
+        const res = await fetch(imageUrl);
+        if (!res.ok) throw new Error(`Could not load card image (${res.status}).`);
+        return await blobToDataUrl(await res.blob());
+    }
+
+    function extractAssistantTextFromResponse(data) {
+        if (!data) return "";
+        if (typeof data === "string") return data;
+        return data?.choices?.[0]?.message?.content
+            || data?.choices?.[0]?.text
+            || data?.content
+            || data?.text
+            || data?.response
+            || data?.result
+            || "";
+    }
+
+    function extractJsonArrayFromText(rawText) {
+        const cleaned = stripUtilityThinkingWrapper(String(rawText || "")).replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+        const match = cleaned.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error("VLM did not return a JSON array.");
+        return JSON.parse(match[0]);
+    }
+
+    async function requestCardImageVlmDescription({ imageDataUrl, model, style }) {
+        const styleRule = style === "natural"
+            ? "Use concise natural language in plain_description, but still fill the structured tag fields with short visual phrases."
+            : "Use concise Danbooru-style comma-separated tags in the structured fields and plain_description.";
+        const prompt = `Analyze the attached character card image. The image may contain one visible character or multiple visible characters in the same card art.\n\nReturn ONLY a JSON array. Use generic labels only: "character 1", "character 2", "character 3", etc. Do not invent story names.\n\nEach object must use this exact shape:\n{\n  "character": "character 1",\n  "match_keywords": "",\n  "character_tag": "",\n  "series_tag": "",\n  "physical_tags": "detailed face, hair, eyes, skin, body shape, chest, height/build tags",\n  "clothing_tags": "visible outfit/accessories only",\n  "action_tags": "visible activity or held objects only",\n  "pose_expression_tags": "pose, gaze, emotion, facial expression",\n  "current_state_tags": "temporary visible state such as wet hair, dirt, injuries, tears, empty if none",\n  "plain_description": "detailed facial and body description",\n  "alwaysInclude": true\n}\n\nRules:\n- Describe only visible adult-presenting characters.\n- If multiple people are visible, create one object per person from left to right.\n- Focus on facial features, hair, eyes, body proportions, outfit, pose, expression, and distinguishing marks.\n- ${styleRule}`;
+
+        const messages = [{
+            role: "user",
+            content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: imageDataUrl } }
+            ]
+        }];
+        const headers = { ...getRequestHeaders(), "Content-Type": "application/json" };
+        const body = JSON.stringify({ messages, model, temperature: 0.2, max_tokens: 1600, stream: false });
+        const endpoints = [
+            "/api/backends/chat-completions/generate",
+            "/api/openai/generate"
+        ];
+        let lastError = null;
+        for (const endpoint of endpoints) {
+            try {
+                const res = await fetch(endpoint, { method: "POST", headers, body });
+                const raw = await res.text();
+                let data = raw;
+                try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
+                if (!res.ok) {
+                    lastError = new Error(data?.error?.message || data?.error || `${endpoint} returned ${res.status}`);
+                    continue;
+                }
+                const text = extractAssistantTextFromResponse(data);
+                if (text) return text;
+                lastError = new Error(`${endpoint} returned no text.`);
+            } catch (e) {
+                lastError = e;
+            }
+        }
+        throw lastError || new Error("VLM request failed.");
+    }
+
+    async function liAnalyzeCardImage(li, charKey, s, btn) {
+        ensureLoraIntelDefaults(li);
+        if (!charKey) return toastr.warning("Open a character or group chat first.");
+        btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...');
+        try {
+            if (li.useDanbooruTags) await loadDanbooruTags();
+            const imageDataUrl = await getCurrentCharacterCardDataUrl();
+            const model = li.vlmModel || "qwen/qwen3-vl-32b-instruct";
+            let rawOutput = "";
+            if (s.generatorBackend === "direct") {
+                rawOutput = await requestCardImageVlmDescription({ imageDataUrl, model, style: li.descriptionStyle });
+            } else {
+                await useMeguminEngine(async () => {
+                    rawOutput = await requestCardImageVlmDescription({ imageDataUrl, model, style: li.descriptionStyle });
+                });
+            }
+            const parsed = extractJsonArrayFromText(rawOutput);
+            const previous = Array.isArray(li.characterAssignments?.[charKey]) ? li.characterAssignments[charKey] : [];
+            const assignments = parsed.map((item, idx) => {
+                const a = ensureStructuredCharacterAssignment(item && typeof item === "object" ? item : {});
+                a.character = `character ${idx + 1}`;
+                a.match_keywords = "";
+                a.alwaysInclude = true;
+                if (previous[idx]?.neverInclude) {
+                    a.neverInclude = true;
+                    a.alwaysInclude = false;
+                }
+                if (!a.lora && previous[idx]?.lora) a.lora = previous[idx].lora;
+                if (li.useDanbooruTags) {
+                    ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'action_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+                        if (!a[key]) return;
+                        const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a[key]) : a[key];
+                        a[key] = normalizeGeneratedTagField(repairedTags);
+                    });
+                }
+                return normalizeStructuredCharacterAssignment(a);
+            }).filter(a => getAssignmentTagBlock(a, li) || a.plain_description || a.description);
+
+            if (assignments.length === 0) throw new Error("VLM returned no usable character descriptions.");
+            li.characterAssignments[charKey] = assignments;
+            li.lastCharacterAnalysisResponse = rawOutput;
+            saveProfileToMemory();
+            liRenderAssignmentTable(li, charKey, s);
+            $("#li_last_analysis_body").val(rawOutput);
+            toastr.success(`Card image mapped ${assignments.length} character${assignments.length === 1 ? "" : "s"}.`);
+        } catch (e) {
+            toastr.error("Card image analysis failed: " + e.message);
+            console.error("[Megumin Suite] Card image VLM analysis failed:", e);
+        } finally {
+            btn.prop("disabled", false).html('<i class="fa-solid fa-id-card"></i> Analyze Card Image');
+        }
     }
 
     function getCharacterSlotLabel(index, total) {
@@ -2378,12 +2576,31 @@ export function createVisualGeneration(api) {
         return lines.join('\n');
     }
 
-    async function liUpdateCharacterStateTags(li, charKey, s, assignment, btn = null) {
+    function isAssignmentFieldEnabled(li, assignment, key) {
+        const globalToggles = li?.tagFieldToggles || {};
+        const rowToggles = assignment?.tagFieldToggles || {};
+        return globalToggles[key] !== false && rowToggles[key] !== false;
+    }
+
+    function getRefreshableStateFields(li, assignment) {
+        const fields = [];
+        if (isAssignmentFieldEnabled(li, assignment, "clothingTags")) fields.push({ key: "clothing_tags", label: "clothing_tags", hint: "current outfit/accessory tags only" });
+        if (isAssignmentFieldEnabled(li, assignment, "poseExpressionTags")) fields.push({ key: "pose_expression_tags", label: "pose_expression_tags", hint: "current pose/expression/action tags only" });
+        if (isAssignmentFieldEnabled(li, assignment, "currentStateTags")) fields.push({ key: "current_state_tags", label: "current_state_tags", hint: "temporary state tags only, such as wet hair, bruised cheek, blood, torn clothes, holding object, empty if none" });
+        return fields;
+    }
+
+    async function liUpdateCharacterStateTags(li, charKey, s, assignment, btn = null, options = {}) {
         ensureStructuredCharacterAssignment(assignment);
+        const refreshFields = getRefreshableStateFields(li, assignment);
+        if (refreshFields.length === 0) {
+            if (!options.silent) toastr.warning("No enabled state fields to refresh for this character.");
+            return false;
+        }
         const chatText = getRecentVisualContext(2);
         if (chatText.length < 20) {
-            toastr.warning("Not enough recent chat to update visual state.");
-            return;
+            if (!options.silent) toastr.warning("Not enough recent chat to update visual state.");
+            return false;
         }
 
         const originalHtml = btn ? btn.html() : "";
@@ -2396,6 +2613,7 @@ export function createVisualGeneration(api) {
                 chatText,
                 character: assignment.character || "",
                 match_keywords: assignment.match_keywords || "",
+                refreshFields,
                 current: {
                     clothing_tags: assignment.clothing_tags || "",
                     pose_expression_tags: assignment.pose_expression_tags || "",
@@ -2441,7 +2659,7 @@ export function createVisualGeneration(api) {
             }
 
             const update = JSON.parse(jsonMatch[0]);
-            ['clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+            refreshFields.map(f => f.key).forEach(key => {
                 if (update[key] === undefined) return;
                 const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(update[key]) : update[key];
                 assignment[key] = normalizeGeneratedTagField(repairedTags);
@@ -2449,14 +2667,41 @@ export function createVisualGeneration(api) {
             normalizeStructuredCharacterAssignment(assignment);
 
             saveProfileToMemory();
-            liRenderAssignmentTable(li, charKey, s);
-            toastr.success("Updated current visual tags.");
+            if (!options.skipRender) liRenderAssignmentTable(li, charKey, s);
+            if (!options.silent) toastr.success("Updated current visual tags.");
+            return true;
         } catch (e) {
-            toastr.error("State update failed.");
+            if (!options.silent) toastr.error("State update failed.");
             console.error(e);
+            return false;
         } finally {
             activeLoraStateUpdateRequest = null;
             if (btn) btn.prop("disabled", false).html(originalHtml);
+        }
+    }
+
+    async function liRefreshActiveCharacterStates(li, charKey, s, btn) {
+        ensureLoraIntelDefaults(li);
+        const assignments = getActiveCharacterAssignments(li, charKey);
+        if (assignments.length === 0) return toastr.warning("No active character assignments to refresh.");
+
+        const refreshable = assignments.filter(a => getRefreshableStateFields(li, a).length > 0);
+        if (refreshable.length === 0) return toastr.warning("No enabled state fields to refresh.");
+
+        const originalHtml = btn.html();
+        btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...');
+        let updated = 0;
+        try {
+            for (const assignment of refreshable) {
+                const ok = await liUpdateCharacterStateTags(li, charKey, s, assignment, null, { silent: true, skipRender: true });
+                if (ok) updated++;
+            }
+            saveProfileToMemory();
+            liRenderAssignmentTable(li, charKey, s);
+            if (updated > 0) toastr.success(`Refreshed ${updated} active character state${updated === 1 ? "" : "s"}.`);
+            else toastr.warning("No character states were refreshed.");
+        } finally {
+            btn.prop("disabled", false).html(originalHtml);
         }
     }
 
@@ -3560,13 +3805,21 @@ export function createVisualGeneration(api) {
         // --- INJECT LORA STATE UPDATE PROMPT ---
         if (activeLoraStateUpdateRequest) {
             messages.length = 0;
+            const refreshFields = activeLoraStateUpdateRequest.refreshFields || [
+                { key: "clothing_tags", label: "clothing_tags", hint: "current outfit/accessory tags only" },
+                { key: "pose_expression_tags", label: "pose_expression_tags", hint: "current pose/expression/action tags only" },
+                { key: "current_state_tags", label: "current_state_tags", hint: "temporary state tags only, such as wet hair, bruised cheek, blood, torn clothes, holding object, empty if none" }
+            ];
+            const currentFieldLines = refreshFields.map(f => `Current ${f.key}: ${activeLoraStateUpdateRequest.current[f.key] || ""}`).join("\n");
+            const jsonShape = refreshFields.map(f => `  "${f.key}": "${f.hint}"`).join(",\n");
+            const fieldNames = refreshFields.map(f => f.key).join(", ");
             messages.push({
                 "role": "system",
                 "content": "You update temporary visual metadata for image generation. Return exactly one JSON object and nothing else. Never update permanent identity, body, face, hair, eye color, known character tags, series tags, or match keywords."
             });
             messages.push({
                 "role": "user",
-                "content": `Update only the temporary visual tags for this character using the latest chat.\n\n<character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\nCurrent clothing_tags: ${activeLoraStateUpdateRequest.current.clothing_tags || ""}\nCurrent pose_expression_tags: ${activeLoraStateUpdateRequest.current.pose_expression_tags || ""}\nCurrent current_state_tags: ${activeLoraStateUpdateRequest.current.current_state_tags || ""}\n</character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n  "clothing_tags": "current outfit/accessory tags only",\n  "pose_expression_tags": "current pose/expression/action tags only",\n  "current_state_tags": "temporary state tags only, such as wet hair, bruised cheek, blood, torn clothes, holding object, empty if none"\n}\n\nRules:\n- Use concise Danbooru-style comma-separated tags.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
+                "content": `Update only these enabled temporary visual tag fields for this character using the latest chat: ${fieldNames}.\n\n<character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\n${currentFieldLines}\n</character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n${jsonShape}\n}\n\nRules:\n- Use concise Danbooru-style comma-separated tags.\n- Do not include disabled fields in the JSON.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
             });
             if (!disablePrefill) {
                 messages.push({
