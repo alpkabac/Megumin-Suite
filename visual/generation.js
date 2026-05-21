@@ -2190,7 +2190,7 @@ export function createVisualGeneration(api) {
 
         for (const a of getActiveCharacterAssignments(li, charKey)) {
             ensureStructuredCharacterAssignment(a);
-            const tagBlock = getAssignmentTagBlock(a, li) || a.booru_tags;
+            const tagBlock = getAssignmentTagBlock(a, li);
             if (!tagBlock) continue;
             matched.push({ character: a.character, tags: tagBlock });
         }
@@ -2233,21 +2233,25 @@ export function createVisualGeneration(api) {
         return normalizeGeneratedTagField(parts.join(', '));
     }
 
+    function getPlainAssignmentText(a) {
+        const stableStructured = [
+            a.character_tag,
+            a.series_tag,
+            a.physical_tags,
+            a.clothing_tags
+        ].filter(Boolean).join(', ');
+        const plainDescription = normalizeGeneratedTagField(a.plain_description || "");
+        const fullTagDump = normalizeGeneratedTagField(a.booru_tags || "");
+        const plainLooksAutoSeeded = plainDescription && fullTagDump && plainDescription === fullTagDump;
+        return plainLooksAutoSeeded
+            ? stableStructured
+            : (a.plain_description || a.description || stableStructured);
+    }
+
     function getStableAssignmentTagBlock(a, li = null) {
         ensureStructuredCharacterAssignment(a);
         if (li?.assignmentViewMode === 'plain') {
-            const stableStructured = [
-                a.character_tag,
-                a.series_tag,
-                a.physical_tags,
-                a.clothing_tags
-            ].filter(Boolean).join(', ');
-            const plainDescription = normalizeGeneratedTagField(a.plain_description || "");
-            const fullTagDump = normalizeGeneratedTagField(a.booru_tags || "");
-            const plainLooksAutoSeeded = plainDescription && fullTagDump && plainDescription === fullTagDump;
-            return plainLooksAutoSeeded
-                ? normalizeGeneratedTagField(stableStructured)
-                : normalizeGeneratedTagField(a.plain_description || a.description || stableStructured);
+            return normalizeGeneratedTagField(getPlainAssignmentText(a));
         }
         const globalToggles = li?.tagFieldToggles || {};
         const rowToggles = a?.tagFieldToggles || {};
@@ -2270,7 +2274,7 @@ export function createVisualGeneration(api) {
     function getAssignmentTagParts(a, li) {
         ensureStructuredCharacterAssignment(a);
         if (li?.assignmentViewMode === 'plain') {
-            return [a.plain_description || a.description || a.booru_tags || ""].filter(Boolean);
+            return [getPlainAssignmentText(a)].filter(Boolean);
         }
         const globalToggles = li?.tagFieldToggles || {};
         const rowToggles = a?.tagFieldToggles || {};
@@ -3261,7 +3265,7 @@ export function createVisualGeneration(api) {
                                         kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
                                     }
                                 }
-                                const tagBlock = useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : (getAssignmentTagBlock(a, li) || a.booru_tags);
+                                const tagBlock = useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : getAssignmentTagBlock(a, li);
                                 if (li.useDanbooruTags && tagBlock) {
                                     booruStrings.push(`${a.character}: ${tagBlock}`);
                                 }
