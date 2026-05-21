@@ -184,13 +184,7 @@ function initProfile() {
                     characterTag: true,
                     seriesTag: true,
                     physicalTags: true,
-                    clothingTags: true,
-                    actionTags: true,
-                    poseExpressionTags: true,
-                    currentStateTags: true,
-                    sceneAction: true,
-                    background: true,
-                    composition: true
+                    clothingTags: true
                 },
                 lastCharacterAnalysisResponse: "",
                 compiledPromptOverride: ""

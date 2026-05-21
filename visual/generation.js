@@ -31,7 +31,6 @@ export function createVisualGeneration(api) {
     let activeImageGenRequest = null;
     let activeVideoGenRequest = null;
     let activeLoraAssignRequest = null;
-    let activeLoraStateUpdateRequest = null;
     let activeVideoGenJob = false;
     const completedVideoPromptIds = new Set();
     let danbooruTagsMap = null;
@@ -189,6 +188,7 @@ export function createVisualGeneration(api) {
     }
 
     function assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch = true) {
+        if (a?.neverInclude) return false;
         if (a?.alwaysInclude) return true;
         const kws = parseMatchKeywords(a?.match_keywords);
         if (kws.length === 0) return allowEmptyMatch;
@@ -202,11 +202,10 @@ export function createVisualGeneration(api) {
         if (a.series_tag === undefined) a.series_tag = "";
         if (a.physical_tags === undefined) a.physical_tags = a.booru_tags || "";
         if (a.clothing_tags === undefined) a.clothing_tags = "";
-        if (a.action_tags === undefined) a.action_tags = "";
-        if (a.pose_expression_tags === undefined) a.pose_expression_tags = "";
-        if (a.current_state_tags === undefined) a.current_state_tags = "";
         if (a.plain_description === undefined) a.plain_description = "";
         if (a.alwaysInclude === undefined) a.alwaysInclude = false;
+        if (a.neverInclude === undefined) a.neverInclude = false;
+        if (a.neverInclude) a.alwaysInclude = false;
         if (!a.tagFieldToggles) a.tagFieldToggles = {};
         getTagFieldToggleDefaults().forEach(({ key }) => {
             if (a.tagFieldToggles[key] === undefined) a.tagFieldToggles[key] = true;
@@ -219,11 +218,7 @@ export function createVisualGeneration(api) {
             { key: "characterTag", label: "Char" },
             { key: "seriesTag", label: "Series" },
             { key: "physicalTags", label: "Phys" },
-            { key: "clothingTags", label: "Clothes" },
-            { key: "actionTags", label: "Action" },
-            { key: "poseExpressionTags", label: "Pose" },
-            { key: "currentStateTags", label: "State" },
-            { key: "sceneAction", label: "Scene" }
+            { key: "clothingTags", label: "Clothes" }
         ];
     }
 
@@ -236,10 +231,7 @@ export function createVisualGeneration(api) {
         if (li.lastCharacterAnalysisResponse === undefined) li.lastCharacterAnalysisResponse = "";
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
         if (!li.tagFieldToggles) li.tagFieldToggles = {};
-        const defaults = {
-            background: true,
-            composition: true
-        };
+        const defaults = {};
         getTagFieldToggleDefaults().forEach(({ key }) => { defaults[key] = true; });
         Object.keys(defaults).forEach(key => {
             if (li.tagFieldToggles[key] === undefined) li.tagFieldToggles[key] = defaults[key];
@@ -250,7 +242,7 @@ export function createVisualGeneration(api) {
         ensureStructuredCharacterAssignment(a);
         if (!a || typeof a !== 'object') return a;
 
-        ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'action_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+        ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags'].forEach(key => {
             if (a[key]) a[key] = normalizeGeneratedTagField(a[key]);
         });
 
@@ -258,10 +250,7 @@ export function createVisualGeneration(api) {
             a.character_tag,
             a.series_tag,
             a.physical_tags,
-            a.clothing_tags,
-            a.action_tags,
-            a.pose_expression_tags,
-            a.current_state_tags
+            a.clothing_tags
         ].filter(Boolean).join(', ');
 
         a.booru_tags = mergedTags || normalizeGeneratedTagField(a.booru_tags || "");
@@ -622,10 +611,10 @@ export function createVisualGeneration(api) {
                             <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                                 <div style="flex: 1; min-width: 220px;">
                                     <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-main);">Prompt Assembly</div>
-                                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">Structured keeps exact Anima character tags in code; LLM Full lets the model write the whole prompt.</div>
+                                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">Character Guided gives the prompt model matched stable character references; LLM Full is looser.</div>
                                 </div>
                                 <select id="li_prompt_assembly_mode" class="ps-modern-input" style="width: 240px; padding: 8px; font-size: 0.75rem;">
-                                    <option value="structured" ${li.promptAssemblyMode === 'structured' ? 'selected' : ''}>Structured Character Blocks</option>
+                                    <option value="structured" ${li.promptAssemblyMode === 'structured' ? 'selected' : ''}>Character Guided LLM</option>
                                     <option value="llm" ${li.promptAssemblyMode === 'llm' ? 'selected' : ''}>LLM Full Prompt</option>
                                 </select>
                                 <select id="li_assignment_view_mode" class="ps-modern-input" style="width: 210px; padding: 8px; font-size: 0.75rem;">
@@ -638,12 +627,6 @@ export function createVisualGeneration(api) {
                                 ${liTagFieldToggle("li_field_series", "Series Tag", li.tagFieldToggles.seriesTag)}
                                 ${liTagFieldToggle("li_field_physical", "Physical", li.tagFieldToggles.physicalTags)}
                                 ${liTagFieldToggle("li_field_clothing", "Clothing", li.tagFieldToggles.clothingTags)}
-                                ${liTagFieldToggle("li_field_action_tags", "Action Field", li.tagFieldToggles.actionTags)}
-                                ${liTagFieldToggle("li_field_pose", "Pose / Expression", li.tagFieldToggles.poseExpressionTags)}
-                                ${liTagFieldToggle("li_field_state", "Current State", li.tagFieldToggles.currentStateTags)}
-                                ${liTagFieldToggle("li_field_action", "AI Scene Action", li.tagFieldToggles.sceneAction)}
-                                ${liTagFieldToggle("li_field_background", "Background", li.tagFieldToggles.background)}
-                                ${liTagFieldToggle("li_field_composition", "Composition", li.tagFieldToggles.composition)}
                             </div>
                         </div>
 
@@ -671,9 +654,11 @@ export function createVisualGeneration(api) {
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-users-gear" style="color: var(--gold); margin-right: 6px;"></i>AI Character → LoRA Assignment</span>
-                                <button id="li_analyze_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; padding: 6px 14px; font-size: 0.75rem; font-weight: 800;">
-                                    <i class="fa-solid fa-bolt"></i> Analyze Characters
-                                </button>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button id="li_analyze_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; padding: 6px 14px; font-size: 0.75rem; font-weight: 800;">
+                                        <i class="fa-solid fa-bolt"></i> Analyze Characters
+                                    </button>
+                                </div>
                             </div>
                             <div id="li_assignment_table" style="min-height: 40px;">
                                 ${liAssignments.length > 0 ? '' : '<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to let AI map characters to LoRAs.</div>'}
@@ -877,12 +862,6 @@ export function createVisualGeneration(api) {
         bindLiTagToggle("li_field_series", "seriesTag");
         bindLiTagToggle("li_field_physical", "physicalTags");
         bindLiTagToggle("li_field_clothing", "clothingTags");
-        bindLiTagToggle("li_field_action_tags", "actionTags");
-        bindLiTagToggle("li_field_pose", "poseExpressionTags");
-        bindLiTagToggle("li_field_state", "currentStateTags");
-        bindLiTagToggle("li_field_action", "sceneAction");
-        bindLiTagToggle("li_field_background", "background");
-        bindLiTagToggle("li_field_composition", "composition");
         $("#ig_manual_render_btn").on("click", igRenderManualPrompt);
         $("#ig_manual_prompt").on("input", (e) => { s.manualPrompt = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_apply_position_preset").on("click", () => applyPromptPresetToTextarea("#ig_nsfw_position_preset", "#ig_manual_prompt", s, "manualPrompt"));
@@ -993,9 +972,12 @@ export function createVisualGeneration(api) {
                     const kw = l.keywords && l.keywords.length > 0 ? ` (keywords: ${l.keywords.join(', ')})` : '';
                     return `- ${l.name}${kw}`;
                 }).join('\n');
+                const characterTextContext = getCurrentCharacterTextContext();
 
                 activeLoraAssignRequest = {
                     chatText: chatText,
+                    cardDescription: characterTextContext.description,
+                    firstMessage: characterTextContext.firstMessage,
                     loraList: loraListStr,
                     hasLoras: enabledLoras.length > 0,
                     ensureLoras: li.ensureLoras,
@@ -1045,7 +1027,7 @@ export function createVisualGeneration(api) {
                         if (li.useDanbooruTags) {
                             for (const a of assignments) {
                                 ensureStructuredCharacterAssignment(a);
-                                ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags', 'action_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
+                                ['booru_tags', 'character_tag', 'series_tag', 'physical_tags', 'clothing_tags'].forEach(key => {
                                     if (!a[key]) return;
                                     const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a[key]) : a[key];
                                     a[key] = normalizeGeneratedTagField(repairedTags);
@@ -1796,7 +1778,7 @@ export function createVisualGeneration(api) {
         `);
 
         header.find("#li_add_custom_assign").on("click", function() {
-            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", action_tags: "", pose_expression_tags: "", current_state_tags: "", alwaysInclude: false }));
+            assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", alwaysInclude: false, neverInclude: false }));
             li.characterAssignments[charKey] = assignments;
             saveProfileToMemory();
             liRenderAssignmentTable(li, charKey, s);
@@ -1832,6 +1814,7 @@ export function createVisualGeneration(api) {
                                 <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                                 ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
                                 <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
+                                <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i> Never</button>
                                 <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                             </div>
                             ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
@@ -1843,7 +1826,8 @@ export function createVisualGeneration(api) {
                     if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                     if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                     row.find(".li-edit-plain-desc").on("input", function() { a.plain_description = $(this).val(); saveProfileToMemory(); });
-                    row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                    row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                    row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                     row.find(".li-remove-assign").on("click", function() {
                         assignments.splice(idx, 1);
                         li.characterAssignments[charKey] = assignments;
@@ -1860,7 +1844,7 @@ export function createVisualGeneration(api) {
                             <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 120px; font-size: 0.78rem; font-weight: 700; padding: 6px;" />
                             ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 140px; font-size: 0.68rem; color: var(--text-muted); padding: 6px;" />` : ''}
                             <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
-                            <button type="button" class="ps-modern-btn secondary li-update-state" title="Update clothing, pose, and current state from the latest chat messages" style="padding: 5px 8px; font-size: 0.65rem; color: #3b82f6; border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-rotate"></i> State</button>
+                            <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 5px 8px; font-size: 0.65rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i> Never</button>
                             <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 5px 8px; font-size: 0.65rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                         ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="font-size: 0.7rem; color: #a855f7; padding: 6px;" />` : ''}
@@ -1873,9 +1857,6 @@ export function createVisualGeneration(api) {
                             ${tagField('series_tag', 'Series Tag', 'fate \\(series\\)')}
                             ${tagField('physical_tags', 'Body / Face', 'blonde hair, blue eyes')}
                             ${tagField('clothing_tags', 'Clothing', 'black jacket, dark jeans')}
-                            ${tagField('action_tags', 'Action', 'holding sword, dancing')}
-                            ${tagField('pose_expression_tags', 'Pose / Expression', 'arms crossed, frown')}
-                            ${tagField('current_state_tags', 'Current State', 'wet hair, bruised cheek')}
                         </div>
                         ${showDesc ? `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${psEscapeAttr(a.description || '')}" style="font-size: 0.68rem; color: #3b82f6; padding: 6px;" />` : ''}
                     </div>
@@ -1885,7 +1866,8 @@ export function createVisualGeneration(api) {
                 if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                 if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                 if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
-                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-row-field-toggle").on("click", function() {
                     const key = $(this).attr("data-field");
                     ensureStructuredCharacterAssignment(a);
@@ -1899,10 +1881,7 @@ export function createVisualGeneration(api) {
                         a.character_tag,
                         a.series_tag,
                         a.physical_tags,
-                        a.clothing_tags,
-                        a.action_tags,
-                        a.pose_expression_tags,
-                        a.current_state_tags
+                        a.clothing_tags
                     ].filter(Boolean).join(', ');
                     saveProfileToMemory();
                 });
@@ -1914,9 +1893,6 @@ export function createVisualGeneration(api) {
                     normalizeStructuredCharacterAssignment(a);
                     $(this).val(a[key]);
                     saveProfileToMemory();
-                });
-                row.find(".li-update-state").on("click", function() {
-                    liUpdateCharacterStateTags(li, charKey, s, a, $(this));
                 });
                 row.find(".li-remove-assign").on("click", function() {
                     assignments.splice(idx, 1);
@@ -1947,7 +1923,11 @@ export function createVisualGeneration(api) {
             const row = $(`
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
                     ${rowHtml}
-                    <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3); margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
+                    <div style="display: flex; gap: 6px; align-items: center; margin-left: 10px;">
+                        <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character" style="padding: 2px 6px; font-size: 0.6rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i></button>
+                        <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character" style="padding: 2px 6px; font-size: 0.6rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i></button>
+                        <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" style="padding: 2px 6px; font-size: 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                 </div>
             `);
 
@@ -1974,6 +1954,8 @@ export function createVisualGeneration(api) {
             if (showDesc) {
                 row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
             }
+            row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+            row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
 
             row.find(".li-remove-assign").on("click", function() {
                 assignments.splice(idx, 1);
@@ -2183,7 +2165,7 @@ export function createVisualGeneration(api) {
             return;
         }
         let assignments = getMatchedCharacterAssignments(li, charKey);
-        if (assignments.length === 0) assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment);
+        if (assignments.length === 0) assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
 
         const snippets = assignments.map((a) => {
             const tagBlock = getAssignmentTagBlock(a, li);
@@ -2222,38 +2204,67 @@ export function createVisualGeneration(api) {
 
     function getActiveCharacterAssignments(li, charKey) {
         if (!li || !li.characterAssignments) return [];
-        const assignments = li.characterAssignments[charKey] || [];
+        const assignments = (li.characterAssignments[charKey] || [])
+            .map(ensureStructuredCharacterAssignment)
+            .filter(a => !a.neverInclude);
         if (assignments.length === 0) return [];
 
         const recentChat = getRecentChatForLoraKeywords();
         const allowEmptyMatch = assignments.length <= 1;
         return assignments
-            .map(ensureStructuredCharacterAssignment)
             .filter(a => assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch));
     }
 
-    function getRecentVisualContext(messageCount = 2) {
-        const chat = getContext().chat || [];
-        return chat
-            .filter(m => !m.is_system)
-            .slice(-messageCount)
-            .map(m => {
-                const text = cleanMessageTextForKeywords(m.mes);
-                return `${m.name}: ${text.trim()}`;
-            })
-            .join("\n\n");
-    }
-
-    function getCharacterSlotLabel(index, total) {
-        if (total <= 1) return "main character";
-        const labels = ["first character", "second character", "third character", "fourth character", "fifth character", "sixth character"];
-        return labels[index] || `character ${index + 1}`;
+    function getCurrentCharacterTextContext() {
+        const context = getContext();
+        if (context.characterId === undefined || context.characterId === null || !context.characters?.[context.characterId]) {
+            return { description: "", firstMessage: "" };
+        }
+        const character = context.characters[context.characterId];
+        return {
+            description: String(character.description || character.desc || "").trim(),
+            firstMessage: String(character.first_mes || character.first_message || character.firstMessage || "").trim()
+        };
     }
 
     function getAssignmentTagBlock(a, li = null) {
         ensureStructuredCharacterAssignment(a);
         const parts = getAssignmentTagParts(a, li);
         return normalizeGeneratedTagField(parts.join(', '));
+    }
+
+    function getStableAssignmentTagBlock(a, li = null) {
+        ensureStructuredCharacterAssignment(a);
+        if (li?.assignmentViewMode === 'plain') {
+            const stableStructured = [
+                a.character_tag,
+                a.series_tag,
+                a.physical_tags,
+                a.clothing_tags
+            ].filter(Boolean).join(', ');
+            const plainDescription = normalizeGeneratedTagField(a.plain_description || "");
+            const fullTagDump = normalizeGeneratedTagField(a.booru_tags || "");
+            const plainLooksAutoSeeded = plainDescription && fullTagDump && plainDescription === fullTagDump;
+            return plainLooksAutoSeeded
+                ? normalizeGeneratedTagField(stableStructured)
+                : normalizeGeneratedTagField(a.plain_description || a.description || stableStructured);
+        }
+        const globalToggles = li?.tagFieldToggles || {};
+        const rowToggles = a?.tagFieldToggles || {};
+        const enabled = (key) => globalToggles[key] !== false && rowToggles[key] !== false;
+        return normalizeGeneratedTagField([
+            enabled("characterTag") ? a.character_tag : "",
+            enabled("seriesTag") ? a.series_tag : "",
+            enabled("physicalTags") ? a.physical_tags : "",
+            enabled("clothingTags") ? a.clothing_tags : ""
+        ].filter(Boolean).join(', '));
+    }
+
+    function getMatchedCharacterGuidance(li, charKey) {
+        if (!li || !li.enabled || !li.useDanbooruTags) return [];
+        return getActiveCharacterAssignments(li, charKey)
+            .map(a => ({ character: a.character || "character", tags: getStableAssignmentTagBlock(a, li) }))
+            .filter(a => a.tags);
     }
 
     function getAssignmentTagParts(a, li) {
@@ -2268,199 +2279,11 @@ export function createVisualGeneration(api) {
             enabled("characterTag") ? a.character_tag : "",
             enabled("seriesTag") ? a.series_tag : "",
             enabled("physicalTags") ? a.physical_tags : "",
-            enabled("clothingTags") ? a.clothing_tags : "",
-            enabled("actionTags") ? a.action_tags : "",
-            enabled("poseExpressionTags") ? a.pose_expression_tags : "",
-            enabled("currentStateTags") ? a.current_state_tags : ""
+            enabled("clothingTags") ? a.clothing_tags : ""
         ].filter(Boolean);
     }
 
-    function buildStructuredCharacterActionReference(assignments) {
-        if (!Array.isArray(assignments) || assignments.length === 0) return "";
-        const total = assignments.length;
-        return assignments.map((a, idx) => {
-            const name = (a.character || `character ${idx + 1}`).trim();
-            return `${getCharacterSlotLabel(idx, total)} = ${name}`;
-        }).join(' | ');
-    }
-
-    function normalizeStructuredPromptValue(value) {
-        return normalizeGeneratedTagField(String(value || "").replace(/\n+/g, ', '));
-    }
-
-    function parseStructuredSceneResponse(rawText, assignments) {
-        const parsed = { background: "", composition: "", actions: {} };
-        const fallback = [];
-        const total = Array.isArray(assignments) ? assignments.length : 0;
-        const slotLabels = (assignments || []).map((_, idx) => getCharacterSlotLabel(idx, total).toLowerCase());
-
-        String(rawText || "").split(/\r?\n/).forEach(line => {
-            const clean = line.trim().replace(/^[-*]\s*/, "");
-            if (!clean) return;
-            const match = clean.match(/^([^:]+):\s*(.+)$/);
-            if (!match) {
-                fallback.push(clean);
-                return;
-            }
-
-            const key = match[1].trim().toLowerCase();
-            const value = match[2].trim();
-            if (!value) return;
-
-            if (key === "background" || key === "scene" || key === "environment") {
-                parsed.background = value;
-                return;
-            }
-            if (key === "composition" || key === "camera" || key === "layout") {
-                parsed.composition = value;
-                return;
-            }
-
-            const slot = slotLabels.find(label => key.includes(label));
-            if (slot && (key.includes("action") || key.includes("pose") || key.includes("expression") || key.includes("placement"))) {
-                parsed.actions[slot] = value;
-                return;
-            }
-
-            fallback.push(value);
-        });
-
-        if (!parsed.background && fallback.length > 0) parsed.background = fallback.join(', ');
-        return parsed;
-    }
-
-    function buildStructuredKeyValuePrompt({ s, li, sceneText, assignments }) {
-        const lead = normalizeStructuredPromptValue(buildBooruStandardTagLead(s, li));
-        const extraTags = normalizeStructuredPromptValue(s?.promptExtra || "");
-        const parsed = parseStructuredSceneResponse(sceneText, assignments);
-        const total = Array.isArray(assignments) ? assignments.length : 0;
-        const globalToggles = li?.tagFieldToggles || {};
-        const enabled = (a, key) => globalToggles[key] !== false && (!a || a.tagFieldToggles?.[key] !== false);
-        const globalEnabled = (key) => globalToggles[key] !== false;
-        const lines = [];
-
-        const tags = [lead, extraTags].filter(Boolean).join(', ');
-        if (tags) lines.push(`tags: ${tags}`);
-        lines.push("characters:");
-
-        (assignments || []).forEach((a, idx) => {
-            ensureStructuredCharacterAssignment(a);
-            const label = getCharacterSlotLabel(idx, total);
-            const slotKey = label.toLowerCase();
-            const usePlain = li?.assignmentViewMode === 'plain';
-            const identity = usePlain ? "" : normalizeStructuredPromptValue([
-                enabled(a, "characterTag") ? a.character_tag : "",
-                enabled(a, "seriesTag") ? a.series_tag : ""
-            ].filter(Boolean).join(', '));
-            const appearance = usePlain ? normalizeStructuredPromptValue(a.plain_description || a.description || a.booru_tags || "") : normalizeStructuredPromptValue([
-                enabled(a, "physicalTags") ? a.physical_tags : "",
-                enabled(a, "currentStateTags") ? a.current_state_tags : ""
-            ].filter(Boolean).join(', '));
-            const clothes = usePlain ? "" : normalizeStructuredPromptValue(enabled(a, "clothingTags") ? a.clothing_tags : "");
-            const action = usePlain ? normalizeStructuredPromptValue(enabled(a, "sceneAction") ? parsed.actions[slotKey] : "") : normalizeStructuredPromptValue([
-                enabled(a, "sceneAction") ? parsed.actions[slotKey] : "",
-                enabled(a, "actionTags") ? a.action_tags : "",
-                enabled(a, "poseExpressionTags") ? a.pose_expression_tags : ""
-            ].filter(Boolean).join(', '));
-
-            lines.push(`${label}:`);
-            if (identity) lines.push(`identity: ${identity}`);
-            if (appearance) lines.push(`appearance: ${appearance}`);
-            if (clothes) lines.push(`clothes: ${clothes}`);
-            if (action) lines.push(`action: ${action}`);
-        });
-
-        const background = normalizeStructuredPromptValue(parsed.background);
-        const composition = normalizeStructuredPromptValue(parsed.composition);
-        if (globalEnabled("background") && background) lines.push(`background: ${background}`);
-        if (globalEnabled("composition") && composition) lines.push(`composition: ${composition}`);
-
-        return lines.join('\n');
-    }
-
-    async function liUpdateCharacterStateTags(li, charKey, s, assignment, btn = null) {
-        ensureStructuredCharacterAssignment(assignment);
-        const chatText = getRecentVisualContext(2);
-        if (chatText.length < 20) {
-            toastr.warning("Not enough recent chat to update visual state.");
-            return;
-        }
-
-        const originalHtml = btn ? btn.html() : "";
-        if (btn) btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
-
-        try {
-            if (li.useDanbooruTags) await loadDanbooruTags();
-
-            activeLoraStateUpdateRequest = {
-                chatText,
-                character: assignment.character || "",
-                match_keywords: assignment.match_keywords || "",
-                current: {
-                    clothing_tags: assignment.clothing_tags || "",
-                    pose_expression_tags: assignment.pose_expression_tags || "",
-                    current_state_tags: assignment.current_state_tags || ""
-                }
-            };
-
-            let rawOutput;
-            if (s.generatorBackend === "direct") {
-                rawOutput = await generateQuietPrompt({ prompt: "___PS_LORA_STATE_UPDATE___" });
-            } else {
-                let presetResult;
-                await useMeguminEngine(async () => {
-                    presetResult = await generateQuietPrompt({ prompt: "___PS_LORA_STATE_UPDATE___" });
-                });
-                rawOutput = presetResult;
-            }
-
-            activeLoraStateUpdateRequest = null;
-            rawOutput = stripUtilityThinkingWrapper(rawOutput || "").trim();
-            if (!rawOutput) {
-                toastr.warning("AI returned empty state update.");
-                return;
-            }
-
-            li.lastCharacterAnalysisResponse = rawOutput;
-            $("#li_last_analysis_body").val(rawOutput);
-
-            let jsonText = rawOutput;
-            let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                const trimmed = jsonText.trim();
-                if (trimmed.startsWith('"')) {
-                    jsonText = `{${trimmed}`;
-                    if (!jsonText.trim().endsWith('}')) jsonText = jsonText.trim() + '}';
-                    jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-                }
-            }
-            if (!jsonMatch) {
-                toastr.warning("State update response was not valid JSON.");
-                saveProfileToMemory();
-                return;
-            }
-
-            const update = JSON.parse(jsonMatch[0]);
-            ['clothing_tags', 'pose_expression_tags', 'current_state_tags'].forEach(key => {
-                if (update[key] === undefined) return;
-                const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(update[key]) : update[key];
-                assignment[key] = normalizeGeneratedTagField(repairedTags);
-            });
-            normalizeStructuredCharacterAssignment(assignment);
-
-            saveProfileToMemory();
-            liRenderAssignmentTable(li, charKey, s);
-            toastr.success("Updated current visual tags.");
-        } catch (e) {
-            toastr.error("State update failed.");
-            console.error(e);
-        } finally {
-            activeLoraStateUpdateRequest = null;
-            if (btn) btn.prop("disabled", false).html(originalHtml);
-        }
-    }
-
-    function shouldUseStructuredCharacterBlocks(s, li) {
+    function shouldUseCharacterGuidance(s, li) {
         return !!(s && li && li.enabled && li.useDanbooruTags && li.promptAssemblyMode === 'structured');
     }
 
@@ -2498,15 +2321,11 @@ export function createVisualGeneration(api) {
 
         const booruStd = isBooruStandardImageMode(s, li);
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
-        const structuredMode = shouldUseStructuredCharacterBlocks(s, li);
-        const matchedAssignments = structuredMode ? getMatchedCharacterAssignments(li, charKey) : [];
-        const structuredBlocks = structuredMode && matchedAssignments.length > 0;
-        const structuredActionReference = structuredBlocks ? buildStructuredCharacterActionReference(matchedAssignments) : "";
+        const characterGuidance = shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey) : [];
+        const guidedCharacters = characterGuidance.length > 0;
 
         let styleStr;
-        if (structuredBlocks) {
-            styleStr = "Structured Anima prompt planning. Output ONLY key-value lines for scene/action planning, not the final prompt. Required keys: background, composition, and one '<slot> action' line for each listed character slot. Do not output character appearance, clothing, series, known character tags, story character names, JSON, markdown, bullets, or explanations.";
-        } else if (s.promptStyle === "illustrious") {
+        if (s.promptStyle === "illustrious") {
             styleStr = "Use Danbooru-style tags separated by commas.";
         } else if (s.promptStyle === "sdxl") {
             styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
@@ -2522,7 +2341,7 @@ export function createVisualGeneration(api) {
         } else {
             styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
         }
-        if (li && li.enabled && li.useDanbooruTags && !structuredBlocks && s.promptStyle !== "sdxl" && !booruStd) {
+        if (li && li.enabled && li.useDanbooruTags && s.promptStyle !== "sdxl" && !booruStd) {
             styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
         }
 
@@ -2539,8 +2358,9 @@ export function createVisualGeneration(api) {
                         : `Scene tags and cues (from the user's Extra field, often comma-separated shorthand). Interpret and weave into your flowing description; translate into prose where needed.\n${pe}`
                     );
             }
-            if (structuredActionReference) {
-                extraParts.push(`Character slots: ${structuredActionReference}. Output lines like "background: ...", "composition: ...", and "${getCharacterSlotLabel(0, matchedAssignments.length)} action: ...". Keep actions/poses/placement only.`);
+            if (guidedCharacters) {
+                const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
+                extraParts.push(`Matched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat scene. Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
             } else if (li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey);
                 if (matchedBooru.length > 0) {
@@ -2551,8 +2371,13 @@ export function createVisualGeneration(api) {
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
         } else {
             extraStr = s.promptExtra || "None";
-            if (structuredActionReference) {
-                extraStr += `\nCharacter slots: ${structuredActionReference}. Output lines like "background: ...", "composition: ...", and "${getCharacterSlotLabel(0, matchedAssignments.length)} action: ...". Keep actions/poses/placement only.`;
+            if (guidedCharacters) {
+                const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
+                if (s.promptStyle === "sdxl") {
+                    extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Translate them into fluent English only: ${guide}`;
+                } else {
+                    extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Keep Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
+                }
             } else if (li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey);
                 if (matchedBooru.length > 0) {
@@ -2574,13 +2399,9 @@ export function createVisualGeneration(api) {
             finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
         }
 
-        if (structuredBlocks && matchedAssignments.length > 0) {
-            finalPrompt = buildStructuredKeyValuePrompt({ s, li, sceneText: finalPrompt, assignments: matchedAssignments });
-        } else {
-            finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
-        }
+        finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
 
-        return { prompt: finalPrompt, skipLeadPrefix: structuredBlocks && matchedAssignments.length > 0 };
+        return { prompt: finalPrompt, skipLeadPrefix: false };
     }
 
     async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
@@ -2591,22 +2412,11 @@ export function createVisualGeneration(api) {
         if (s.promptStyle === "illustrious") {
             raw = stripPreambleBeforeBooruTags(raw);
         }
-        const rawSceneText = raw;
         let finalPrompt = sanitizePromptTags(raw);
         if (opts && opts.normalizeGeneratedPrompt) {
             finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
         }
-        let builtStructuredPrompt = false;
-        if (opts && opts.appendStructuredCharacterBlocks) {
-            const li = s.loraIntel;
-            const charKey = getCharacterKey() || "default";
-            const matchedAssignments = shouldUseStructuredCharacterBlocks(s, li) ? getMatchedCharacterAssignments(li, charKey) : [];
-            if (matchedAssignments.length > 0) {
-                finalPrompt = buildStructuredKeyValuePrompt({ s, li, sceneText: rawSceneText, assignments: matchedAssignments });
-                builtStructuredPrompt = true;
-            }
-        }
-        if (!builtStructuredPrompt && (!opts || !opts.skipLeadPrefix)) {
+        if (!opts || !opts.skipLeadPrefix) {
             finalPrompt = ensureImageLeadPrefix(finalPrompt);
         }
 
@@ -3414,19 +3224,17 @@ export function createVisualGeneration(api) {
                 const igLi = ig.loraIntel;
                 const booruStd = isBooruStandardImageMode(ig, igLi);
                 const charKeyImg = getCharacterKey() || "default";
-                const promptUsesStructuredBlocks = shouldUseStructuredCharacterBlocks(ig, igLi) && getMatchedCharacterAssignments(igLi, charKeyImg).length > 0;
+                const promptUsesCharacterGuidance = shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
 
                 const booruStableLead = buildBooruStandardTagLead(ig, igLi);
 
                 let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description." : "Use keywords.");
-                if (promptUsesStructuredBlocks) {
-                    styleStr = "Inside the <img prompt=\"\"> value, output ONLY key-value lines for scene/action planning, not the final prompt. Required keys: background, composition, and one '<slot> action' line for each listed character slot. Do not output character appearance, clothing, series, known character tags, story character names, JSON, markdown, bullets, or explanations.";
-                } else if (booruStd) {
+                if (booruStd) {
                     styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list).";
                 } else if (ig.promptStyle === "sdxl" && booruStableLead) {
                     styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
                 }
-                if (igLi && igLi.enabled && igLi.useDanbooruTags && igLi.promptAssemblyMode !== 'structured' && ig.promptStyle !== "sdxl" && !booruStd) {
+                if (igLi && igLi.enabled && igLi.useDanbooruTags && ig.promptStyle !== "sdxl" && !booruStd) {
                     styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
                 }
                 let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
@@ -3435,7 +3243,7 @@ export function createVisualGeneration(api) {
                 if (igLi && igLi.enabled) {
                     const li = igLi;
                     {
-                        const structuredBlocks = promptUsesStructuredBlocks;
+                        const useStableCharacterGuidance = promptUsesCharacterGuidance;
                         const activeAssignments = getActiveCharacterAssignments(li, charKeyImg);
 
                         if (activeAssignments.length > 0) {
@@ -3453,8 +3261,8 @@ export function createVisualGeneration(api) {
                                         kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
                                     }
                                 }
-                                const tagBlock = getAssignmentTagBlock(a, li) || a.booru_tags;
-                                if (li.useDanbooruTags && tagBlock && !structuredBlocks) {
+                                const tagBlock = useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : (getAssignmentTagBlock(a, li) || a.booru_tags);
+                                if (li.useDanbooruTags && tagBlock) {
                                     booruStrings.push(`${a.character}: ${tagBlock}`);
                                 }
                                 if (li.useCharDescriptions && a.description) {
@@ -3465,8 +3273,8 @@ export function createVisualGeneration(api) {
                             if (kwStrings.length > 0) {
                                 liInstructions += `\nInclude these activation keywords for the following characters: ${kwStrings.join(' | ')}`;
                             }
-                            if (structuredBlocks) {
-                                liInstructions += `\nCharacter action slots: ${buildStructuredCharacterActionReference(activeAssignments)}. Inside the <img prompt=""> value, use these slot labels only for actions, poses, placement, and expressions. Do not output story character names. Do not output, copy, summarize, or rewrite character appearance tags, clothing tags, series tags, or known character tags; the app appends exact character tags after generation.`;
+                            if (useStableCharacterGuidance && booruStrings.length > 0) {
+                                liInstructions += "\nUse the matched character references below only as stable appearance guidance for who is present. Derive actions, poses, expressions, temporary state, setting, and composition from the chat scene.";
                             }
                             if (booruStrings.length > 0) {
                                 if (booruStd) {
@@ -3493,11 +3301,9 @@ export function createVisualGeneration(api) {
                             : `\nExtra (tags / instructions to keep as comma-separated tags): ${peTrim}`))
                     : "";
                 const tagLeadLine = booruStableLead
-                    ? (promptUsesStructuredBlocks
-                        ? ""
-                        : (ig.promptStyle === "sdxl"
+                    ? (ig.promptStyle === "sdxl"
                         ? `\nReference leading tags (the app prepends these; do NOT paste them into the attribute—write prose only inside prompt=\"\"): ${booruStableLead}`
-                        : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`))
+                        : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
                     : "";
 
                 dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}`;
@@ -3557,27 +3363,6 @@ export function createVisualGeneration(api) {
             return true;
         }
 
-        // --- INJECT LORA STATE UPDATE PROMPT ---
-        if (activeLoraStateUpdateRequest) {
-            messages.length = 0;
-            messages.push({
-                "role": "system",
-                "content": "You update temporary visual metadata for image generation. Return exactly one JSON object and nothing else. Never update permanent identity, body, face, hair, eye color, known character tags, series tags, or match keywords."
-            });
-            messages.push({
-                "role": "user",
-                "content": `Update only the temporary visual tags for this character using the latest chat.\n\n<character>\nName: ${activeLoraStateUpdateRequest.character || "Unknown"}\nMatch keywords: ${activeLoraStateUpdateRequest.match_keywords || "None"}\nCurrent clothing_tags: ${activeLoraStateUpdateRequest.current.clothing_tags || ""}\nCurrent pose_expression_tags: ${activeLoraStateUpdateRequest.current.pose_expression_tags || ""}\nCurrent current_state_tags: ${activeLoraStateUpdateRequest.current.current_state_tags || ""}\n</character>\n\n<latest_chat>\n${activeLoraStateUpdateRequest.chatText}\n</latest_chat>\n\nReturn this exact JSON shape:\n{\n  "clothing_tags": "current outfit/accessory tags only",\n  "pose_expression_tags": "current pose/expression/action tags only",\n  "current_state_tags": "temporary state tags only, such as wet hair, bruised cheek, blood, torn clothes, holding object, empty if none"\n}\n\nRules:\n- Use concise Danbooru-style comma-separated tags.\n- Do not include permanent physical traits like hair color, eye color, body type, or character identity.\n- Do not include story character names.\n- If a field is not clear from the latest chat, keep the existing field value.\n- Output ONLY the JSON object.`
-            });
-            if (!disablePrefill) {
-                messages.push({
-                    "role": "assistant",
-                    "content": "{\n"
-                });
-            }
-            console.log(`[${extensionName}] Injected LoRA state update array in memory.`);
-            return true;
-        }
-
         // --- INJECT LORA ASSIGNMENT PROMPT ---
         if (activeLoraAssignRequest) {
             messages.length = 0;
@@ -3594,8 +3379,8 @@ export function createVisualGeneration(api) {
                 modeInstructions += "PRIORITY: You MUST assign LoRAs to characters if they appear in the conversation. Use 'match_keywords' to list variations of their name so we can detect them later. ";
             }
             if (activeLoraAssignRequest.useTags) {
-                jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "action_tags": "default action/interaction tags", "pose_expression_tags": "default pose/expression tags", "current_state_tags": "temporary visual state tags", "plain_description": "natural language visual description"`;
-                let booruInstr = "You MUST provide Danbooru-style tag fields for each character. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes in physical_tags, outfit/accessories in clothing_tags, default action/interaction in action_tags, default pose/expression in pose_expression_tags, and temporary scene-specific visual state in current_state_tags. Also provide plain_description as a detailed natural-language visual description. ";
+                jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "plain_description": "natural language visual description"`;
+                let booruInstr = "You MUST provide Danbooru-style tag fields for each character. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes in physical_tags, and stable outfit/accessory details in clothing_tags. Also provide plain_description as a detailed natural-language visual description. ";
                 if (activeLoraAssignRequest.ensureCharacterTag) {
                     booruInstr += "ADDITIONALLY: For EACH character, character_tag MUST contain a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. ";
                 }
@@ -3613,6 +3398,14 @@ export function createVisualGeneration(api) {
             if (activeLoraAssignRequest.ensureLoras && activeLoraAssignRequest.hasLoras) {
                 loraSection = `\n\n<available_loras>\n${activeLoraAssignRequest.loraList}\n</available_loras>`;
             }
+            const cardContextParts = [];
+            if (activeLoraAssignRequest.cardDescription) {
+                cardContextParts.push(`<character_card_description>\n${activeLoraAssignRequest.cardDescription}\n</character_card_description>`);
+            }
+            if (activeLoraAssignRequest.firstMessage) {
+                cardContextParts.push(`<first_message>\n${activeLoraAssignRequest.firstMessage}\n</first_message>`);
+            }
+            const cardContextSection = cardContextParts.length > 0 ? `\n\n<character_card_context>\n${cardContextParts.join('\n\n')}\n</character_card_context>` : "";
 
             messages.push({
                 "role": "system",
@@ -3620,7 +3413,7 @@ export function createVisualGeneration(api) {
             });
             messages.push({
                 "role": "user",
-                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Output ONLY the JSON array, no explanation`
+                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}${loraSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context only to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present.\n- Do not include temporary actions, pose, expression, state, setting, or composition in character metadata.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
             });
         if (!disablePrefill) {
             messages.push({
@@ -3657,7 +3450,7 @@ export function createVisualGeneration(api) {
 
         setTimeout(() => {
             toastr.info("Image tag detected. Sending to ComfyUI...");
-            igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true, appendStructuredCharacterBlocks: true });
+            igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true });
         }, 500);
     }
 
