@@ -22,6 +22,7 @@ const visualGeneration = createVisualGeneration({
     getCharacterKey,
     saveProfileToMemory,
     useMeguminEngine,
+    substituteParams,
     generateQuietPrompt,
     getRequestHeaders,
     saveChat,
@@ -160,6 +161,7 @@ function initProfile() {
             promptStyle: "standard",
             promptPerspective: "scene",
             promptExtra: "",
+            animaMaxTags: 60,
             manualPrompt: "",
             standardBooruLeadTags: "",
             triggerMode: "always",
@@ -273,6 +275,9 @@ function initProfile() {
     });
     if (!localProfile.toggles) localProfile.toggles = defaults.toggles;
     if (!localProfile.imageGen) localProfile.imageGen = defaults.imageGen;
+    Object.keys(defaults.imageGen).forEach(k => {
+        if (localProfile.imageGen[k] === undefined) localProfile.imageGen[k] = defaults.imageGen[k];
+    });
     if (!localProfile.videoGen) localProfile.videoGen = defaults.videoGen;
     Object.keys(defaults.videoGen).forEach(k => {
         if (localProfile.videoGen[k] === undefined) localProfile.videoGen[k] = defaults.videoGen[k];

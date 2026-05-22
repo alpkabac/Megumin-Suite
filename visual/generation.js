@@ -9,6 +9,7 @@ export function createVisualGeneration(api) {
         getCharacterKey,
         saveProfileToMemory,
         useMeguminEngine,
+        substituteParams,
         generateQuietPrompt,
         getRequestHeaders,
         saveChat,
@@ -66,6 +67,8 @@ export function createVisualGeneration(api) {
         { label: "Threesome", prompt: "threesome, three adult participants, intertwined bodies, shared intimate motion" },
         { label: "Paizuri POV", prompt: "paizuri, first-person perspective, breasts pressed around penis, rhythmic sliding motion" }
     ];
+
+    const IMAGE_SCENE_FIDELITY_INSTRUCTION = "Scene fidelity: derive the image from the latest visible moment in the chat, not a generic mood. Preserve who is present, subject count, body placement, role/orientation, pose, contact points, clothing/nudity state, expression, camera angle, and setting. For adult/NSFW scenes, name the specific position or act when it is present in the chat or Extra field, and use concrete visual staging instead of vague terms like intimate, sensual, passionate, or suggestive. Do not swap to an unrelated pose, solo portrait, pinup, or aftermath unless the chat actually says so.";
 
     function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -150,6 +153,33 @@ export function createVisualGeneration(api) {
         if (!tagString || typeof tagString !== 'string') return tagString || "";
         const tags = tagString.split(',').map(normalizeAnimaGeneratedTag).filter(t => t);
         return tags.join(', ');
+    }
+
+    function getAnimaMaxTags(s) {
+        const raw = parseInt(s?.animaMaxTags);
+        if (!Number.isFinite(raw) || raw <= 0) return 0;
+        return Math.min(Math.max(raw, 5), 300);
+    }
+
+    function limitAnimaPromptTags(tagString, s, li) {
+        const maxTags = getAnimaMaxTags(s);
+        if (!maxTags || !tagString || typeof tagString !== 'string') return tagString || "";
+        if (s?.promptStyle === "sdxl" || isBooruStandardImageMode(s, li)) return tagString;
+
+        const seen = new Set();
+        const tags = tagString
+            .split(',')
+            .map(t => t.trim())
+            .filter(t => t)
+            .filter(tag => {
+                const key = tag.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+        if (tags.length <= maxTags) return tags.join(', ');
+        return tags.slice(0, maxTags).join(', ');
     }
 
     function normalizeGeneratedTagField(tagString) {
@@ -365,6 +395,7 @@ export function createVisualGeneration(api) {
 
         // LoRA Intelligence state
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
+        if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
         ensureLoraIntelDefaults(s.loraIntel);
         const li = s.loraIntel;
@@ -460,6 +491,10 @@ export function createVisualGeneration(api) {
                                     <option value="pov" ${s.promptPerspective === 'pov' ? 'selected' : ''}>First Person (POV)</option>
                                     <option value="character" ${s.promptPerspective === 'character' ? 'selected' : ''}>Character Portrait</option>
                                 </select>
+                            </div>
+                            <div style="width: 145px;">
+                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Anima Tag Cap</div>
+                                <input type="number" id="ig_anima_max_tags" class="ps-modern-input" value="${getAnimaMaxTags(s) || 0}" min="0" max="300" step="5" title="Maximum comma-separated tags for Anima-style prompts. Set 0 to disable." style="padding: 8px; font-size: 0.8rem; text-align: center;" />
                             </div>
                         </div>
                         <div style="margin-bottom: 8px;">
@@ -756,6 +791,13 @@ export function createVisualGeneration(api) {
         });
         $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_anima_max_tags").on("input", (e) => {
+            let v = parseInt($(e.target).val());
+            if (!Number.isFinite(v) || v < 0) v = 0;
+            if (v > 300) v = 300;
+            s.animaMaxTags = v;
+            saveProfileToMemory();
+        });
         $("#ig_std_booru_lead").on("input", (e) => { s.standardBooruLeadTags = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_w, #ig_h").on("input", (e) => { s[e.target.id === "ig_w" ? "imgWidth" : "imgHeight"] = parseInt($(e.target).val()); saveProfileToMemory(); });
@@ -816,7 +858,7 @@ export function createVisualGeneration(api) {
                 s.savedWorkflowStates[oldWorkflow] = {
                     selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-                    promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
+                    promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
                     selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
                     selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
                     loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
@@ -2227,6 +2269,55 @@ export function createVisualGeneration(api) {
         };
     }
 
+    function getUserDisplayName() {
+        const context = getContext();
+        const raw = typeof substituteParams === 'function'
+            ? substituteParams('{{user}}')
+            : (context.name1 || context.userName || context.user_name || "the player character");
+        const name = String(raw || "").trim();
+        if (!name || name === "{{user}}") return "the player character";
+        return name;
+    }
+
+    function getUserPersonaText() {
+        if (typeof substituteParams !== 'function') return "";
+        const raw = String(substituteParams('{{persona}}') || "").trim();
+        if (!raw || raw === "{{persona}}" || /^no user persona found\.?$/i.test(raw)) return "";
+        return cleanMessageTextForKeywords(raw);
+    }
+
+    function isUserPresentInRecentScene() {
+        const context = getContext();
+        const chat = context.chat || [];
+        if (chat.length === 0) return false;
+        const recent = chat.filter(m => !m.is_system).slice(-5);
+        if (recent.some(m => m.is_user && cleanMessageTextForKeywords(m.mes))) return true;
+
+        const userName = getUserDisplayName().toLowerCase();
+        if (!userName || userName === "the player character") return false;
+        const recentAiText = recent
+            .filter(m => !m.is_user)
+            .map(m => cleanMessageTextForKeywords(m.mes))
+            .join("\n")
+            .toLowerCase();
+        return keywordAppearsInText(userName, recentAiText);
+    }
+
+    function buildPersonaImageGuidance(s, booruStd = false) {
+        if (!isUserPresentInRecentScene()) return "";
+
+        const userName = getUserDisplayName();
+        const persona = getUserPersonaText();
+        const personaLine = persona ? ` Persona appearance: ${persona}` : "";
+        if (s?.promptPerspective === "pov") {
+            return `The player character (${userName}) is present as the camera/viewpoint. Do not omit them: show visible first-person body cues when appropriate, such as hands, arms, torso, lap, clothing, shadow, reflection, or interaction contact.${personaLine}`;
+        }
+        if (s?.promptStyle === "sdxl" || booruStd) {
+            return `The player character (${userName}) is physically present in the scene. Include them as a visible participant, not just an implied observer. Describe their placement, interaction with the other character(s), pose/body contact, and visible appearance.${personaLine}`;
+        }
+        return `The player character (${userName}) is physically present. Include them as visible Anima-style prompt content, using tags for player/persona presence, count/composition, pose, interaction, body contact, clothing, and visible appearance. Do not make the scene solo unless the chat clearly says they are off-screen.${personaLine}`;
+    }
+
     function getAssignmentTagBlock(a, li = null) {
         ensureStructuredCharacterAssignment(a);
         const parts = getAssignmentTagParts(a, li);
@@ -2327,6 +2418,7 @@ export function createVisualGeneration(api) {
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
         const characterGuidance = shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey) : [];
         const guidedCharacters = characterGuidance.length > 0;
+        const personaGuidance = buildPersonaImageGuidance(s, booruStd);
 
         let styleStr;
         if (s.promptStyle === "illustrious") {
@@ -2348,6 +2440,11 @@ export function createVisualGeneration(api) {
         if (li && li.enabled && li.useDanbooruTags && s.promptStyle !== "sdxl" && !booruStd) {
             styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
         }
+        const maxAnimaTags = getAnimaMaxTags(s);
+        if (maxAnimaTags && s.promptStyle !== "sdxl" && !booruStd) {
+            styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
+        }
+        styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
 
         let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
 
@@ -2372,6 +2469,9 @@ export function createVisualGeneration(api) {
                     extraParts.push(`Character appearance cues (Danbooru-style tags per role). Weave into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
                 }
             }
+            if (personaGuidance) {
+                extraParts.push(`Player character visibility:\n${personaGuidance}`);
+            }
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
         } else {
             extraStr = s.promptExtra || "None";
@@ -2393,6 +2493,9 @@ export function createVisualGeneration(api) {
                     }
                 }
             }
+            if (personaGuidance) {
+                extraStr += `\nPlayer character visibility: ${personaGuidance}`;
+            }
         }
 
         activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr };
@@ -2404,6 +2507,7 @@ export function createVisualGeneration(api) {
         }
 
         finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+        finalPrompt = limitAnimaPromptTags(finalPrompt, s, li);
 
         return { prompt: finalPrompt, skipLeadPrefix: false };
     }
@@ -2413,15 +2517,21 @@ export function createVisualGeneration(api) {
         ensureImageGenLoraArrays(s);
         igSyncImageGenLoraFromDom(s);
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
-        if (s.promptStyle === "illustrious") {
-            raw = stripPreambleBeforeBooruTags(raw);
-        }
-        let finalPrompt = sanitizePromptTags(raw);
-        if (opts && opts.normalizeGeneratedPrompt) {
-            finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
-        }
-        if (!opts || !opts.skipLeadPrefix) {
-            finalPrompt = ensureImageLeadPrefix(finalPrompt);
+        let finalPrompt;
+        if (opts && opts.preserveStoredPrompt) {
+            finalPrompt = raw.trim();
+        } else {
+            if (s.promptStyle === "illustrious") {
+                raw = stripPreambleBeforeBooruTags(raw);
+            }
+            finalPrompt = sanitizePromptTags(raw);
+            if (opts && opts.normalizeGeneratedPrompt) {
+                finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+            }
+            finalPrompt = limitAnimaPromptTags(finalPrompt, s, s.loraIntel);
+            if (!opts || !opts.skipLeadPrefix) {
+                finalPrompt = ensureImageLeadPrefix(finalPrompt);
+            }
         }
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
@@ -2644,6 +2754,7 @@ export function createVisualGeneration(api) {
                                 url: savedPath,
                                 type: "image",
                                 source: "generated",
+                                prompt: finalPrompt,
                                 title: finalPrompt,
                                 generation_type: "free"
                             };
@@ -3231,6 +3342,7 @@ export function createVisualGeneration(api) {
                 const promptUsesCharacterGuidance = shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
 
                 const booruStableLead = buildBooruStandardTagLead(ig, igLi);
+                const personaGuidance = buildPersonaImageGuidance(ig, booruStd);
 
                 let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description." : "Use keywords.");
                 if (booruStd) {
@@ -3241,6 +3353,11 @@ export function createVisualGeneration(api) {
                 if (igLi && igLi.enabled && igLi.useDanbooruTags && ig.promptStyle !== "sdxl" && !booruStd) {
                     styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
                 }
+                const maxAnimaTags = getAnimaMaxTags(ig);
+                if (maxAnimaTags && ig.promptStyle !== "sdxl" && !booruStd) {
+                    styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
+                }
+                styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
                 let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
 
                 let liInstructions = "";
@@ -3293,6 +3410,13 @@ export function createVisualGeneration(api) {
                                 liInstructions += `\nCharacter appearances: ${descStrings.join(' | ')}`;
                             }
                         }
+                    }
+                }
+                if (personaGuidance) {
+                    if (booruStd || ig.promptStyle === "sdxl") {
+                        liInstructions += `\nPlayer character visibility: ${personaGuidance} Integrate this into the generated image description.`;
+                    } else {
+                        liInstructions += `\nPlayer character visibility: ${personaGuidance} Add concise Anima-style tags for this visible participant.`;
                     }
                 }
 
@@ -3350,11 +3474,11 @@ export function createVisualGeneration(api) {
             messages.length = 0;
             messages.push({
                 "role": "system",
-                "content": "You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. \"I need to\", \"I'll craft\"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text."
+                "content": `You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. ${IMAGE_SCENE_FIDELITY_INSTRUCTION} STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. "I need to", "I'll craft"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text.`
             });
             messages.push({
                 "role": "user",
-                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.`
+                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nScene Fidelity Requirement: ${IMAGE_SCENE_FIDELITY_INSTRUCTION}\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.`
             });
         if (!disablePrefill) {
             messages.push({
@@ -3471,7 +3595,8 @@ export function createVisualGeneration(api) {
             if (idx < media.length - 1) return;
 
             const mediaObj = media[idx];
-            if (!mediaObj || !mediaObj.title) return;
+            const storedPrompt = String(mediaObj?.prompt || mediaObj?.title || "").trim();
+            if (!storedPrompt) return;
 
             let ogPower = null;
             if (window.power_user && window.power_user.image_overswipe) {
@@ -3491,7 +3616,7 @@ export function createVisualGeneration(api) {
             }, 200);
 
             toastr.info("Regenerating Image...", "Megumin Suite");
-            await igGenerateWithComfy(mediaObj.title, { message: message, element: $(element) });
+            await igGenerateWithComfy(storedPrompt, { message: message, element: $(element) }, { preserveStoredPrompt: true });
         };
 
         eventSource.on(event_types.IMAGE_SWIPED, meguminSwipeHandler);
