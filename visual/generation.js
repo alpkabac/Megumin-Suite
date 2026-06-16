@@ -70,6 +70,54 @@ export function createVisualGeneration(api) {
 
     const IMAGE_SCENE_FIDELITY_INSTRUCTION = "Scene fidelity: derive the image from the latest visible moment in the chat, not a generic mood. Preserve who is present, subject count, body placement, role/orientation, pose, contact points, clothing/nudity state, expression, camera angle, and setting. For adult/NSFW scenes, name the specific position or act when it is present in the chat or Extra field, and use concrete visual staging instead of vague terms like intimate, sensual, passionate, or suggestive. Do not swap to an unrelated pose, solo portrait, pinup, or aftermath unless the chat actually says so.";
 
+    const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
+
+    function buildImagePromptStructureRules(s, booruStd = false) {
+        const style = s?.promptStyle || "standard";
+        const perspective = s?.promptPerspective || "scene";
+        const proseMode = style === "sdxl" || booruStd;
+        const modeLabel = perspective === "pov" ? "POV" : (perspective === "character" ? "portrait" : "cinematic scene");
+        const outputType = proseMode ? "natural-language image prompt" : "comma-separated image prompt";
+        const characterRule = proseMode
+            ? "For multiple visible characters, dedicate a separate sentence to each character with clear spatial labels such as left, center, right, foreground, or behind. Keep each character's hair, eyes, body, clothing, expression, and action attached to that character only."
+            : "For multiple visible characters, separate each character clearly with spatial labels such as left, center, right, foreground, or behind. Keep each character's appearance tags, expression, and action grouped together to prevent feature bleeding.";
+        const perspectiveRule = perspective === "pov"
+            ? "Establish first-person camera placement first. If the player is only observing, use an environmental foreground anchor; if the player is physically interacting, include visible hands/body cues only for the interaction. Do not invent the player's face."
+            : (perspective === "character"
+                ? "Keep the prompt focused on a single character portrait unless the chat clearly demands more people. Prioritize face, hair, body, clothing, expression, gaze, and simple background."
+                : "Establish shot type, camera angle, subject count, pose/contact, environment, and lighting in that order.");
+        return `Structured prompt rules (${modeLabel}): write a ${outputType}. Build it in this order: quality/style anchor, camera/perspective, visible character count, per-character appearance and current action, then setting and lighting. ${perspectiveRule} ${characterRule}`;
+    }
+
+    function buildImagePromptExamples(s, booruStd = false) {
+        const style = s?.promptStyle || "standard";
+        const perspective = s?.promptPerspective || "scene";
+        const proseMode = style === "sdxl" || booruStd;
+        if (proseMode && perspective === "pov") {
+            return "Example shape: A masterpiece in first-person point of view. The camera looks across rumpled sheets in the foreground toward two adult characters. On the left, [character A appearance, clothing/nudity state, expression, and action]. On the right, [character B appearance, clothing/nudity state, expression, and action]. The bedroom background, warm low lighting, and visible contact points match the current scene.";
+        }
+        if (proseMode && perspective === "character") {
+            return "Example shape: A masterpiece portrait of one adult character. Describe age bracket, gender, species if relevant, skin, eyes, hair, body type, clothing or nudity state, expression, gaze, and a simple background with portrait lighting.";
+        }
+        if (proseMode) {
+            return "Example shape: A cinematic masterpiece. A [shot type] shows [visible adult character count] in [setting]. The left character is described in one complete sentence. The right character is described in a separate complete sentence. Finish with pose/contact, environment, lighting, and mood from the exact scene.";
+        }
+        if (perspective === "pov") {
+            return "Example shape: masterpiece, best quality, highly detailed, 1st person pov, foreground sheets visible, 1boy 1girl, left character: adult woman, [appearance tags], [expression], [action], foreground hands visible only if interacting, bedroom background, warm lighting, depth of field";
+        }
+        if (perspective === "character") {
+            return "Example shape: masterpiece, best quality, highly detailed, portrait, upper body, 1girl, adult woman, [hair tags], [eye tags], [body tags], [clothing or nudity state], [expression], looking at viewer, simple background, soft lighting";
+        }
+        return "Example shape: masterpiece, best quality, highly detailed, cinematic composition, medium shot, 1boy 1girl, left character: adult man, [appearance tags], [expression], [action], right character: adult woman, [appearance tags], [expression], [action], exact pose/contact from scene, bedroom background, dramatic lighting";
+    }
+
+    function appendImagePromptInstruction(base, addition) {
+        const text = String(addition || "").trim();
+        if (!text) return base || "None";
+        const current = base && base !== "None" ? String(base).trim() : "";
+        return current ? `${current}\n${text}` : text;
+    }
+
     function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     function ensureImageLeadPrefix(rawPrompt) {
@@ -468,6 +516,9 @@ export function createVisualGeneration(api) {
         ensureImageGenLoraArrays(s);
         const runpod = ensureRunpodSettings(s);
         if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
+        if (s.structuredPromptRules === undefined) s.structuredPromptRules = true;
+        if (s.adultTagPrecision === undefined) s.adultTagPrecision = true;
+        if (s.includePromptExamples === undefined) s.includePromptExamples = false;
 
         // LoRA Intelligence state
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
@@ -581,6 +632,30 @@ export function createVisualGeneration(api) {
                             <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Show a popup to view or edit the AI's prompt before rendering.</div>
                         </div>
                         <div class="ps-switch"></div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                        <div class="ps-toggle-card ${s.structuredPromptRules ? 'active' : ''}" id="ig_structured_rules_card" style="padding: 12px 14px;">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem;">Structured Prompt Rules</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Adds beta-style ordering and anti-feature-bleed rules.</div>
+                            </div>
+                            <div class="ps-switch"></div>
+                        </div>
+                        <div class="ps-toggle-card ${s.adultTagPrecision ? 'active' : ''}" id="ig_adult_precision_card" style="padding: 12px 14px;">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem;">Adult Tag Precision</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Uses direct visual terms for explicit adult scenes.</div>
+                            </div>
+                            <div class="ps-switch"></div>
+                        </div>
+                        <div class="ps-toggle-card ${s.includePromptExamples ? 'active' : ''}" id="ig_prompt_examples_card" style="padding: 12px 14px;">
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-weight:600; font-size:0.8rem;">Template Examples</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Adds examples for steadier composition at higher token cost.</div>
+                            </div>
+                            <div class="ps-switch"></div>
+                        </div>
                     </div>
 
                     <div id="ig_prompt_builder" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--gold);">
@@ -890,6 +965,21 @@ export function createVisualGeneration(api) {
             if (s.previewPrompt) $(this).addClass("active");
             else $(this).removeClass("active");
         });
+        $("#ig_structured_rules_card").on("click", function() {
+            s.structuredPromptRules = !s.structuredPromptRules;
+            saveProfileToMemory();
+            $(this).toggleClass("active", s.structuredPromptRules);
+        });
+        $("#ig_adult_precision_card").on("click", function() {
+            s.adultTagPrecision = !s.adultTagPrecision;
+            saveProfileToMemory();
+            $(this).toggleClass("active", s.adultTagPrecision);
+        });
+        $("#ig_prompt_examples_card").on("click", function() {
+            s.includePromptExamples = !s.includePromptExamples;
+            saveProfileToMemory();
+            $(this).toggleClass("active", s.includePromptExamples);
+        });
 
         // Inputs
         $("#ig_url").on("input", (e) => {
@@ -999,6 +1089,7 @@ export function createVisualGeneration(api) {
                     selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
                     promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
+                    structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
                     selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
                     selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
                     loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
@@ -2593,6 +2684,9 @@ export function createVisualGeneration(api) {
             styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
         }
         styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
+        if (s.structuredPromptRules) {
+            styleStr += ` ${buildImagePromptStructureRules(s, booruStd)}`;
+        }
 
         let perspStr = s.promptPerspective === "pov" ? "Frame the scene strictly from a First-Person (POV) perspective." : (s.promptPerspective === "character" ? "Focus intensely on the character's appearance." : "Describe the entire environment and atmosphere.");
 
@@ -2620,6 +2714,12 @@ export function createVisualGeneration(api) {
             if (personaGuidance) {
                 extraParts.push(`Player character visibility:\n${personaGuidance}`);
             }
+            if (s.adultTagPrecision) {
+                extraParts.push(IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+            }
+            if (s.includePromptExamples) {
+                extraParts.push(`Template example:\n${buildImagePromptExamples(s, booruStd)}`);
+            }
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
         } else {
             extraStr = s.promptExtra || "None";
@@ -2643,6 +2743,12 @@ export function createVisualGeneration(api) {
             }
             if (personaGuidance) {
                 extraStr += `\nPlayer character visibility: ${personaGuidance}`;
+            }
+            if (s.adultTagPrecision) {
+                extraStr = appendImagePromptInstruction(extraStr, IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+            }
+            if (s.includePromptExamples) {
+                extraStr = appendImagePromptInstruction(extraStr, `Template example: ${buildImagePromptExamples(s, booruStd)}`);
             }
         }
 
@@ -3666,6 +3772,9 @@ export function createVisualGeneration(api) {
                     styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
                 }
                 styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
+                if (ig.structuredPromptRules) {
+                    styleStr += ` ${buildImagePromptStructureRules(ig, booruStd)}`;
+                }
                 let perspStr = ig.promptPerspective === "pov" ? "First-Person (POV)." : (ig.promptPerspective === "character" ? "Focus on character appearance." : "Describe environment.");
 
                 let liInstructions = "";
@@ -3742,7 +3851,10 @@ export function createVisualGeneration(api) {
                         : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
                     : "";
 
-                dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}`;
+                const adultPrecisionLine = ig.adultTagPrecision ? `\n${IMAGE_ADULT_TAG_PRECISION_INSTRUCTION}` : "";
+                const examplesLine = ig.includePromptExamples ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
+
+                dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}${adultPrecisionLine}${examplesLine}`;
                 dict["[[img2]]"] = `<img prompt="prompt">`;
             } else {
                 dict["[[img1]]"] = ""; dict["[[img2]]"] = "";
