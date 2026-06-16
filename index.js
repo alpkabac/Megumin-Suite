@@ -170,6 +170,13 @@ function initProfile() {
             triggerMode: "always",
             autoGenFreq: 1,
             previewPrompt: false,
+            runpod: {
+                enabled: false,
+                endpointId: "",
+                apiKey: "",
+                pollIntervalMs: 1000,
+                timeoutMs: 600000
+            },
             savedWorkflowStates: {},
             loraSlotLocked: [false, false, false, false],
             loraSlotKeywordManaged: [false, false, false, false],
@@ -280,6 +287,10 @@ function initProfile() {
     if (!localProfile.imageGen) localProfile.imageGen = defaults.imageGen;
     Object.keys(defaults.imageGen).forEach(k => {
         if (localProfile.imageGen[k] === undefined) localProfile.imageGen[k] = defaults.imageGen[k];
+    });
+    if (!localProfile.imageGen.runpod) localProfile.imageGen.runpod = JSON.parse(JSON.stringify(defaults.imageGen.runpod));
+    Object.keys(defaults.imageGen.runpod).forEach(k => {
+        if (localProfile.imageGen.runpod[k] === undefined) localProfile.imageGen.runpod[k] = defaults.imageGen.runpod[k];
     });
     if (!localProfile.videoGen) localProfile.videoGen = defaults.videoGen;
     Object.keys(defaults.videoGen).forEach(k => {

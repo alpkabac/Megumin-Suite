@@ -314,81 +314,6 @@ export function createVisualGeneration(api) {
             .replace(/>/g, "&gt;");
     }
 
-    const RUNPOD_IMAGE_DEFAULTS = {
-        enabled: false,
-        endpointId: "",
-        apiKey: "",
-        pollIntervalMs: 1000,
-        timeoutMs: 600000
-    };
-    const RUNPOD_IMAGE_MODELS = ["anima-base-v1.0.safetensors"];
-    const RUNPOD_IMAGE_SAMPLERS = ["euler"];
-    const RUNPOD_IMAGE_LORAS = ["anima_turbo.safetensors"];
-
-    function ensureRunpodSettings(s) {
-        if (!s) return RUNPOD_IMAGE_DEFAULTS;
-        if (!s.runpod || typeof s.runpod !== "object") s.runpod = {};
-        Object.keys(RUNPOD_IMAGE_DEFAULTS).forEach(key => {
-            if (s.runpod[key] === undefined) s.runpod[key] = RUNPOD_IMAGE_DEFAULTS[key];
-        });
-        s.runpod.enabled = !!s.runpod.enabled;
-        s.runpod.endpointId = String(s.runpod.endpointId || "").trim();
-        s.runpod.apiKey = String(s.runpod.apiKey || "").trim();
-        s.runpod.pollIntervalMs = Math.max(500, parseInt(s.runpod.pollIntervalMs, 10) || RUNPOD_IMAGE_DEFAULTS.pollIntervalMs);
-        s.runpod.timeoutMs = Math.max(30000, parseInt(s.runpod.timeoutMs, 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
-        return s.runpod;
-    }
-
-    function isRunpodReady(s) {
-        const runpod = ensureRunpodSettings(s);
-        return !!(runpod.enabled && runpod.endpointId && runpod.apiKey);
-    }
-
-    function ensureSelectHasOptions($select, options, currentValue, emptyLabel = null) {
-        $select.empty();
-        if (emptyLabel !== null) $select.append($("<option></option>").attr("value", "").text(emptyLabel));
-        const seen = new Set();
-        options.forEach(option => {
-            const value = String(option || "").trim();
-            if (!value || seen.has(value)) return;
-            seen.add(value);
-            $select.append($("<option></option>").attr("value", value).text(value));
-        });
-        const current = String(currentValue || "").trim();
-        if (current && !seen.has(current)) {
-            $select.append($("<option></option>").attr("value", current).text(`${current} (saved)`));
-        }
-        $select.val(current || "");
-    }
-
-    function ensureRunpodDropdownValues(s) {
-        if (!s) return false;
-        let changed = false;
-        if (!s.selectedModel && RUNPOD_IMAGE_MODELS[0]) {
-            s.selectedModel = RUNPOD_IMAGE_MODELS[0];
-            changed = true;
-        }
-        if (!s.selectedSampler && RUNPOD_IMAGE_SAMPLERS[0]) {
-            s.selectedSampler = RUNPOD_IMAGE_SAMPLERS[0];
-            changed = true;
-        }
-        if (!s.selectedLora && RUNPOD_IMAGE_LORAS[0]) {
-            s.selectedLora = RUNPOD_IMAGE_LORAS[0];
-            changed = true;
-        }
-        return changed;
-    }
-
-    function populateRunpodImageLists(s) {
-        ensureRunpodDropdownValues(s);
-        ensureSelectHasOptions($("#ig_model"), RUNPOD_IMAGE_MODELS, s.selectedModel, "-- Select Model --");
-        ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
-        for (let i = 1; i <= 4; i++) {
-            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
-            ensureSelectHasOptions($(`#ig_lora_${i}`), RUNPOD_IMAGE_LORAS, s[key], "-- No LoRA --");
-        }
-    }
-
     let danbooruAliasMap = null;
 
     function ensureDanbooruAliasMap() {
@@ -466,7 +391,6 @@ export function createVisualGeneration(api) {
         c.empty();
         const s = getLocalProfile().imageGen;
         ensureImageGenLoraArrays(s);
-        const runpod = ensureRunpodSettings(s);
         if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
 
         // LoRA Intelligence state
@@ -520,39 +444,6 @@ export function createVisualGeneration(api) {
                         <button id="ig_new_wf" class="ps-modern-btn secondary" title="New Workflow"><i class="fa-solid fa-plus"></i></button>
                         <button id="ig_edit_wf" class="ps-modern-btn secondary" title="Edit JSON"><i class="fa-solid fa-pen"></i></button>
                         <button id="ig_del_wf" class="ps-modern-btn secondary" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                </div>
-
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-cloud"></i> RunPod Serverless</div>
-                    <div class="ps-toggle-card ${runpod.enabled ? 'active' : ''}" id="ig_runpod_card" style="padding: 12px 18px; margin-bottom: 15px;">
-                        <div style="display:flex; flex-direction:column;">
-                            <span style="font-weight:600; font-size:0.85rem;">Render with RunPod</span>
-                            <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Sends the same prepared workflow to your RunPod endpoint instead of local ComfyUI. Endpoint and API key are saved in local extension settings.</div>
-                        </div>
-                        <div class="ps-switch"></div>
-                    </div>
-                    <div id="ig_runpod_settings" style="display: ${runpod.enabled ? 'block' : 'none'};">
-                        <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 12px; margin-bottom: 12px;">
-                            <div>
-                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Endpoint ID</div>
-                                <input type="text" id="ig_runpod_endpoint" class="ps-modern-input" value="${psEscapeAttr(runpod.endpointId)}" placeholder="your-endpoint-id" style="padding: 8px; font-size: 0.8rem;" />
-                            </div>
-                            <div>
-                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">API Key</div>
-                                <input type="password" id="ig_runpod_key" class="ps-modern-input" value="${psEscapeAttr(runpod.apiKey)}" placeholder="RunPod API key" autocomplete="off" style="padding: 8px; font-size: 0.8rem;" />
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px;">
-                            <div>
-                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Poll Interval (ms)</div>
-                                <input type="number" id="ig_runpod_poll" class="ps-modern-input" value="${psEscapeAttr(runpod.pollIntervalMs)}" min="500" step="250" style="padding: 8px; font-size: 0.8rem;" />
-                            </div>
-                            <div>
-                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Timeout (ms)</div>
-                                <input type="number" id="ig_runpod_timeout" class="ps-modern-input" value="${psEscapeAttr(runpod.timeoutMs)}" min="30000" step="10000" style="padding: 8px; font-size: 0.8rem;" />
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -896,37 +787,6 @@ export function createVisualGeneration(api) {
             meguminComfyLoraCache = null;
             meguminComfyLoraCacheUrl = "";
             s.comfyUrl = $(e.target).val();
-            saveProfileToMemory();
-        });
-        $("#ig_runpod_card").on("click", function() {
-            const rp = ensureRunpodSettings(s);
-            rp.enabled = !rp.enabled;
-            if (rp.enabled && ensureRunpodDropdownValues(s)) {
-                toastr.info("RunPod model defaults applied.");
-            }
-            saveProfileToMemory();
-            $(this).toggleClass("active", rp.enabled);
-            if (rp.enabled) $("#ig_runpod_settings").slideDown(200);
-            else $("#ig_runpod_settings").slideUp(200);
-            if (rp.enabled) populateRunpodImageLists(s);
-            else igFetchComfyLists();
-        });
-        $("#ig_runpod_endpoint").on("input", (e) => {
-            ensureRunpodSettings(s).endpointId = $(e.target).val().trim();
-            saveProfileToMemory();
-        });
-        $("#ig_runpod_key").on("input", (e) => {
-            ensureRunpodSettings(s).apiKey = $(e.target).val().trim();
-            saveProfileToMemory();
-        });
-        $("#ig_runpod_poll").on("input", (e) => {
-            const rp = ensureRunpodSettings(s);
-            rp.pollIntervalMs = Math.max(500, parseInt($(e.target).val(), 10) || RUNPOD_IMAGE_DEFAULTS.pollIntervalMs);
-            saveProfileToMemory();
-        });
-        $("#ig_runpod_timeout").on("input", (e) => {
-            const rp = ensureRunpodSettings(s);
-            rp.timeoutMs = Math.max(30000, parseInt($(e.target).val(), 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
             saveProfileToMemory();
         });
         $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
@@ -1547,7 +1407,6 @@ export function createVisualGeneration(api) {
     }
 
     async function ensureMeguminComfyLoraList(s) {
-        if (ensureRunpodSettings(s).enabled) return RUNPOD_IMAGE_LORAS;
         const url = (s && s.comfyUrl) ? String(s.comfyUrl).trim() : "";
         if (!url) return [];
         if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === url) return meguminComfyLoraCache;
@@ -1565,13 +1424,6 @@ export function createVisualGeneration(api) {
 
     async function igFetchComfyLists() {
         const s = getLocalProfile().imageGen;
-        if (ensureRunpodSettings(s).enabled) {
-            if (ensureRunpodDropdownValues(s)) saveProfileToMemory();
-            populateRunpodImageLists(s);
-            meguminComfyLoraCache = RUNPOD_IMAGE_LORAS;
-            meguminComfyLoraCacheUrl = "runpod";
-            return;
-        }
         const url = s.comfyUrl;
         try {
             const mRes = await fetch('/api/sd/comfy/models', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify({ url: url }) });
@@ -2319,7 +2171,7 @@ export function createVisualGeneration(api) {
             const match = promptText.match(imgRegex);
             if (match) promptText = match[1];
 
-            toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
+            toastr.info("Sending to ComfyUI...", "Megumin Suite");
             igGenerateWithComfy(promptText, null, { skipLeadPrefix });
 
         } catch(e) {
@@ -2659,180 +2511,78 @@ export function createVisualGeneration(api) {
 
         return { prompt: finalPrompt, skipLeadPrefix: false };
     }
+const RUNPOD_CONFIG = {
+    useRunpod: false,
+    endpointId: "",
+    apiKey: "",
+    pollIntervalMs: 2000,
+    timeoutMs: 600000,
 
-    function igReadBlobAsDataUrl(blob) {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-        });
-    }
+    model: "anima-base-v1.0.safetensors",
+    lora1: "anima_turbo.safetensors",
+    sampler: "euler",
+};
+function forceRunpodLoraIntoWorkflow(workflow) {
+    if (!RUNPOD_CONFIG.useRunpod) return;
 
-    async function igMaybeCompressDataUrl(dataUrl, s) {
-        let base64Clean = dataUrl;
-        let format = igGetDataUrlFormat(dataUrl) || "png";
-        if (s.compressImages) {
-            base64Clean = await new Promise((resolve) => {
-                const img = new Image();
-                img.src = dataUrl;
-                img.onload = () => {
-                    const cvs = document.createElement('canvas');
-                    cvs.width = img.width;
-                    cvs.height = img.height;
-                    cvs.getContext('2d').drawImage(img, 0, 0);
-                    resolve(cvs.toDataURL("image/jpeg", 0.9));
-                };
-                img.onerror = () => resolve(dataUrl);
-            });
-            format = "jpeg";
-        }
-        return { base64Clean, format };
-    }
+    for (const nodeId in workflow) {
+        const node = workflow[nodeId];
+        if (!node || !node.inputs) continue;
 
-    function igGetDataUrlFormat(dataUrl) {
-        const match = String(dataUrl || "").match(/^data:image\/([^;]+);base64,/i);
-        if (!match) return "";
-        return match[1].toLowerCase() === "jpg" ? "jpeg" : match[1].toLowerCase();
-    }
+        const inputs = node.inputs;
 
-    async function igAttachGeneratedImage(base64Clean, finalPrompt, target, format = "png") {
-        const charName = getContext().characters[getContext().characterId]?.name || "User";
-        const cleanBase64 = String(base64Clean || "").includes(",") ? String(base64Clean).split(",").pop() : String(base64Clean || "");
-        const savedPath = await saveBase64AsFile(cleanBase64, charName, `${charName}_${humanizedDateTime()}`, format);
-        const mediaAttach = {
-            url: savedPath,
-            type: "image",
-            source: "generated",
-            prompt: finalPrompt,
-            title: finalPrompt,
-            generation_type: "free"
-        };
-
-        if (target && target.message) {
-            if (!target.message.extra) target.message.extra = {};
-            if (!target.message.extra.media) target.message.extra.media = [];
-            target.message.extra.media_display = "gallery";
-            target.message.extra.media.push(mediaAttach);
-            target.message.extra.media_index = target.message.extra.media.length - 1;
-            if (typeof appendMediaToMessage === "function") appendMediaToMessage(target.message, target.element);
-            await saveChat();
-            toastr.success("Gallery updated!");
-        } else {
-            const newMsg = { name: "Image Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
-            getContext().chat.push(newMsg);
-            await saveChat();
-            if (typeof addOneMessage === "function") addOneMessage(newMsg);
-            else await reloadCurrentChat();
-            toastr.success("Image inserted!");
-        }
-    }
-
-    function igRunpodCandidateToImage(candidate) {
-        if (!candidate) return null;
-        if (typeof candidate === "string") {
-            const trimmed = candidate.trim();
-            if (!trimmed) return null;
-            if (/^https?:\/\//i.test(trimmed)) return { url: trimmed };
-            if (/^data:image\//i.test(trimmed)) return { dataUrl: trimmed, format: igGetDataUrlFormat(trimmed) || "png" };
-            return { dataUrl: `data:image/png;base64,${trimmed}`, format: "png" };
-        }
-        if (typeof candidate === "object") {
-            if (candidate.data) return igRunpodCandidateToImage(candidate.data);
-            if (candidate.base64) return igRunpodCandidateToImage(candidate.base64);
-            if (candidate.image) return igRunpodCandidateToImage(candidate.image);
-            if (candidate.url) return { url: candidate.url };
-        }
-        return null;
-    }
-
-    function igFindRunpodImageCandidate(statusData) {
-        const output = statusData?.output ?? statusData;
-        const firstOutput = Array.isArray(output) ? output[0] : null;
-        const candidates = [
-            output,
-            firstOutput,
-            output?.images?.[0],
-            output?.image,
-            output?.result?.images?.[0],
-            output?.result?.image,
-            output?.output?.images?.[0],
-            output?.output?.image
-        ];
-        for (const candidate of candidates) {
-            const found = igRunpodCandidateToImage(candidate);
-            if (found) return found;
-        }
-        return null;
-    }
-
-    async function igResolveRunpodImageDataUrl(statusData) {
-        const image = igFindRunpodImageCandidate(statusData);
-        if (!image) {
-            throw new Error("RunPod completed but no image data was found in the output.");
-        }
-        if (image.dataUrl) return image;
-        const response = await fetch(image.url);
-        if (!response.ok) throw new Error(`RunPod image download failed: ${response.status}`);
-        const dataUrl = await igReadBlobAsDataUrl(await response.blob());
-        return { dataUrl, format: igGetDataUrlFormat(dataUrl) || "png" };
-    }
-
-    async function igGenerateWithRunpod(workflow, finalPrompt, target, s) {
-        const runpod = ensureRunpodSettings(s);
-        if (!runpod.endpointId || !runpod.apiKey) {
-            throw new Error("RunPod endpoint ID and API key are required.");
-        }
-
-        const endpointBase = `https://api.runpod.ai/v2/${encodeURIComponent(runpod.endpointId)}`;
-        showKazumaProgress("Sending to RunPod...");
-        const submitRes = await fetch(`${endpointBase}/run`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${runpod.apiKey}`
-            },
-            body: JSON.stringify({ input: workflow })
-        });
-        if (!submitRes.ok) {
-            const text = await submitRes.text().catch(() => "");
-            throw new Error(`RunPod submit failed: ${submitRes.status}${text ? ` ${text.slice(0, 160)}` : ""}`);
-        }
-
-        const submitData = await submitRes.json();
-        const jobId = submitData.id || submitData.jobId || submitData.job_id;
-        if (!jobId) throw new Error("RunPod returned no job ID.");
-
-        showKazumaProgress("Rendering on RunPod...");
-        const started = Date.now();
-        while (Date.now() - started <= runpod.timeoutMs) {
-            await new Promise(resolve => setTimeout(resolve, runpod.pollIntervalMs));
-            const statusRes = await fetch(`${endpointBase}/status/${encodeURIComponent(jobId)}`, {
-                headers: { "Authorization": `Bearer ${runpod.apiKey}` }
-            });
-            if (!statusRes.ok) throw new Error(`RunPod status failed: ${statusRes.status}`);
-            const statusData = await statusRes.json();
-            const status = String(statusData.status || "").toUpperCase();
-
-            if (status === "COMPLETED") {
-                showKazumaProgress("Downloading...");
-                const image = await igResolveRunpodImageDataUrl(statusData);
-                const { base64Clean, format } = await igMaybeCompressDataUrl(image.dataUrl, s);
-                await igAttachGeneratedImage(base64Clean, finalPrompt, target, format || image.format || "png");
-                return;
-            }
-            if (["FAILED", "CANCELLED", "CANCELED", "TIMED_OUT"].includes(status)) {
-                throw new Error(`RunPod job failed: ${JSON.stringify(statusData.error || statusData)}`);
+        // rgthree Power Lora Loader format
+        for (let i = 1; i <= 4; i++) {
+            const key = `lora_${i}`;
+            if (inputs[key] && typeof inputs[key] === "object") {
+                if (i === 1) {
+                    inputs[key].on = true;
+                    inputs[key].lora = RUNPOD_CONFIG.lora1;
+                    inputs[key].strength = 1.0;
+                    inputs[key].strength_model = 1.0;
+                    inputs[key].strength_clip = 1.0;
+                } else {
+                    inputs[key].on = false;
+                    inputs[key].lora = "None";
+                    inputs[key].strength = 1.0;
+                    inputs[key].strength_model = 1.0;
+                    inputs[key].strength_clip = 1.0;
+                }
             }
         }
 
-        throw new Error("RunPod job timed out.");
+        // Normal Comfy LoraLoader format
+        if (Object.prototype.hasOwnProperty.call(inputs, "lora_name")) {
+            inputs.lora_name = RUNPOD_CONFIG.lora1;
+            if (Object.prototype.hasOwnProperty.call(inputs, "strength_model")) inputs.strength_model = 1.0;
+            if (Object.prototype.hasOwnProperty.call(inputs, "strength_clip")) inputs.strength_clip = 1.0;
+        }
     }
-
+}
     async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
         const s = getLocalProfile().imageGen;
+        if (RUNPOD_CONFIG.useRunpod) {
+    s.selectedModel = RUNPOD_CONFIG.model;
+    s.selectedLora = RUNPOD_CONFIG.lora1;
+    s.selectedSampler = RUNPOD_CONFIG.sampler;
+
+    if (!s.selectedLoraWt) s.selectedLoraWt = 1.0;
+}
         ensureImageGenLoraArrays(s);
-        if (ensureRunpodSettings(s).enabled && ensureRunpodDropdownValues(s)) saveProfileToMemory();
         igSyncImageGenLoraFromDom(s);
+        if (RUNPOD_CONFIG.useRunpod) {
+    s.selectedModel = RUNPOD_CONFIG.model;
+    s.selectedLora = RUNPOD_CONFIG.lora1;
+    s.selectedLora2 = "";
+    s.selectedLora3 = "";
+    s.selectedLora4 = "";
+   s.selectedSampler = s.selectedSampler || RUNPOD_CONFIG.sampler;
+
+    s.selectedLoraWt = 0.8;
+    s.selectedLoraWt2 = 1.0;
+    s.selectedLoraWt3 = 1.0;
+    s.selectedLoraWt4 = 1.0;
+}
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
         let finalPrompt;
         if (opts && opts.preserveStoredPrompt) {
@@ -2857,7 +2607,7 @@ export function createVisualGeneration(api) {
 
             const $content = $(`
                 <div style="display:flex; flex-direction:column; gap:10px; font-family: 'Inter', sans-serif;">
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the prompt before it goes to the image renderer.</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the prompt before it goes to ComfyUI.</div>
                     <textarea class="ps-modern-input ig-preview-textarea" style="height: 150px; resize: vertical; font-family: monospace; font-size: 0.85rem; padding: 10px;">${finalPrompt}</textarea>
                 </div>
             `);
@@ -2869,7 +2619,7 @@ export function createVisualGeneration(api) {
                 liveText = $(this).val();
             });
 
-            const popup = new Popup($content, POPUP_TYPE.CONFIRM, "Preview Image Prompt", { okButton: "Send to Renderer", cancelButton: "Cancel", wide: true });
+            const popup = new Popup($content, POPUP_TYPE.CONFIRM, "Preview Image Prompt", { okButton: "Send to ComfyUI", cancelButton: "Cancel", wide: true });
             const confirmed = await popup.show();
 
             if (!confirmed) {
@@ -2891,8 +2641,9 @@ export function createVisualGeneration(api) {
 
         let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
         let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
-
-        const comfyLoraFiles = await ensureMeguminComfyLoraList(s);
+const comfyLoraFiles = RUNPOD_CONFIG.useRunpod
+    ? [RUNPOD_CONFIG.lora1]
+    : await ensureMeguminComfyLoraList(s);
         let loraPathCanonChanged = false;
         for (let i = 1; i <= 4; i++) {
             const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
@@ -3031,23 +2782,114 @@ export function createVisualGeneration(api) {
                 if (!seedPlaceholderState.injected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
             }
         }
+forceRunpodLoraIntoWorkflow(workflow);
 
         igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
         igRefreshLastComfyApiPanel();
-
-        if (isRunpodReady(s)) {
+if (RUNPOD_CONFIG.useRunpod) {
             try {
-                await igGenerateWithRunpod(workflow, finalPrompt, target, s);
+                showKazumaProgress("Sending to RunPod...");
+                const submitRes = await fetch(
+                    `https://api.runpod.ai/v2/${RUNPOD_CONFIG.endpointId}/run`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${RUNPOD_CONFIG.apiKey}`
+                        },
+                        body: JSON.stringify({ input: { workflow } })
+                    }
+                );
+                if (!submitRes.ok) throw new Error(`RunPod submit failed: ${submitRes.status}`);
+                const submitData = await submitRes.json();
+                const jobId = submitData.id;
+                if (!jobId) throw new Error("RunPod returned no job ID");
+
+                showKazumaProgress("Rendering on RunPod...");
+                const base64Image = await new Promise((resolve, reject) => {
+                    const start = Date.now();
+                    const interval = setInterval(async () => {
+                        try {
+                            if (Date.now() - start > RUNPOD_CONFIG.timeoutMs) {
+                                clearInterval(interval);
+                                return reject(new Error("RunPod job timed out"));
+                            }
+                            const statusRes = await fetch(
+                                `https://api.runpod.ai/v2/${RUNPOD_CONFIG.endpointId}/status/${jobId}`,
+                                { headers: { "Authorization": `Bearer ${RUNPOD_CONFIG.apiKey}` } }
+                            );
+                            const statusData = await statusRes.json();
+                            console.log("[Megumin RunPod status]", statusData);
+                            if (statusData.status === "COMPLETED") {
+                                clearInterval(interval);
+                                const output = statusData.output;
+
+// Try common worker-comfyui shapes
+let img =
+    output?.images?.[0] ??
+    output?.image ??
+    output?.result?.images?.[0] ??
+    output?.result?.image ??
+    output?.output?.images?.[0];
+
+// Raw string base64
+if (typeof img === "string") {
+    return resolve(img.startsWith("data:") ? img.split(",")[1] : img);
+}
+
+// Object with base64/data fields
+if (img?.data) {
+    return resolve(String(img.data).startsWith("data:") ? String(img.data).split(",")[1] : img.data);
+}
+
+if (img?.base64) {
+    return resolve(String(img.base64).startsWith("data:") ? String(img.base64).split(",")[1] : img.base64);
+}
+
+// Some workers return image URL instead of base64
+if (img?.url) {
+    return reject(new Error(
+        "RunPod returned an image URL, not base64. Output was: " +
+        JSON.stringify(statusData).slice(0, 1500)
+    ));
+}
+
+return reject(new Error(
+    "RunPod completed but I could not find image data. Full output preview: " +
+    JSON.stringify(statusData).slice(0, 2000)
+));
+                            } else if (statusData.status === "FAILED") {
+                                clearInterval(interval);
+                                reject(new Error(`RunPod job failed: ${JSON.stringify(statusData.error || "unknown")}`));
+                            }
+                        } catch (e) { clearInterval(interval); reject(e); }
+                    }, RUNPOD_CONFIG.pollIntervalMs);
+                });
+
+                showKazumaProgress("Saving image...");
+                const base64Data = base64Image.startsWith("data:") ? base64Image.split(',')[1] : base64Image;
+                const charName = getContext().characters[getContext().characterId]?.name || "User";
+                const savedPath = await saveBase64AsFile(base64Data, charName, `${charName}_${humanizedDateTime()}`, "png");
+                const mediaAttach = { url: savedPath, type: "image", source: "generated", prompt: finalPrompt, title: finalPrompt, generation_type: "free" };
+                if (target && target.message) {
+                    if (!target.message.extra) target.message.extra = {};
+                    if (!target.message.extra.media) target.message.extra.media = [];
+                    target.message.extra.media_display = "gallery";
+                    target.message.extra.media.push(mediaAttach);
+                    target.message.extra.media_index = target.message.extra.media.length - 1;
+                    if (typeof appendMediaToMessage === "function") appendMediaToMessage(target.message, target.element);
+                    await saveChat();
+                    toastr.success("Gallery updated!");
+                } else {
+                    const newMsg = { name: "Image Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
+                    getContext().chat.push(newMsg);
+                    await saveChat();
+                    if (typeof addOneMessage === "function") addOneMessage(newMsg);
+                    else await reloadCurrentChat();
+                    toastr.success("Image inserted!");
+                }
                 $("#kazuma_progress_overlay").hide();
-            } catch (e) {
-                $("#kazuma_progress_overlay").hide();
-                toastr.error("RunPod Error: " + e.message);
-            }
-            return;
-        }
-        if (ensureRunpodSettings(s).enabled) {
-            $("#kazuma_progress_overlay").hide();
-            toastr.error("RunPod endpoint ID and API key are required.");
+            } catch(e) { $("#kazuma_progress_overlay").hide(); toastr.error("RunPod Error: " + e.message); }
             return;
         }
 
@@ -3072,12 +2914,37 @@ export function createVisualGeneration(api) {
                             const imgUrl = `${s.comfyUrl}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
 
                             // Download & Compress
-                            const response = await fetch(imgUrl);
-                            const base64Raw = await igReadBlobAsDataUrl(await response.blob());
-                            const { base64Clean, format } = await igMaybeCompressDataUrl(base64Raw, s);
+                            const response = await fetch(imgUrl); const blob = await response.blob();
+                            const base64Raw = await new Promise((res) => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(blob); });
+                            let base64Clean = base64Raw; let format = "png";
+                            if (s.compressImages) {
+                                base64Clean = await new Promise((res) => { const img = new Image(); img.src = base64Raw; img.onload = () => { const cvs = document.createElement('canvas'); cvs.width = img.width; cvs.height = img.height; cvs.getContext('2d').drawImage(img, 0, 0); res(cvs.toDataURL("image/jpeg", 0.9)); }; img.onerror = () => res(base64Raw); });
+                                format = "jpeg";
+                            }
 
                             // Insert to Chat
-                            await igAttachGeneratedImage(base64Clean, finalPrompt, target, format);
+                            const charName = getContext().characters[getContext().characterId]?.name || "User";
+                            const savedPath = await saveBase64AsFile(base64Clean.split(',')[1], charName, `${charName}_${humanizedDateTime()}`, format);
+                            const mediaAttach = {
+                                url: savedPath,
+                                type: "image",
+                                source: "generated",
+                                prompt: finalPrompt,
+                                title: finalPrompt,
+                                generation_type: "free"
+                            };
+
+                            if (target && target.message) {
+                                if (!target.message.extra) target.message.extra = {}; if (!target.message.extra.media) target.message.extra.media =[];
+                                target.message.extra.media_display = "gallery"; target.message.extra.media.push(mediaAttach); target.message.extra.media_index = target.message.extra.media.length - 1;
+                                if (typeof appendMediaToMessage === "function") appendMediaToMessage(target.message, target.element);
+                                await saveChat(); toastr.success("Gallery updated!");
+                            } else {
+                                const newMsg = { name: "Image Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
+                                getContext().chat.push(newMsg); await saveChat();
+                                if (typeof addOneMessage === "function") addOneMessage(newMsg); else await reloadCurrentChat();
+                                toastr.success("Image inserted!");
+                            }
                             $("#kazuma_progress_overlay").hide();
                         } else { $("#kazuma_progress_overlay").hide(); }
                     }
@@ -3885,7 +3752,7 @@ export function createVisualGeneration(api) {
         reloadCurrentChat();
 
         setTimeout(() => {
-            toastr.info(isRunpodReady(s) ? "Image tag detected. Sending to RunPod..." : "Image tag detected. Sending to ComfyUI...");
+            toastr.info("Image tag detected. Sending to ComfyUI...");
             igGenerateWithComfy(extractedPrompt, null, { normalizeGeneratedPrompt: true });
         }, 500);
     }
