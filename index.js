@@ -102,6 +102,9 @@ function initProfile() {
 
     if (!extension_settings[extensionName]) extension_settings[extensionName] = { profiles: {} };
     if (!extension_settings[extensionName].profiles) extension_settings[extensionName].profiles = {};
+    if (!extension_settings[extensionName].runpod) extension_settings[extensionName].runpod = { endpointId: "", apiKey: "" };
+    if (extension_settings[extensionName].runpod.endpointId === undefined) extension_settings[extensionName].runpod.endpointId = "";
+    if (extension_settings[extensionName].runpod.apiKey === undefined) extension_settings[extensionName].runpod.apiKey = "";
     if (!extension_settings[extensionName].customModes) {
         extension_settings[extensionName].customModes = [];
     }

@@ -373,15 +373,31 @@ export function createVisualGeneration(api) {
     const RUNPOD_IMAGE_SAMPLERS = ["euler"];
     const RUNPOD_IMAGE_LORAS = ["anima_turbo.safetensors"];
 
+    function getRunpodGlobalSettings() {
+        if (!extension_settings[extensionName]) extension_settings[extensionName] = {};
+        if (!extension_settings[extensionName].runpod || typeof extension_settings[extensionName].runpod !== "object") {
+            extension_settings[extensionName].runpod = { endpointId: "", apiKey: "" };
+        }
+        const runpod = extension_settings[extensionName].runpod;
+        if (runpod.endpointId === undefined) runpod.endpointId = "";
+        if (runpod.apiKey === undefined) runpod.apiKey = "";
+        runpod.endpointId = String(runpod.endpointId || "").trim();
+        runpod.apiKey = String(runpod.apiKey || "").trim();
+        return runpod;
+    }
+
     function ensureRunpodSettings(s) {
         if (!s) return RUNPOD_IMAGE_DEFAULTS;
         if (!s.runpod || typeof s.runpod !== "object") s.runpod = {};
+        const globalRunpod = getRunpodGlobalSettings();
+        if (!globalRunpod.endpointId && s.runpod.endpointId) globalRunpod.endpointId = String(s.runpod.endpointId || "").trim();
+        if (!globalRunpod.apiKey && s.runpod.apiKey) globalRunpod.apiKey = String(s.runpod.apiKey || "").trim();
         Object.keys(RUNPOD_IMAGE_DEFAULTS).forEach(key => {
             if (s.runpod[key] === undefined) s.runpod[key] = RUNPOD_IMAGE_DEFAULTS[key];
         });
         s.runpod.enabled = !!s.runpod.enabled;
-        s.runpod.endpointId = String(s.runpod.endpointId || "").trim();
-        s.runpod.apiKey = String(s.runpod.apiKey || "").trim();
+        s.runpod.endpointId = globalRunpod.endpointId;
+        s.runpod.apiKey = globalRunpod.apiKey;
         s.runpod.pollIntervalMs = Math.max(500, parseInt(s.runpod.pollIntervalMs, 10) || RUNPOD_IMAGE_DEFAULTS.pollIntervalMs);
         s.runpod.timeoutMs = Math.max(30000, parseInt(s.runpod.timeoutMs, 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
         return s.runpod;
@@ -1002,11 +1018,15 @@ export function createVisualGeneration(api) {
             else igFetchComfyLists();
         });
         $("#ig_runpod_endpoint").on("input", (e) => {
-            ensureRunpodSettings(s).endpointId = $(e.target).val().trim();
+            const value = $(e.target).val().trim();
+            getRunpodGlobalSettings().endpointId = value;
+            ensureRunpodSettings(s).endpointId = value;
             saveProfileToMemory();
         });
         $("#ig_runpod_key").on("input", (e) => {
-            ensureRunpodSettings(s).apiKey = $(e.target).val().trim();
+            const value = $(e.target).val().trim();
+            getRunpodGlobalSettings().apiKey = value;
+            ensureRunpodSettings(s).apiKey = value;
             saveProfileToMemory();
         });
         $("#ig_runpod_poll").on("input", (e) => {
