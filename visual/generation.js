@@ -2917,7 +2917,7 @@ export function createVisualGeneration(api) {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${runpod.apiKey}`
             },
-            body: JSON.stringify({ input: workflow })
+            body: JSON.stringify({ input: { workflow, prompt: finalPrompt } })
         });
         if (!submitRes.ok) {
             const text = await submitRes.text().catch(() => "");
