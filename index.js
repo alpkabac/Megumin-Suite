@@ -127,10 +127,13 @@ function initProfile() {
         addons: [],
         blocks: [],
         model: "cot-v1-english",
+        cotEnabled: true,
         userNotes: "",
         userWordCount: "",
+        userWordCountType: "max",
         userLanguage: "",
         userPronouns: "off",
+        userPov: "",
         devOverrides: {},
         banList: [],
         banListBackend: "direct",
@@ -289,6 +292,9 @@ function initProfile() {
     if (!localProfile.dnRatio) localProfile.dnRatio = defaults.dnRatio;
     if (!localProfile.onomatopoeia) localProfile.onomatopoeia = defaults.onomatopoeia;
     if (localProfile.disableUtilityPrefill === undefined) localProfile.disableUtilityPrefill = false;
+    if (localProfile.cotEnabled === undefined) localProfile.cotEnabled = true;
+    if (!localProfile.userWordCountType) localProfile.userWordCountType = "max";
+    if (localProfile.userPov === undefined) localProfile.userPov = "";
 
     if (localProfile.devOverrides && Object.keys(localProfile.devOverrides).length > 0) {
         localProfile.devOverrides = {};
@@ -537,10 +543,10 @@ function applyTabToAll() {
     const tabKeys = {
         0: ["mode"],
         1: ["personality", "toggles"],
-        2: ["activeStyleId", "aiRule", "customStyles", "dnRatio"],
-        3: ["userWordCount", "userLanguage", "userPronouns", "disableUtilityPrefill", "onomatopoeia"],
+        2: ["activeStyleId", "aiRule", "customStyles", "dnRatio", "userPov"],
+        3: ["userWordCount", "userWordCountType", "userLanguage", "userPronouns", "disableUtilityPrefill", "onomatopoeia"],
         4: ["addons", "blocks"],
-        5: ["model"],
+        5: ["model", "cotEnabled"],
         6: ["storyPlan"],
         7: ["banList"],
         8: ["imageGen"],
@@ -574,7 +580,11 @@ function renderMode(c) {
         "v6-dream-team-lite": "A streamlined version of the Dream Team. Faster generation with lower token overhead.",
         "v7-core": "The V7 Core engine. The perfect middle ground: cinematic pacing, realistic friction, and relentless world progression.",
         "v7-reality": "The V7 Reality engine. Grounded, unrelenting simulation with zero narrative protection.",
-        "v7-gentle": "The V7 Gentle engine. A softer, For pussies."
+        "v7-gentle": "The V7 Gentle engine. A softer, For pussies.",
+        "v7.5": "The Kismet engine. Focused on inescapable narrative momentum and story-forward generation.",
+        "v8-m": "Unmatched in complex human psychology, authentic flawed dialogue, and autonomous multi-layered story plotting.",
+        "v8-lite": "A streamlined version of Obsidian. Keeps psychology, dialogue, and momentum with a lighter token footprint.",
+        "v8-fusion": "A hybrid engine mixing V8 Obsidian's psychology with V6 Dream Team's specialist writer room framework."
     };
 
     // Active engine name
@@ -582,12 +592,13 @@ function renderMode(c) {
     const activeLabel = activeEng ? activeEng.label : localProfile.mode;
 
     // Count by version
-    let v4Count = 0, v5Count = 0, v6Count = 0, v7Count = 0;
+    let v4Count = 0, v5Count = 0, v6Count = 0, v7Count = 0, v8Count = 0;
     hardcodedLogic.modes.forEach(m => {
         if (m.label.includes("V4")) v4Count++;
         else if (m.label.includes("V5")) v5Count++;
         else if (m.id.includes("v6")) v6Count++;
         else if (m.id.includes("v7")) v7Count++;
+        else if (m.id.includes("v8")) v8Count++;
     });
     const totalCount = hardcodedLogic.modes.length;
 
@@ -617,6 +628,7 @@ function renderMode(c) {
             <button class="wstyle-filter-pill" data-filter="V5">V5 <span class="pill-count">${v5Count}</span></button>
             <button class="wstyle-filter-pill" data-filter="V6"><i class="fa-solid fa-lock" style="font-size:0.6rem;"></i> V6 <span class="pill-count">${v6Count}</span></button>
             <button class="wstyle-filter-pill active" data-filter="V7">V7 <span class="pill-count">${v7Count}</span></button>
+            <button class="wstyle-filter-pill" data-filter="V8">V8 <span class="pill-count">${v8Count}</span></button>
         </div>
     `);
     c.append(filterBar);
@@ -631,6 +643,7 @@ function renderMode(c) {
         else if (m.label.includes("V5")) version = "V5";
         else if (m.id.includes("v6")) version = "V6";
         else if (m.id.includes("v7")) version = "V7";
+        else if (m.id.includes("v8")) version = "V8";
 
         const isLocked = m.locked === true;
         const isSel = localProfile.mode === m.id;
@@ -664,10 +677,37 @@ function renderMode(c) {
                     localProfile.activeStyleId = "dir_v7_core";
                     const ds = hardcodedLogic.directStyles.find(x => x.id === "dir_v7_core");
                     if (ds) localProfile.aiRule = ds.rule;
+                } else if (m.id === "v7-gentle") {
+                    localProfile.activeStyleId = "dir_v7_gentle";
+                    const ds = hardcodedLogic.directStyles.find(x => x.id === "dir_v7_gentle");
+                    if (ds) localProfile.aiRule = ds.rule;
+                } else if (m.id === "v7.5") {
+                    localProfile.activeStyleId = "dir_v7.5";
+                    const ds = hardcodedLogic.directStyles.find(x => x.id === "dir_v7.5");
+                    if (ds) localProfile.aiRule = ds.rule;
+                } else if (m.id.startsWith("v8")) {
+                    localProfile.activeStyleId = "dir_v8";
+                    const ds = hardcodedLogic.directStyles.find(x => x.id === "dir_v8");
+                    if (ds) localProfile.aiRule = ds.rule;
                 } else if (m.id.startsWith("v7") && (!wasV7 || localProfile.activeStyleId === "dir_v7_core")) {
                     localProfile.activeStyleId = "dir_v7";
                     const ds = hardcodedLogic.directStyles.find(x => x.id === "dir_v7");
                     if (ds) localProfile.aiRule = ds.rule;
+                }
+
+                const currentLang = (localProfile.model && localProfile.model.includes("-")) ? localProfile.model.split("-").pop() : "english";
+                let targetCotPrefix = null;
+                if (m.id.includes("v6")) targetCotPrefix = "cot-v6";
+                else if (m.id === "v7.5") targetCotPrefix = "cot-v7.5";
+                else if (m.id.includes("v7")) targetCotPrefix = "cot-v7";
+                else if (m.id === "v8-fusion") targetCotPrefix = "cot-v8-fusion";
+                else if (m.id.includes("v8")) targetCotPrefix = "cot-v8";
+
+                if (targetCotPrefix) {
+                    localProfile.model = (targetCotPrefix.includes("v7") || targetCotPrefix.includes("v8"))
+                        ? `${targetCotPrefix}-english`
+                        : `${targetCotPrefix}-${currentLang}`;
+                    localProfile.cotEnabled = true;
                 }
 
                 saveProfileToMemory();
@@ -762,8 +802,10 @@ function renderMode(c) {
 
 function renderPersonality(c) {
     const isV6DreamTeam = localProfile.mode.includes("v6-dream-team");
-    const isV7 = localProfile.mode.startsWith("v7");
-    const isLockedPersona = isV6DreamTeam || isV7;
+    const activeEngine = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])].find(m => m.id === localProfile.mode);
+    const isV7 = activeEngine ? (activeEngine.id.startsWith("v7") || activeEngine.isV7 === true) : false;
+    const isV8 = activeEngine ? (activeEngine.id.startsWith("v8") || activeEngine.isV8 === true) : false;
+    const isLockedPersona = isV6DreamTeam || isV7 || isV8;
 
     // ── HEADER ──
     c.append(`
@@ -797,6 +839,14 @@ function renderPersonality(c) {
                 <i class="fa-solid fa-user-lock" style="color: #3b82f6;"></i>
                 <h3>Persona Selection Locked</h3>
                 <p>The V7 engine utilizes a pure narrative framework. Standard persona injections are disabled to prevent logic conflicts.</p>
+            </div>
+        `);
+    } else if (isV8) {
+        c.append(`
+            <div class="mtab-locked-state">
+                <i class="fa-solid fa-user-lock" style="color: #f59e0b;"></i>
+                <h3>Persona Selection Locked</h3>
+                <p>The V8 engine carries its own narrator and dialogue architecture. Standard persona injections are disabled to prevent logic conflicts.</p>
             </div>
         `);
     } else {
@@ -857,9 +907,16 @@ function renderStyleLibrary(c) {
     c.empty();
     const root = $(`<div style="display: flex; flex-direction: column;"></div>`);
 
-    const isV7 = localProfile.mode.startsWith("v7");
-    if (isV7 && !localProfile.activeStyleId) {
-        const targetStyle = localProfile.mode === "v7-core" ? "dir_v7_core" : "dir_v7";
+    const activeEngineForStyle = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])].find(m => m.id === localProfile.mode);
+    const isV7 = activeEngineForStyle ? (activeEngineForStyle.id.startsWith("v7") || activeEngineForStyle.isV7 === true) : false;
+    const isV8 = activeEngineForStyle ? (activeEngineForStyle.id.startsWith("v8") || activeEngineForStyle.isV8 === true) : false;
+    const isLockedStyleEngine = isV7 || isV8;
+    if (isLockedStyleEngine && !localProfile.activeStyleId) {
+        let targetStyle = "dir_v7";
+        if (localProfile.mode === "v7-core") targetStyle = "dir_v7_core";
+        else if (localProfile.mode === "v7-gentle") targetStyle = "dir_v7_gentle";
+        else if (localProfile.mode === "v7.5") targetStyle = "dir_v7.5";
+        else if (isV8) targetStyle = "dir_v8";
         localProfile.activeStyleId = targetStyle;
         const ds = hardcodedLogic.directStyles.find(x => x.id === targetStyle);
         if (ds) localProfile.aiRule = ds.rule;
@@ -915,7 +972,7 @@ function renderStyleLibrary(c) {
     `);
     offCard.on("click", () => { localProfile.activeStyleId = null; localProfile.aiRule = ""; saveProfileToMemory(); renderStyleLibrary(c); });
 
-    if (!isV7) {
+    if (!isLockedStyleEngine) {
         root.append(offCard);
     } else {
         const v7LockCard = $(`
@@ -924,7 +981,7 @@ function renderStyleLibrary(c) {
                     <div class="off-icon" style="background: rgba(59,130,246,0.2); color: #3b82f6;"><i class="fa-solid fa-lock"></i></div>
                     <div>
                         <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">No Style (Off) - Locked</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">V7 Engines require a narrative style directive. Defaulting to V7 Recommended.</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Modern engines require a narrative style directive.</div>
                     </div>
                 </div>
             </div>
@@ -975,6 +1032,32 @@ function renderStyleLibrary(c) {
         localProfile.dnRatio.dialogue = parseInt($(this).val()); saveProfileToMemory();
     });
     root.append(dnrPanel);
+
+    const povPanel = $(`
+        <div class="wstyle-dnr-panel">
+            <div class="wstyle-dnr-header">
+                <div class="dnr-info">
+                    <div class="dnr-icon"><i class="fa-solid fa-eye"></i></div>
+                    <div>
+                        <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">Point of View</div>
+                        <div style="font-size: 0.73rem; color: var(--text-muted);">Injects a POV hint into precooked writing styles only.</div>
+                    </div>
+                </div>
+                <select id="ws_pov_select" class="ps-modern-input" style="width: 220px; cursor: pointer;">
+                    <option value="" ${!localProfile.userPov ? 'selected' : ''}>Engine Default</option>
+                    <option value="First-Person (I/me)" ${localProfile.userPov === 'First-Person (I/me)' ? 'selected' : ''}>First-Person (I/me)</option>
+                    <option value="Second-Person (You)" ${localProfile.userPov === 'Second-Person (You)' ? 'selected' : ''}>Second-Person (You)</option>
+                    <option value="Third-Person Limited" ${localProfile.userPov === 'Third-Person Limited' ? 'selected' : ''}>Third-Person Limited</option>
+                    <option value="Third-Person Omniscient" ${localProfile.userPov === 'Third-Person Omniscient' ? 'selected' : ''}>Third-Person Omniscient</option>
+                </select>
+            </div>
+        </div>
+    `);
+    povPanel.find("#ws_pov_select").on("change", function () {
+        localProfile.userPov = $(this).val();
+        saveProfileToMemory();
+    });
+    root.append(povPanel);
 
     // ── FILTER PILLS ──
     const filterBar = $(`
@@ -1424,7 +1507,13 @@ function renderAddons(c) {
             </div>
             <div class="mtab-setting-row">
                 <div class="set-info"><div class="set-label">Target Word Count</div><div class="set-desc">Leave empty for no limit</div></div>
-                <input type="number" id="ps_input_wordcount" class="ps-modern-input" style="width: 180px;" placeholder="e.g. 400" value="${localProfile.userWordCount || ''}" min="1" />
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="ps_select_wordcount_type" class="ps-modern-input" style="width: 110px; cursor: pointer;">
+                        <option value="max" ${localProfile.userWordCountType !== 'min' ? 'selected' : ''}>Maximum</option>
+                        <option value="min" ${localProfile.userWordCountType === 'min' ? 'selected' : ''}>Minimum</option>
+                    </select>
+                    <input type="number" id="ps_input_wordcount" class="ps-modern-input" style="width: 120px;" placeholder="e.g. 400" value="${localProfile.userWordCount || ''}" min="1" />
+                </div>
             </div>
             <div class="mtab-setting-row">
                 <div class="set-info"><div class="set-label">Language Output</div><div class="set-desc">Leave empty for default (English)</div></div>
@@ -1448,6 +1537,7 @@ function renderAddons(c) {
         if (localProfile.disableUtilityPrefill) $(this).addClass("active");
         else $(this).removeClass("active");
     });
+    $("#ps_select_wordcount_type").on("change", function () { localProfile.userWordCountType = $(this).val(); saveProfileToMemory(); });
     $("#ps_input_wordcount").on("input", function () { localProfile.userWordCount = $(this).val(); saveProfileToMemory(); });
     $("#ps_input_language").on("input", function () { localProfile.userLanguage = $(this).val(); saveProfileToMemory(); });
     $("#ps_select_pronouns").on("change", function () { localProfile.userPronouns = $(this).val(); saveProfileToMemory(); });
@@ -1562,6 +1652,25 @@ function renderModels(c) {
         </div>
     `);
 
+    if (localProfile.cotEnabled === undefined) localProfile.cotEnabled = true;
+    const cotToggle = $(`
+        <div class="mtab-toggle-row ${localProfile.cotEnabled ? 'active' : ''}" style="margin-bottom: 20px; border-color: ${localProfile.cotEnabled ? 'var(--gold)' : 'var(--border-color)'};">
+            <div class="toggle-info">
+                <div class="toggle-label" style="color: ${localProfile.cotEnabled ? 'var(--gold)' : 'var(--text-main)'};"><i class="fa-solid fa-power-off"></i> Enable Chain of Thought</div>
+                <div class="toggle-desc">Toggle the entire CoT system on or off.</div>
+            </div>
+            <div class="ps-switch" style="${localProfile.cotEnabled ? 'background:var(--gold);' : ''}"></div>
+        </div>
+    `);
+    cotToggle.on("click", function () {
+        localProfile.cotEnabled = !localProfile.cotEnabled;
+        saveProfileToMemory();
+        renderModels(c);
+    });
+    c.append(cotToggle);
+
+    if (!localProfile.cotEnabled) return;
+
     // Custom Engine override notice
     if (activeEngine && activeEngine.cot && activeEngine.cot.trim() !== "") {
         c.append(`
@@ -1583,8 +1692,18 @@ function renderModels(c) {
     else if (localProfile.model && localProfile.model.startsWith("cot-v2-")) { currentType = "v2"; currentLang = localProfile.model.replace("cot-v2-", ""); }
     else if (localProfile.model && localProfile.model.startsWith("cot-v6-lite-")) { currentType = "v6-lite"; currentLang = localProfile.model.replace("cot-v6-lite-", ""); }
     else if (localProfile.model && localProfile.model.startsWith("cot-v6-")) { currentType = "v6"; currentLang = localProfile.model.replace("cot-v6-", ""); }
+    else if (localProfile.model && localProfile.model.startsWith("cot-v7.5-")) { currentType = "v7.5"; currentLang = localProfile.model.replace("cot-v7.5-", ""); }
     else if (localProfile.model && localProfile.model.startsWith("cot-v7-lite-")) { currentType = "v7-lite"; currentLang = localProfile.model.replace("cot-v7-lite-", ""); }
     else if (localProfile.model && localProfile.model.startsWith("cot-v7-")) { currentType = "v7"; currentLang = localProfile.model.replace("cot-v7-", ""); }
+    else if (localProfile.model && localProfile.model.startsWith("cot-v8-fusion-")) { currentType = "v8-fusion"; currentLang = localProfile.model.replace("cot-v8-fusion-", ""); }
+    else if (localProfile.model && localProfile.model.startsWith("cot-v8-")) { currentType = "v8"; currentLang = localProfile.model.replace("cot-v8-", ""); }
+
+    let allowedCotTypes = null;
+    if (localProfile.mode.includes("v6")) allowedCotTypes = ["v6", "v6-lite"];
+    else if (localProfile.mode === "v7.5") allowedCotTypes = ["v7.5"];
+    else if (localProfile.mode.includes("v7")) allowedCotTypes = ["v7", "v7-lite"];
+    else if (localProfile.mode === "v8-fusion") allowedCotTypes = ["v8-fusion"];
+    else if (localProfile.mode.includes("v8")) allowedCotTypes = ["v8"];
 
     if (!localProfile.thinkEffort) localProfile.thinkEffort = "unspecified";
     if (!localProfile.customThinkEffort) localProfile.customThinkEffort = "100";
@@ -1652,24 +1771,24 @@ function renderModels(c) {
 
     // ── THINKING FRAMEWORK ──
     c.append(`<div class="wstyle-section-head purple"><i class="fa-solid fa-diagram-project"></i> Thinking Framework</div>`);
-    c.append(`<div class="mtab-callout" style="margin-bottom:12px; background: rgba(245,158,11,0.1); border-left: 3px solid #f59e0b; padding: 8px 12px; font-size: 0.8rem; color: var(--text-main);">
-        <i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b; margin-right: 6px;"></i>
-        <strong>Important:</strong> When using GLM or DS4 models, you must disable "Main 3" and enable "Main 3 DS4 + GLM" in the Megumin Suite preset.
-    </div>`);
     const typeGrid = $(`<div class="mtab-card-grid" style="margin-bottom: 20px;"></div>`);
     const types = [
-        { id: "off", label: "CoT Off", desc: "No Chain of Thought or prefill. The AI will respond normally." },
         { id: "v1", label: "CoT V1 (Classic)", desc: "The original 8-step framework. Focuses heavily on the NPC's internal emotional landscape vs their observable actions." },
         { id: "v2", label: "CoT V2 (New)", desc: "The new experimental framework. Stricter reality checks, info audits, better NPCs, and hook generation." },
         { id: "v6", label: "CoT V6 (Dream Team)", desc: "The full 4-phase sequence designed specifically for V6 engines. Specialized validation and modeling.", isNew: true },
         { id: "v6-lite", label: "CoT V6 (Lite)", desc: "A streamlined 3-phase sequence. Less token overhead while maintaining narrative rules.", isNew: true },
         { id: "v7", label: "CoT V7", desc: "The new V7 sequence with 5-phase strict ground truth rebuilding.", isNew: true },
-        { id: "v7-lite", label: "CoT V7 (Lite)", desc: "A streamlined 5-phase sequence for V7.", isNew: true }
+        { id: "v7-lite", label: "CoT V7 (Lite)", desc: "A streamlined 5-phase sequence for V7.", isNew: true },
+        { id: "v7.5", label: "CoT V7.5 Kismet", desc: "The V7.5 sequence focused on story engine mechanics.", isNew: true },
+        { id: "v8", label: "CoT V8", desc: "The V8 narrative processing sequence.", isNew: true },
+        { id: "v8-fusion", label: "CoT V8 Fusion", desc: "The V8 Fusion narrative processing sequence.", isNew: true }
     ];
     types.forEach(t => {
         const isSel = currentType === t.id;
+        const isWarned = allowedCotTypes !== null && !allowedCotTypes.includes(t.id);
         let badges = '';
-        if (t.isNew) badges = `<span class="ecard-badge new">New</span>`;
+        if (isWarned) badges = `<span class="ecard-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;"><i class="fa-solid fa-triangle-exclamation"></i> May be Incompatible</span>`;
+        else if (t.isNew) badges = `<span class="ecard-badge new">New</span>`;
 
         const card = $(`
             <div class="mtab-eng-card ${isSel ? 'active' : ''}">
@@ -1685,9 +1804,11 @@ function renderModels(c) {
             </div>
         `);
         card.on("click", () => {
-            if (t.id === "off") localProfile.model = "cot-off";
-            else if (t.id === "v7") localProfile.model = `cot-v7-english`;
+            if (t.id === "v7") localProfile.model = `cot-v7-english`;
             else if (t.id === "v7-lite") localProfile.model = `cot-v7-lite-english`;
+            else if (t.id === "v7.5") localProfile.model = `cot-v7.5-english`;
+            else if (t.id === "v8") localProfile.model = `cot-v8-english`;
+            else if (t.id === "v8-fusion") localProfile.model = `cot-v8-fusion-english`;
             else localProfile.model = `cot-${t.id}-${currentLang}`;
             saveProfileToMemory(); renderModels(c);
         }); typeGrid.append(card);
@@ -1702,7 +1823,7 @@ function renderModels(c) {
             { id: "french", label: "French (Français)" }, { id: "zh", label: "Mandarin (中文)" }, { id: "ru", label: "Russian (Русский)" },
             { id: "jp", label: "Japanese (日本語)" }, { id: "pt", label: "Portuguese (Português)" }
         ];
-        if (currentType === "v7" || currentType === "v7-lite") langs = [{ id: "english", label: "English" }];
+        if (currentType === "v7" || currentType === "v7-lite" || currentType === "v7.5" || currentType === "v8" || currentType === "v8-fusion") langs = [{ id: "english", label: "English" }];
         langs.forEach(l => {
             const isSel = currentLang === l.id;
             let badges = '';
@@ -3735,6 +3856,11 @@ function buildBaseDict() {
     const dict = {};
     if (!localProfile) return dict;
 
+    const allAvailableModes = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])];
+    const activeEngine = allAvailableModes.find(m => m.id === localProfile.mode);
+    const isV7 = activeEngine ? (activeEngine.id.startsWith("v7") || activeEngine.isV7 === true) : false;
+    const isV8 = activeEngine ? (activeEngine.id.startsWith("v8") || activeEngine.isV8 === true) : false;
+
     // 1. GLOBAL DEFAULTS (Language, Pronouns, Word Count)
     const targetLang = (localProfile.userLanguage && localProfile.userLanguage.trim() !== "")
         ? localProfile.userLanguage.toUpperCase()
@@ -3748,8 +3874,10 @@ function buildBaseDict() {
         ? String(localProfile.userWordCount).trim()
         : null;
 
+    const countType = localProfile.userWordCountType === "min" ? "minimum" : "maximum";
+
     if (wordCountStr) {
-        dict["[[count]]"] = `— maximum ${wordCountStr} words`;
+        dict["[[count]]"] = `— ${countType} ${wordCountStr} words`;
     } else {
         dict["[[count]]"] = "";
     }
@@ -3770,11 +3898,22 @@ function buildBaseDict() {
     // Standard Toggles & Addons
     if (localProfile.toggles.ooc) dict["[[OOC]]"] = hardcodedLogic.toggles.ooc.content;
     if (localProfile.toggles.control) dict["[[control]]"] = hardcodedLogic.toggles.control.content;
+    let povInjectionStr = "";
     if (localProfile.aiRule) {
-        if (localProfile.mode.startsWith("v7") && localProfile.activeStyleId !== "dir_v7") {
-            dict["[[aiprompt]]"] = `<narrative_style>\n  voice: "Grounded, cinematic, patient. Describe what the camera would see and what the mic would catch. Let the reader feel the room."\n  pacing: "Unhurried where it should be. A quiet moment can take a paragraph. A violent one can take a sentence. Match the rhythm to the content."\n style: ${localProfile.aiRule}\n  length_directive: "Typical outputs should run 3–6 substantial paragraphs, scaling with scene density. Lean toward the higher end during rich, atmospheric, or multi-character scenes. Go shorter — even a single paragraph — only when the moment genuinely demands economy: a held breath, a door closing, a line that hits harder alone. Never pad, never rush."\n</narrative_style>`;
+        const isPrecooked = hardcodedLogic.directStyles.some(ds => ds.id === localProfile.activeStyleId);
+        if (isPrecooked && localProfile.userPov) {
+            povInjectionStr = `POV: ${localProfile.userPov}\n`;
+        }
+    }
+
+    if (localProfile.mode === "v7.5") {
+        const narratorPersona = localProfile.aiRule ? localProfile.aiRule : "Adopt the narration of an unseen, witty observer who is vividly present in the scene. The narrator has a distinct personality, dry, occasionally judgmental, quietly amused, or sharply critical.";
+        dict["[[aiprompt]]"] = `<Narration_style>\n narrator_persona: "${povInjectionStr}${narratorPersona}"\n quarantine_rule: "CRITICAL: This opinionated voice applies STRICTLY and EXCLUSIVELY to the narration. It MUST NOT bleed into <NPC_dialogue>."\n proportional_prose: "Match narrative intensity to the event. A spilled coffee is just a minor annoyance, not a catalyst for dramatic prose. Zero purple prose. Use grounded metaphors sparingly."\n</Narration_style>`;
+    } else if (localProfile.aiRule) {
+        if (isV7 && localProfile.activeStyleId !== "dir_v7" && localProfile.activeStyleId !== "dir_v7_core" && localProfile.activeStyleId !== "dir_v7_gentle") {
+            dict["[[aiprompt]]"] = `<narrative_style>\n voice: ${povInjectionStr}${localProfile.aiRule}\n  pacing: "Unhurried where it should be. A quiet moment can take a paragraph. A violent one can take a sentence. Match the rhythm to the content."\n  length_directive: "Typical outputs should run 3-6 substantial paragraphs, scaling with scene density. Lean higher during rich, atmospheric, or multi-character scenes. Go shorter only when the moment genuinely demands economy. Never pad, never rush."\n</narrative_style>`;
         } else {
-            dict["[[aiprompt]]"] = localProfile.aiRule;
+            dict["[[aiprompt]]"] = povInjectionStr + localProfile.aiRule;
         }
     }
     localProfile.addons.forEach(aId => {
@@ -3790,17 +3929,12 @@ function buildBaseDict() {
 
     // Stage 6 Defaults (CoT Framework & Language)
     const modData = hardcodedLogic.models.find(m => m.id === localProfile.model);
-    if (modData) {
+    if (localProfile.cotEnabled !== false && modData) {
         dict["[[COT]]"] = modData.content;
         if (modData.prefill) dict["[[prefill]]"] = modData.prefill;
     } else {
         dict["[[COT]]"] = "";
-    }
-
-    // [[THINK]] Macro Logic (Only injects if Thinking V2 is ENABLED)
-    if (localProfile.thinkingV2 && localProfile.model !== "cot-off") {
-        dict["[[THINK]]"] = `<think>\n<think>\n<think>\n{Thinking}\n</think>`;
-    } else {
+        dict["[[prefill]]"] = "";
         dict["[[THINK]]"] = "";
     }
 
@@ -3825,16 +3959,14 @@ function buildBaseDict() {
     // MVU Logic
     if (localProfile.blocks.includes("mvu")) {
         let baseMvu = hardcodedLogic.blocks.find(b => b.id === "mvu").content;
-        if (wordCountStr) dict["[[MVU]]"] = baseMvu.replace("[[count]]", `maximum ${wordCountStr} words`);
+        if (wordCountStr) dict["[[MVU]]"] = baseMvu.replace("[[count]]", `${countType} ${wordCountStr} words`);
         else dict["[[MVU]]"] = baseMvu.replace("[[count]]", "...");
     } else {
-        dict["[[MVU]]"] = wordCountStr ? `{main response — maximum ${wordCountStr} words}` : `{main response}`;
+        dict["[[MVU]]"] = wordCountStr ? `{main response — ${countType} ${wordCountStr} words}` : `{main response}`;
     }
 
     // 3. ENGINE OVERRIDES (The "Superior" Layer)
     // This part runs last so it can overwrite standard Stage choices
-    const allAvailableModes = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])];
-    const activeEngine = allAvailableModes.find(m => m.id === localProfile.mode);
     const isCustom = activeEngine && !hardcodedLogic.modes.find(x => x.id === activeEngine.id);
 
     if (activeEngine) {
@@ -3898,7 +4030,7 @@ function buildBaseDict() {
         }
 
         // V7 Dynamic Stripping
-        if (activeEngine.id.startsWith("v7")) {
+        if (isV7) {
             if (!localProfile.toggles.v7_ooc && dict["[[prompt1]]"]) {
                 dict["[[prompt1]]"] = dict["[[prompt1]]"].replace(/<ooc_protocol>[\s\S]*?<\/ooc_protocol>/g, "");
             }
@@ -3917,10 +4049,26 @@ function buildBaseDict() {
                 }
             }
         }
+        if (isV8) {
+            const aiPromptVal = dict["[[aiprompt]]"] || "";
+            for (let i = 1; i <= 6; i++) {
+                if (dict[`[[prompt${i}]]`] && dict[`[[prompt${i}]]`].includes("[[aiprompt]]")) {
+                    dict[`[[prompt${i}]]`] = dict[`[[prompt${i}]]`].split("[[aiprompt]]").join(aiPromptVal);
+                }
+            }
+            dict["[[aiprompt]]"] = "";
+        }
     }
 
-    if (localProfile.mode.includes("v6-dream-team")) {
+    if (localProfile.mode.includes("v6-dream-team") || isV7 || isV8) {
         dict["[[main]]"] = "";
+    }
+
+    if (isV8) {
+        dict["[[OOC]]"] = "";
+        dict["[[control]]"] = "";
+        dict["[[AI1]]"] = "";
+        dict["[[AI2]]"] = "";
     }
 
     // NEW: Inject Thinking Effort to the absolute top of whatever [[COT]] is currently active
@@ -3928,6 +4076,17 @@ function buildBaseDict() {
     if (effort !== "unspecified" && dict["[[COT]]"]) {
         let words = effort === "custom" ? (localProfile.customThinkEffort || "100") : effort;
         dict["[[COT]]"] = `Your Thinking must not be more than ${words} words.\n\n` + dict["[[COT]]"];
+    }
+
+    if (localProfile.cotEnabled !== false && dict["[[COT]]"]) {
+        if (localProfile.thinkingV2) {
+            dict["[[THINK]]"] = `<think>\n<think>\n<think>\n${dict["[[COT]]"]}\n</think>`;
+        } else {
+            dict["[[THINK]]"] = `<think>\n${dict["[[COT]]"]}\n</think>`;
+        }
+        dict["[[COT]]"] = "";
+    } else {
+        dict["[[THINK]]"] = "";
     }
 
     // Story Planner Injection
