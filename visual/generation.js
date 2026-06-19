@@ -369,9 +369,19 @@ export function createVisualGeneration(api) {
         pollIntervalMs: 1000,
         timeoutMs: 600000
     };
-    const RUNPOD_IMAGE_MODELS = ["anima-base-v1.0.safetensors"];
-    const RUNPOD_IMAGE_SAMPLERS = ["euler"];
+    const RUNPOD_IMAGE_MODELS = ["ri-mix-illustrious-anima.safetensors", "anima-base-v1.0.safetensors"];
+    const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
     const RUNPOD_IMAGE_LORAS = ["anima_turbo.safetensors"];
+    const RUNPOD_IMAGE_MODEL_ALIASES = {
+        "rimixillustriousanima_rimixanima.safetensors": "ri-mix-illustrious-anima.safetensors"
+    };
+
+    function normalizeRunpodModelFilename(modelName) {
+        const current = String(modelName || "").trim();
+        if (!current) return "";
+        const basename = current.replace(/\\/g, "/").split("/").pop().toLowerCase();
+        return RUNPOD_IMAGE_MODEL_ALIASES[basename] || current;
+    }
 
     function getRunpodGlobalSettings() {
         if (!extension_settings[extensionName]) extension_settings[extensionName] = {};
@@ -428,16 +438,17 @@ export function createVisualGeneration(api) {
     function ensureRunpodDropdownValues(s) {
         if (!s) return false;
         let changed = false;
+        const normalizedModel = normalizeRunpodModelFilename(s.selectedModel);
+        if (normalizedModel !== s.selectedModel) {
+            s.selectedModel = normalizedModel;
+            changed = true;
+        }
         if (!s.selectedModel && RUNPOD_IMAGE_MODELS[0]) {
             s.selectedModel = RUNPOD_IMAGE_MODELS[0];
             changed = true;
         }
         if (!s.selectedSampler && RUNPOD_IMAGE_SAMPLERS[0]) {
             s.selectedSampler = RUNPOD_IMAGE_SAMPLERS[0];
-            changed = true;
-        }
-        if (!s.selectedLora && RUNPOD_IMAGE_LORAS[0]) {
-            s.selectedLora = RUNPOD_IMAGE_LORAS[0];
             changed = true;
         }
         return changed;
