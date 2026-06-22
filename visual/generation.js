@@ -400,6 +400,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     };
     const RUNPOD_IMAGE_MODELS = ["ri-mix-illustrious-anima.safetensors", "anima-base-v1.0.safetensors"];
     const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
+    const RUNPOD_IMAGE_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta", "linear_quadratic"];
     const RUNPOD_IMAGE_LORAS = ["anima_turbo.safetensors"];
     const RUNPOD_IMAGE_MODEL_ALIASES = {
         "rimixillustriousanima_rimixanima.safetensors": "ri-mix-illustrious-anima.safetensors"
@@ -480,6 +481,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             s.selectedSampler = RUNPOD_IMAGE_SAMPLERS[0];
             changed = true;
         }
+        if (!s.selectedScheduler && RUNPOD_IMAGE_SCHEDULERS[0]) {
+            s.selectedScheduler = RUNPOD_IMAGE_SCHEDULERS[0];
+            changed = true;
+        }
         return changed;
     }
 
@@ -487,6 +492,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         ensureRunpodDropdownValues(s);
         ensureSelectHasOptions($("#ig_model"), RUNPOD_IMAGE_MODELS, s.selectedModel, "-- Select Model --");
         ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
+        ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
         for (let i = 1; i <= 4; i++) {
             const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
             ensureSelectHasOptions($(`#ig_lora_${i}`), RUNPOD_IMAGE_LORAS, s[key], "-- No LoRA --");
@@ -626,6 +632,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.structuredPromptRules === undefined) s.structuredPromptRules = true;
         if (s.adultTagPrecision === undefined) s.adultTagPrecision = true;
         if (s.includePromptExamples === undefined) s.includePromptExamples = false;
+        if (s.selectedScheduler === undefined) s.selectedScheduler = "simple";
 
         // LoRA Intelligence state
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
@@ -806,6 +813,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                         <select id="ig_model" class="ps-modern-input" style="flex: 2;"><option value="">Loading Models...</option></select>
                         <select id="ig_sampler" class="ps-modern-input" style="flex: 1;"><option value="">Loading Samplers...</option></select>
+                        <select id="ig_scheduler" class="ps-modern-input" style="flex: 1;"><option value="">Loading Schedulers...</option></select>
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 15px; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
@@ -1184,6 +1192,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         // Models & Samplers
         $("#ig_model").on("change", (e) => { s.selectedModel = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_sampler").on("change", (e) => { s.selectedSampler = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_scheduler").on("change", (e) => { s.selectedScheduler = $(e.target).val(); saveProfileToMemory(); });
 
         // Buttons
         $("#ig_test_btn").on("click", igTestConnection);
@@ -1198,7 +1207,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (oldWorkflow) {
                 if (!s.savedWorkflowStates) s.savedWorkflowStates = {};
                 s.savedWorkflowStates[oldWorkflow] = {
-                    selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
+                    selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
                     promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
                     structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
@@ -1799,6 +1808,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 samplers.forEach(sa => sel.append(`<option value="${sa}">${sa}</option>`));
                 if (s.selectedSampler) sel.val(s.selectedSampler);
             }
+            ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
+            const ksRes = await fetch(`${url}/object_info/KSampler`);
+            if (ksRes.ok) {
+                const json = await ksRes.json();
+                const schedulers = json?.KSampler?.input?.required?.scheduler?.[0] || [];
+                ensureSelectHasOptions($("#ig_scheduler"), schedulers, s.selectedScheduler);
+            }
             const lRes = await fetch(`${url}/object_info/LoraLoader`);
             if (lRes.ok) {
                 const json = await lRes.json();
@@ -1897,6 +1913,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             megumin: {
                 model: s.selectedModel || "",
                 sampler: s.selectedSampler || "",
+                scheduler: s.selectedScheduler || "",
                 steps: parseInt(s.steps, 10) || 20,
                 cfg: parseFloat(s.cfg) || 7,
                 denoise: parseFloat(s.denoise) || 1,
@@ -1935,6 +1952,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const m = snap.megumin;
         lines.push(`Checkpoint (%model%): ${m.model || "(empty)"}`);
         lines.push(`Sampler (%sampler%): ${m.sampler || "(empty)"}`);
+        lines.push(`Scheduler (%scheduler%): ${m.scheduler || "(empty)"}`);
         lines.push(`Steps / CFG / Denoise: ${m.steps} / ${m.cfg} / ${m.denoise}`);
         lines.push(`CLIP skip (UI → injected as %clip_skip%): ${m.clip_skip_ui} → ${m.clip_skip_injected}`);
         lines.push(`Size (%width% × %height%): ${m.width} × ${m.height}`);
@@ -3273,6 +3291,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             "%negative_prompt%": s.customNegative || "",
             "%seed%": finalSeed,
             "%sampler%": s.selectedSampler || "euler",
+            "%scheduler%": s.selectedScheduler || "simple",
             "%model%": s.selectedModel || "v1-5-pruned.ckpt",
             "%steps%": parseInt(s.steps, 10) || 20,
             "%scale%": parseFloat(s.cfg) || 7.0,

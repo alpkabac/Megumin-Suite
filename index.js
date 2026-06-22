@@ -162,6 +162,7 @@ function initProfile() {
             customNegative: "bad quality, blurry, worst quality, low quality",
             customSeed: -1,
             selectedSampler: "er_sde",
+            selectedScheduler: "simple",
             compressImages: true,
             steps: 35, cfg: 3.0, denoise: 0.5, clipSkip: 1,
             promptStyle: "standard",
@@ -2279,6 +2280,7 @@ async function npcGeneratePfp(npcName) {
                 if (val === "%negative_prompt%") node.inputs[key] = s.customNegative || "";
                 if (val === "%seed%") node.inputs[key] = finalSeed;
                 if (val === "%sampler%") node.inputs[key] = s.selectedSampler || "euler";
+                if (val === "%scheduler%") node.inputs[key] = s.selectedScheduler || "simple";
                 if (val === "%model%") node.inputs[key] = s.selectedModel || "v1-5-pruned.ckpt";
                 if (val === "%steps%") node.inputs[key] = parseInt(s.steps) || 20;
                 if (val === "%scale%") node.inputs[key] = parseFloat(s.cfg) || 7.0;

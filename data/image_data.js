@@ -8,6 +8,7 @@ export const KAZUMA_PLACEHOLDERS = [
         { key: '"%clip_skip%"', desc: "CLIP Skip (Integer)" },
         { key: '"%model%"', desc: "Checkpoint Name" },
         { key: '"%sampler%"', desc: "Sampler Name" },
+        { key: '"%scheduler%"', desc: "Scheduler Name" },
         { key: '"%width%"', desc: "Image Width (px)" },
         { key: '"%height%"', desc: "Image Height (px)" },
         { key: '"%lora1%"', desc: "LoRA 1 Filename" },
