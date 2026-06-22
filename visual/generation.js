@@ -72,7 +72,30 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
 
-    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl.";
+    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. Every human or humanoid subject must be an adult age 18 or older. Never depict or mention children, minors, underage people, teenagers, childlike people, loli, or shota; if the current scene would require one, do not produce an image prompt. Prefer adult woman, adult man, or adult person over ambiguous girl or boy wording. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl.";
+
+    const Z_IMAGE_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
+    const Z_IMAGE_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
+    const Z_IMAGE_SPELLED_UNDER_18_AGE_RE = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen)[ -]years?[ -]old\b/i;
+
+    function findZImageForbiddenMinorTerm(prompt) {
+        const normalized = String(prompt || "").replace(/[_-]+/g, " ");
+        const forbiddenMatch = normalized.match(Z_IMAGE_FORBIDDEN_MINOR_RE);
+        if (forbiddenMatch) return forbiddenMatch[0];
+        const ageMatch = normalized.match(Z_IMAGE_UNDER_18_AGE_RE);
+        if (ageMatch) return ageMatch[0];
+        const spelledAgeMatch = normalized.match(Z_IMAGE_SPELLED_UNDER_18_AGE_RE);
+        return spelledAgeMatch ? spelledAgeMatch[0] : "";
+    }
+
+    function blockForbiddenZImagePrompt(prompt) {
+        const forbidden = findZImageForbiddenMinorTerm(prompt);
+        if (!forbidden) return false;
+        $("#kazuma_progress_overlay").hide();
+        toastr.error(`Z-Image prompt blocked: forbidden minor-related wording detected (${forbidden}).`);
+        console.warn("[Megumin Suite] Z-Image minor guard blocked generated input:", forbidden);
+        return true;
+    }
 
     const Z_IMAGE_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and choose unspecified visual details yourself.
 
@@ -2710,7 +2733,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         } catch(e) {
             console.error(e);
             $("#kazuma_progress_overlay").hide();
-            toastr.error("Manual generation failed.");
+            toastr.error(e?.message || "Manual generation failed.");
         } finally {
             activeImageGenRequest = null;
         }
@@ -3056,6 +3079,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
         let finalPrompt = stripUtilityThinkingWrapper(rawOutput);
+        if (s.promptStyle === "zimage" && findZImageForbiddenMinorTerm(finalPrompt)) {
+            throw new Error("Z-Image prompt blocked: generated input contained forbidden minor-related wording.");
+        }
         if (s.promptStyle === "illustrious") {
             finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
         }
@@ -3243,6 +3269,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (ensureRunpodSettings(s).enabled && ensureRunpodDropdownValues(s)) saveProfileToMemory();
         igSyncImageGenLoraFromDom(s);
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
+        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(raw)) return;
         let finalPrompt;
         if (opts && opts.preserveStoredPrompt) {
             finalPrompt = raw.trim();
@@ -3260,6 +3287,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
         finalPrompt = ensureSelectedVrtlIdentityPrompt(finalPrompt, s);
+        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt) {
@@ -3289,6 +3317,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             finalPrompt = liveText.trim();
             if (!finalPrompt) return toastr.warning("Prompt cannot be empty.");
+            if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
 
             showKazumaProgress("Preparing to Render..."); // Bring progress bar back
         }
