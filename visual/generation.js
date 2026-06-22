@@ -331,6 +331,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
     function ensureLoraIntelDefaults(li) {
         if (!li) return;
+        if (!Array.isArray(li.globalActiveLoras)) li.globalActiveLoras = [];
+        if (!li.characterActiveLoras || typeof li.characterActiveLoras !== "object") li.characterActiveLoras = {};
+        if (!li.characterAssignments || typeof li.characterAssignments !== "object") li.characterAssignments = {};
         if (li.ensureCharacterTag === undefined) li.ensureCharacterTag = false;
         if (li.descriptionStyle === undefined) li.descriptionStyle = 'booru';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
@@ -374,6 +377,87 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (!Array.isArray(li.characterAssignments[key])) return;
             li.characterAssignments[key].forEach(ensureStructuredCharacterAssignment);
         });
+    }
+
+    function buildCharacterAnalysisSnapshot(li, charKey, scope = "global") {
+        ensureLoraIntelDefaults(li);
+        ensureStructuredCharacterAssignments(li, charKey);
+        const activeLoras = scope === "character" && li.characterActiveLoras[charKey]
+            ? li.characterActiveLoras[charKey]
+            : li.globalActiveLoras;
+        const mode = li.ensureLoras && li.useDanbooruTags ? "mixed" : (li.ensureLoras ? "lora" : "booru");
+        return {
+            schema: "megumin-character-analysis",
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            sourceCharacterKey: charKey,
+            mode,
+            settings: {
+                ensureLoras: !!li.ensureLoras,
+                useDanbooruTags: !!li.useDanbooruTags,
+                ensureCharacterTag: !!li.ensureCharacterTag,
+                useCharDescriptions: !!li.useCharDescriptions,
+                descriptionStyle: li.descriptionStyle,
+                promptAssemblyMode: li.promptAssemblyMode,
+                assignmentViewMode: li.assignmentViewMode,
+                tagFieldToggles: JSON.parse(JSON.stringify(li.tagFieldToggles || {}))
+            },
+            loraScope: scope === "character" ? "character" : "global",
+            activeLoras: JSON.parse(JSON.stringify(activeLoras || [])),
+            assignments: JSON.parse(JSON.stringify(li.characterAssignments[charKey] || [])),
+            lastCharacterAnalysisResponse: li.lastCharacterAnalysisResponse || ""
+        };
+    }
+
+    function applyCharacterAnalysisSnapshot(li, charKey, payload) {
+        if (!payload || payload.schema !== "megumin-character-analysis" || payload.version !== 1) {
+            throw new Error("This is not a supported Megumin character-analysis snapshot.");
+        }
+        if (!Array.isArray(payload.assignments)) throw new Error("Snapshot assignments are missing or invalid.");
+        ensureLoraIntelDefaults(li);
+
+        const settings = payload.settings && typeof payload.settings === "object" ? payload.settings : {};
+        ["ensureLoras", "useDanbooruTags", "ensureCharacterTag", "useCharDescriptions"].forEach(key => {
+            if (typeof settings[key] === "boolean") li[key] = settings[key];
+        });
+        ["descriptionStyle", "promptAssemblyMode", "assignmentViewMode"].forEach(key => {
+            if (typeof settings[key] === "string" && settings[key]) li[key] = settings[key];
+        });
+        if (settings.tagFieldToggles && typeof settings.tagFieldToggles === "object") {
+            li.tagFieldToggles = { ...li.tagFieldToggles, ...settings.tagFieldToggles };
+        }
+
+        const assignments = JSON.parse(JSON.stringify(payload.assignments));
+        assignments.forEach(ensureStructuredCharacterAssignment);
+        li.characterAssignments[charKey] = assignments;
+
+        if (Array.isArray(payload.activeLoras)) {
+            const activeLoras = payload.activeLoras
+                .filter(lora => lora && typeof lora.name === "string" && lora.name.trim())
+                .map(lora => ({
+                    ...lora,
+                    name: lora.name.trim(),
+                    enabled: lora.enabled !== false,
+                    keywords: Array.isArray(lora.keywords) ? lora.keywords.map(String).filter(Boolean) : []
+                }));
+            if (payload.loraScope === "character") li.characterActiveLoras[charKey] = activeLoras;
+            else li.globalActiveLoras = activeLoras;
+        }
+        li.lastCharacterAnalysisResponse = typeof payload.lastCharacterAnalysisResponse === "string"
+            ? payload.lastCharacterAnalysisResponse
+            : "";
+        return { count: assignments.length, mode: payload.mode || "snapshot" };
+    }
+
+    function downloadCharacterAnalysisSnapshot(li, charKey, scope) {
+        const snapshot = buildCharacterAnalysisSnapshot(li, charKey, scope);
+        const safeKey = String(charKey || "character").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "character";
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" }));
+        link.href = url;
+        link.download = `megumin-character-analysis-${safeKey}-${snapshot.mode}.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
     }
 
     function psEscapeAttr(value) {
@@ -990,6 +1074,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-users-gear" style="color: var(--gold); margin-right: 6px;"></i>AI Character → LoRA Assignment</span>
                                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button id="li_analysis_export_btn" class="ps-modern-btn secondary" title="Export assignments, booru fields, LoRA files, trigger keywords, and analysis-mode settings" style="padding: 6px 10px; font-size: 0.7rem;">
+                                        <i class="fa-solid fa-file-export"></i> Export
+                                    </button>
+                                    <button id="li_analysis_import_btn" class="ps-modern-btn secondary" title="Restore a previously exported character-analysis snapshot" style="padding: 6px 10px; font-size: 0.7rem;">
+                                        <i class="fa-solid fa-file-import"></i> Import
+                                    </button>
+                                    <input id="li_analysis_import_file" type="file" accept=".json,application/json" style="display:none;" />
                                     <button id="li_analyze_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; padding: 6px 14px; font-size: 0.75rem; font-weight: 800;">
                                         <i class="fa-solid fa-bolt"></i> Analyze Characters
                                     </button>
@@ -1315,6 +1406,38 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             } catch (e) {
                 toastr.error("Copy failed");
             }
+        });
+        $("#li_analysis_export_btn").on("click", function() {
+            const scope = $("#li_scope_select").val() || "global";
+            downloadCharacterAnalysisSnapshot(li, charKey, scope);
+            toastr.success(`Exported ${(li.characterAssignments[charKey] || []).length} character assignments.`);
+        });
+        $("#li_analysis_import_btn").on("click", function() {
+            $("#li_analysis_import_file").trigger("click");
+        });
+        $("#li_analysis_import_file").on("change", function(e) {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const payload = JSON.parse(String(event.target.result || ""));
+                    const sourceNote = payload.sourceCharacterKey && payload.sourceCharacterKey !== charKey
+                        ? ` It was exported from "${payload.sourceCharacterKey}" and will restore into the current character.`
+                        : "";
+                    if (!window.confirm(`Replace the current character-analysis assignments, active LoRA keyword list, and mode settings with this snapshot?${sourceNote}`)) return;
+                    const restored = applyCharacterAnalysisSnapshot(li, charKey, payload);
+                    saveProfileToMemory();
+                    renderImageGen(c);
+                    toastr.success(`Restored ${restored.count} assignments (${restored.mode} mode).`);
+                } catch (error) {
+                    console.error("[Megumin Suite] Character-analysis import failed:", error);
+                    toastr.error(error.message || "Character-analysis import failed.");
+                }
+            };
+            reader.onerror = () => toastr.error("Could not read the snapshot file.");
+            reader.readAsText(file);
+            $(this).val("");
         });
         igRefreshLastComfyApiPanel();
 
