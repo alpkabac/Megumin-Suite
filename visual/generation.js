@@ -501,7 +501,58 @@ export function createVisualGeneration(api) {
     // -------------------------------------------------------------
     // CIVITAI KEYWORD FETCHER
     // -------------------------------------------------------------
+    const LORA_TRIGGER_ONLY_IDENTITIES = new Set([
+        "sandy cheeks",
+        "kate middleton"
+    ]);
+
+    const LORA_AMBIGUOUS_IDENTITY_GENDERS = new Map([
+        ["alex jones", "man"]
+    ]);
+
+    function getVrtlLoraIdentityKeywords(loraFilename) {
+        const basename = String(loraFilename || "")
+            .replace(/\\/g, "/")
+            .split("/")
+            .pop()
+            .replace(/\.(safetensors|ckpt|pt|bin)$/i, "")
+            .replace(/\(\d+\)\s*$/i, "")
+            .trim();
+        const triggers = [...basename.matchAll(/\bvrtl[\w-]+\b/gi)].map(m => m[0]);
+        if (triggers.length === 0) return null;
+
+        const uniqueTriggers = [...new Map(triggers.map(t => [t.toLowerCase(), t])).values()];
+        const mainTrigger = uniqueTriggers.find(t => /^vrtlmain$/i.test(t));
+        if (mainTrigger) return [mainTrigger];
+        if (uniqueTriggers.length > 1) return uniqueTriggers;
+
+        const triggerGroupIndex = basename.search(/\([^)]*\bvrtl/i);
+        const identityName = (triggerGroupIndex >= 0 ? basename.slice(0, triggerGroupIndex) : "")
+            .replace(/^ZI\s+/i, "")
+            .trim();
+        const trigger = uniqueTriggers[0];
+        if (!identityName || LORA_TRIGGER_ONLY_IDENTITIES.has(identityName.toLowerCase())) return [trigger];
+
+        const gender = LORA_AMBIGUOUS_IDENTITY_GENDERS.get(identityName.toLowerCase());
+        return [`${identityName} (${trigger})${gender ? `, ${gender}` : ""}`];
+    }
+
+    function getEffectiveLoraKeywords(lora) {
+        const identityKeywords = getVrtlLoraIdentityKeywords(lora?.name);
+        if (identityKeywords) return identityKeywords;
+        return Array.isArray(lora?.keywords) ? lora.keywords.filter(Boolean) : [];
+    }
+
+    function getDefaultLoraKeywords(loraName) {
+        const identityKeywords = getVrtlLoraIdentityKeywords(loraName);
+        if (identityKeywords) return identityKeywords;
+        const cleanName = String(loraName || "").replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim();
+        return civitaiKeywordCache[cleanName] || ["a woman"];
+    }
+
     async function fetchCivitaiKeywords(loraFilename) {
+        const identityKeywords = getVrtlLoraIdentityKeywords(loraFilename);
+        if (identityKeywords) return identityKeywords;
         const cleanName = loraFilename.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim();
         if (civitaiKeywordCache[cleanName]) return civitaiKeywordCache[cleanName];
         try {
@@ -1231,7 +1282,7 @@ export function createVisualGeneration(api) {
         // Refresh LoRA list
         $("#li_refresh_btn").on("click", async function() {
             $(this).prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
-            await liPopulateLoraList(s, li, charKey);
+            await liPopulateLoraList(s, li, charKey, true);
             $(this).prop("disabled", false).html('<i class="fa-solid fa-sync"></i> Refresh');
         });
 
@@ -1263,6 +1314,13 @@ export function createVisualGeneration(api) {
             const chatText = getCleanedChatHistory();
             if (chatText.length < 50) return toastr.warning("Not enough chat history to analyze characters.");
 
+            btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Refreshing LoRAs...');
+            const loraRefreshOk = await liPopulateLoraList(s, li, charKey, true);
+            if (!loraRefreshOk) {
+                btn.prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
+                return toastr.error("Could not refresh the current LoRA list. Character analysis was not started.");
+            }
+
             const scope = $("#li_scope_select").val();
             const activeList = scope === "character" && li.characterActiveLoras[charKey] ? li.characterActiveLoras[charKey] : li.globalActiveLoras;
             const enabledLoras = activeList.filter(l => l.enabled);
@@ -1273,7 +1331,8 @@ export function createVisualGeneration(api) {
                 if (li.useDanbooruTags) await loadDanbooruTags();
 
                 const loraListStr = enabledLoras.map(l => {
-                    const kw = l.keywords && l.keywords.length > 0 ? ` (keywords: ${l.keywords.join(', ')})` : '';
+                    const keywords = getEffectiveLoraKeywords(l);
+                    const kw = keywords.length > 0 ? ` (keywords: ${keywords.join(', ')})` : '';
                     return `- ${l.name}${kw}`;
                 }).join('\n');
                 const characterTextContext = getCurrentCharacterTextContext();
@@ -1897,6 +1956,31 @@ export function createVisualGeneration(api) {
     }
 
     let cachedLoraFiles = null;
+
+    function liPruneMissingActiveLoras(li, availableFiles) {
+        if (!li || !Array.isArray(availableFiles)) return 0;
+        const available = new Set(availableFiles.map(normalizeLoraKeyForDedupe));
+        const isAvailable = (entry) => {
+            const resolved = resolveLoraPathForDropdown(entry?.name, availableFiles);
+            return !!resolved && available.has(normalizeLoraKeyForDedupe(resolved));
+        };
+        let removed = 0;
+        const prune = (list) => {
+            if (!Array.isArray(list)) return [];
+            return list.filter(entry => {
+                const keep = isAvailable(entry);
+                if (!keep) removed++;
+                return keep;
+            });
+        };
+
+        li.globalActiveLoras = prune(li.globalActiveLoras);
+        for (const key of Object.keys(li.characterActiveLoras || {})) {
+            li.characterActiveLoras[key] = prune(li.characterActiveLoras[key]);
+        }
+        return removed;
+    }
+
     async function liPopulateLoraList(s, li, charKey, forceRefresh = false) {
         const container = $("#li_lora_list");
 
@@ -1915,19 +1999,21 @@ export function createVisualGeneration(api) {
                 if (lRes.ok) {
                     const json = await lRes.json();
                     cachedLoraFiles = json['LoraLoader'].input.required.lora_name[0] || [];
-                }
+                } else return false;
             } catch (e) {
                 container.html('<div style="text-align: center; color: #ef4444; font-size: 0.8rem; padding: 15px;">Failed to fetch LoRAs from ComfyUI.</div>');
-                return;
+                return false;
             }
         }
 
         container.empty();
         let loraFiles = cachedLoraFiles || [];
+        const removedStaleLoras = liPruneMissingActiveLoras(li, loraFiles);
+        if (removedStaleLoras > 0) saveProfileToMemory();
 
         if (loraFiles.length === 0) {
             container.html('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px;">No LoRAs found in ComfyUI.</div>');
-            return;
+            return true;
         }
 
         const scope = $("#li_scope_select").val() || "global";
@@ -1954,7 +2040,10 @@ export function createVisualGeneration(api) {
         const renderLoraItem = (f) => {
             const existing = activeMap.get(f);
             const isActive = existing ? existing.enabled : false;
-            const keywordsStr = existing && existing.keywords && existing.keywords.length ? existing.keywords.join(', ') : '';
+            const identityKeywords = getVrtlLoraIdentityKeywords(f);
+            if (existing && identityKeywords) existing.keywords = identityKeywords;
+            const effectiveKeywords = existing ? getEffectiveLoraKeywords(existing) : [];
+            const keywordsStr = effectiveKeywords.join(', ');
             const shortName = f.includes('/') ? f.split('/').pop() : (f.includes('\\') ? f.split('\\').pop() : f);
 
             const item = $(`
@@ -1980,9 +2069,10 @@ export function createVisualGeneration(api) {
                 const existingEntry = activeList.find(l => l.name === loraName);
                 if (existingEntry) {
                     existingEntry.enabled = !existingEntry.enabled;
+                    const identityKeywords = getVrtlLoraIdentityKeywords(loraName);
+                    if (identityKeywords) existingEntry.keywords = identityKeywords;
                 } else {
-                    let defaultKws = civitaiKeywordCache[loraName.replace(/\.(safetensors|ckpt|pt|bin)$/i, '').replace(/\\|\/|\s/g, ' ').trim()];
-                    if (!defaultKws || defaultKws.length === 0) defaultKws = ["a woman"];
+                    const defaultKws = getDefaultLoraKeywords(loraName);
                     activeList.push({ name: loraName, enabled: true, keywords: defaultKws });
                 }
 
@@ -1996,7 +2086,8 @@ export function createVisualGeneration(api) {
                 item.find(".li-lora-kw-input").on("input", function() {
                     const existingEntry = activeList.find(l => l.name === f);
                     if (existingEntry) {
-                        existingEntry.keywords = $(this).val().split(',').map(s => s.trim()).filter(s => s);
+                        existingEntry.keywords = getVrtlLoraIdentityKeywords(f)
+                            || $(this).val().split(',').map(s => s.trim()).filter(s => s);
                         saveProfileToMemory();
                     }
                 });
@@ -2039,6 +2130,7 @@ export function createVisualGeneration(api) {
 
         // Render root files
         rootFiles.forEach(f => container.append(renderLoraItem(f)));
+        return true;
     }
 
     function liRenderAssignmentTable(li, charKey, s) {
@@ -2987,6 +3079,7 @@ export function createVisualGeneration(api) {
                 finalPrompt = ensureImageLeadPrefix(finalPrompt);
             }
         }
+        finalPrompt = ensureSelectedVrtlIdentityPrompt(finalPrompt, s);
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt) {
@@ -3731,6 +3824,25 @@ export function createVisualGeneration(api) {
         return name.replace(/\\/g, "/").trim().toLowerCase();
     }
 
+    function ensureSelectedVrtlIdentityPrompt(prompt, s) {
+        const selected = [s?.selectedLora, s?.selectedLora2, s?.selectedLora3, s?.selectedLora4];
+        const li = s?.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        const assigned = li?.enabled && li?.ensureLoras
+            ? getActiveCharacterAssignments(li, charKey).map(a => a.lora)
+            : [];
+        const required = [...new Map(
+            [...selected, ...assigned]
+                .flatMap(name => getVrtlLoraIdentityKeywords(name) || [])
+                .map(keyword => [keyword.toLowerCase(), keyword])
+        ).values()];
+        if (required.length === 0) return prompt;
+
+        const current = String(prompt || "");
+        const missing = required.filter(keyword => !current.toLowerCase().includes(keyword.toLowerCase()));
+        return missing.length > 0 ? `${missing.join(', ')}, ${current}`.replace(/,\s*$/, "") : current;
+    }
+
     function igSyncImageGenLoraFromDom(s) {
         if (!s) return;
         for (let i = 1; i <= 4; i++) {
@@ -3826,8 +3938,9 @@ export function createVisualGeneration(api) {
                             activeAssignments.forEach(a => {
                                 if (li.ensureLoras && a.lora) {
                                     const loraEntry = activeList.find(l => l.name === a.lora);
-                                    if (loraEntry && loraEntry.keywords && loraEntry.keywords.length > 0) {
-                                        kwStrings.push(`${a.character}: ${loraEntry.keywords.join(', ')}`);
+                                    const keywords = getEffectiveLoraKeywords(loraEntry);
+                                    if (keywords.length > 0) {
+                                        kwStrings.push(`${a.character}: ${keywords.join(', ')}`);
                                     }
                                 }
                                 const tagBlock = useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : getAssignmentTagBlock(a, li);
