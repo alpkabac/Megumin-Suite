@@ -2222,7 +2222,7 @@ async function npcGeneratePfp(npcName) {
     // Build full NPC dossier text for the AI
     const npcText = npcBuildTextFromData(npc);
 
-    let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas. Focus on anime art style." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences. Focus on photorealism." : "Use a comma-separated list of detailed keywords and visual descriptors.");
+    let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas. Focus on anime art style." : (s.promptStyle === "zimage" ? "Use one compact, detailed natural-language paragraph. Describe the subject, pose, expression, setting, lighting, camera, and focus with concrete observable details; do not use tag lists or shorthand." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences. Focus on photorealism." : "Use a comma-separated list of detailed keywords and visual descriptors."));
     let perspStr = "This is a CHARACTER PORTRAIT. Frame it as an upper-body/bust shot focused on the character's face and shoulders. Soft, flattering lighting. Clean or simple background. Capture their personality through expression and posture.";
 
     toastr.info(`Generating portrait prompt for ${npcName}...`, "NPC Bank");

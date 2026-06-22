@@ -72,10 +72,30 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
 
+    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl.";
+
+    const Z_IMAGE_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and choose unspecified visual details yourself.
+
+Photograph of two adult women in an outdoor hot tub. The woman sitting on the stone edge is nude, with her legs apart and her hair in a high ponytail. The second woman kneels in the clear, bubbling water between her legs. Their expressions, exact interaction, spatial arrangement, grassy surroundings, paved road, and bright natural sunlight are described directly and unambiguously.
+
+A natural-light indoor photograph of an adult woman kneeling in front of an adult man. Her gaze, posture, hand placement, expression, their exact interaction, and the visible anatomical details are described concretely. A window and furniture remain softly blurred in the background while the subjects stay sharply defined.
+
+Perspective: bird's-eye view, slight fisheye distortion, moderately wide-angle lens. A digital anime-style illustration of two adults on a crimson velvet couch. Describe the woman's pose and expression, the man's position behind her, their exact body contact and interaction, then the warm golden light and deep shadows shaping the scene.
+
+Soft focus, gentle glow. A richly colored boudoir scene involving one adult woman and two adult men on a velvet bed. Establish each person's placement and action separately, keep faces or bodies obscured only where the scene requires it, and finish with the dark furnishings and crystal lamp in the dim background.
+
+Deep focus, low-angle shot. A cool blue, neon-accented scene involving an adult woman and an adult man. Describe their gaze, posture, exact interaction, visible physical details, and tension in complete sentences, followed by the blue illumination and sharp focus.
+
+For a spatially complex explicit scene only, an optional final cue suffix may look like: POV, [specific position], [specific act], [contact or penetration direction], looking over shoulder. Omit this line when the prose already makes the image unambiguous.`;
+
+    function isNaturalLanguageImageStyle(style) {
+        return style === "sdxl" || style === "zimage";
+    }
+
     function buildImagePromptStructureRules(s, booruStd = false) {
         const style = s?.promptStyle || "standard";
         const perspective = s?.promptPerspective || "scene";
-        const proseMode = style === "sdxl" || booruStd;
+        const proseMode = isNaturalLanguageImageStyle(style) || booruStd;
         const modeLabel = perspective === "pov" ? "POV" : (perspective === "character" ? "portrait" : "cinematic scene");
         const outputType = proseMode ? "natural-language image prompt" : "comma-separated image prompt";
         const characterRule = proseMode
@@ -92,7 +112,16 @@ export function createVisualGeneration(api) {
     function buildImagePromptExamples(s, booruStd = false) {
         const style = s?.promptStyle || "standard";
         const perspective = s?.promptPerspective || "scene";
-        const proseMode = style === "sdxl" || booruStd;
+        const proseMode = isNaturalLanguageImageStyle(style) || booruStd;
+        if (style === "zimage" && perspective === "pov") {
+            return Z_IMAGE_PROMPT_EXAMPLES;
+        }
+        if (style === "zimage" && perspective === "character") {
+            return Z_IMAGE_PROMPT_EXAMPLES;
+        }
+        if (style === "zimage") {
+            return Z_IMAGE_PROMPT_EXAMPLES;
+        }
         if (proseMode && perspective === "pov") {
             return "Example shape: A masterpiece in first-person point of view. The camera looks across rumpled sheets in the foreground toward two adult characters. On the left, [character A appearance, clothing/nudity state, expression, and action]. On the right, [character B appearance, clothing/nudity state, expression, and action]. The bedroom background, warm low lighting, and visible contact points match the current scene.";
         }
@@ -212,7 +241,7 @@ export function createVisualGeneration(api) {
     function limitAnimaPromptTags(tagString, s, li) {
         const maxTags = getAnimaMaxTags(s);
         if (!maxTags || !tagString || typeof tagString !== 'string') return tagString || "";
-        if (s?.promptStyle === "sdxl" || isBooruStandardImageMode(s, li)) return tagString;
+        if (isNaturalLanguageImageStyle(s?.promptStyle) || isBooruStandardImageMode(s, li)) return tagString;
 
         const seen = new Set();
         const tags = tagString
@@ -744,6 +773,7 @@ export function createVisualGeneration(api) {
                                     <option value="standard" ${s.promptStyle === 'standard' ? 'selected' : ''}>Standard (Descriptive)</option>
                                     <option value="illustrious" ${s.promptStyle === 'illustrious' ? 'selected' : ''}>Illustrious/Pony (Tags)</option>
                                     <option value="sdxl" ${s.promptStyle === 'sdxl' ? 'selected' : ''}>SDXL (Natural Prose)</option>
+                                    <option value="zimage" ${s.promptStyle === 'zimage' ? 'selected' : ''}>Z-Image LoRA (Natural Language)</option>
                                 </select>
                             </div>
                             <div style="flex: 1;">
@@ -2670,11 +2700,11 @@ export function createVisualGeneration(api) {
 
         const userName = getUserDisplayName();
         const persona = getUserPersonaText();
-        const personaLine = persona ? ` Persona appearance: ${persona}` : "";
+        const personaLine = s?.promptStyle !== "zimage" && persona ? ` Persona appearance: ${persona}` : "";
         if (s?.promptPerspective === "pov") {
             return `The player character (${userName}) is present as the camera/viewpoint. Do not omit them: show visible first-person body cues when appropriate, such as hands, arms, torso, lap, clothing, shadow, reflection, or interaction contact.${personaLine}`;
         }
-        if (s?.promptStyle === "sdxl" || booruStd) {
+        if (isNaturalLanguageImageStyle(s?.promptStyle) || booruStd) {
             return `The player character (${userName}) is physically present in the scene. Include them as a visible participant, not just an implied observer. Describe their placement, interaction with the other character(s), pose/body contact, and visible appearance.${personaLine}`;
         }
         return `The player character (${userName}) is physically present. Include them as visible Anima-style prompt content, using tags for player/persona presence, count/composition, pose, interaction, body contact, clothing, and visible appearance. Do not make the scene solo unless the chat clearly says they are off-screen.${personaLine}`;
@@ -2778,13 +2808,19 @@ export function createVisualGeneration(api) {
 
         const booruStd = isBooruStandardImageMode(s, li);
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
-        const characterGuidance = shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey) : [];
+        const allowStoredAppearanceGuidance = s.promptStyle !== "zimage";
+        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey) : [];
         const guidedCharacters = characterGuidance.length > 0;
         const personaGuidance = buildPersonaImageGuidance(s, booruStd);
 
         let styleStr;
         if (s.promptStyle === "illustrious") {
             styleStr = "Use Danbooru-style tags separated by commas.";
+        } else if (s.promptStyle === "zimage") {
+            styleStr = Z_IMAGE_PROMPT_INSTRUCTION;
+            if (booruStableLeadPrepend) {
+                styleStr += " Do not repeat the user's fixed leading-tags field; the app adds it after the generated description.";
+            }
         } else if (s.promptStyle === "sdxl") {
             styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
             if (booruStableLeadPrepend) {
@@ -2799,11 +2835,11 @@ export function createVisualGeneration(api) {
         } else {
             styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
         }
-        if (li && li.enabled && li.useDanbooruTags && s.promptStyle !== "sdxl" && !booruStd) {
+        if (li && li.enabled && li.useDanbooruTags && !isNaturalLanguageImageStyle(s.promptStyle) && !booruStd) {
             styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
         }
         const maxAnimaTags = getAnimaMaxTags(s);
-        if (maxAnimaTags && s.promptStyle !== "sdxl" && !booruStd) {
+        if (maxAnimaTags && !isNaturalLanguageImageStyle(s.promptStyle) && !booruStd) {
             styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
         }
         styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
@@ -2827,7 +2863,7 @@ export function createVisualGeneration(api) {
             if (guidedCharacters) {
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 extraParts.push(`Matched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat scene. Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
-            } else if (li && li.enabled) {
+            } else if (allowStoredAppearanceGuidance && li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
@@ -2840,7 +2876,7 @@ export function createVisualGeneration(api) {
             if (s.adultTagPrecision) {
                 extraParts.push(IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
             }
-            if (s.includePromptExamples) {
+            if (s.includePromptExamples || s.promptStyle === "zimage") {
                 extraParts.push(`Template example:\n${buildImagePromptExamples(s, booruStd)}`);
             }
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
@@ -2848,16 +2884,16 @@ export function createVisualGeneration(api) {
             extraStr = s.promptExtra || "None";
             if (guidedCharacters) {
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
-                if (s.promptStyle === "sdxl") {
+                if (isNaturalLanguageImageStyle(s.promptStyle)) {
                     extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Translate them into fluent English only: ${guide}`;
                 } else {
                     extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Keep Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
                 }
-            } else if (li && li.enabled) {
+            } else if (allowStoredAppearanceGuidance && li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
-                    if (s.promptStyle === "sdxl") {
+                    if (isNaturalLanguageImageStyle(s.promptStyle)) {
                         extraStr += `\nCharacter appearance shorthand (per role). Fold ONLY into flowing English prose—translate hair, eyes, figure, outfit, and any look-alike references; NEVER output as comma tags, underscores, or token lists: ${booruInstr}`;
                     } else {
                         extraStr += `\nCharacter appearance tags by role. Use these as Anima-style comma tags with spaces instead of underscores. Keep known character/series tags exact and escaped when they have parentheses. Do not combine story names with look-alike tags: ${booruInstr}`;
@@ -2870,7 +2906,7 @@ export function createVisualGeneration(api) {
             if (s.adultTagPrecision) {
                 extraStr = appendImagePromptInstruction(extraStr, IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
             }
-            if (s.includePromptExamples) {
+            if (s.includePromptExamples || s.promptStyle === "zimage") {
                 extraStr = appendImagePromptInstruction(extraStr, `Template example: ${buildImagePromptExamples(s, booruStd)}`);
             }
         }
@@ -2883,7 +2919,10 @@ export function createVisualGeneration(api) {
             finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
         }
 
-        finalPrompt = normalizeAnimaGeneratedTags(sanitizePromptTags(finalPrompt));
+        finalPrompt = sanitizePromptTags(finalPrompt);
+        if (!isNaturalLanguageImageStyle(s.promptStyle) && !booruStd) {
+            finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+        }
         finalPrompt = limitAnimaPromptTags(finalPrompt, s, li);
 
         return { prompt: finalPrompt, skipLeadPrefix: false };
@@ -3071,7 +3110,7 @@ export function createVisualGeneration(api) {
                 raw = stripPreambleBeforeBooruTags(raw);
             }
             finalPrompt = sanitizePromptTags(raw);
-            if (opts && opts.normalizeGeneratedPrompt) {
+            if (opts && opts.normalizeGeneratedPrompt && !isNaturalLanguageImageStyle(s.promptStyle)) {
                 finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
             }
             finalPrompt = limitAnimaPromptTags(finalPrompt, s, s.loraIntel);
@@ -3896,22 +3935,29 @@ export function createVisualGeneration(api) {
                 const igLi = ig.loraIntel;
                 const booruStd = isBooruStandardImageMode(ig, igLi);
                 const charKeyImg = getCharacterKey() || "default";
-                const promptUsesCharacterGuidance = shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
+                const allowStoredAppearanceGuidance = ig.promptStyle !== "zimage";
+                const promptUsesCharacterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
 
                 const booruStableLead = buildBooruStandardTagLead(ig, igLi);
                 const personaGuidance = buildPersonaImageGuidance(ig, booruStd);
 
-                let styleStr = ig.promptStyle === "illustrious" ? "Use Danbooru-style tags. Focus on anime." : (ig.promptStyle === "sdxl" ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description." : "Use keywords.");
+                let styleStr = ig.promptStyle === "illustrious"
+                    ? "Use Danbooru-style tags. Focus on anime."
+                    : (ig.promptStyle === "zimage"
+                        ? `Inside the <img prompt=\"\"> value: ${Z_IMAGE_PROMPT_INSTRUCTION}`
+                        : (ig.promptStyle === "sdxl"
+                            ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description."
+                            : "Use keywords."));
                 if (booruStd) {
                     styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list).";
-                } else if (ig.promptStyle === "sdxl" && booruStableLead) {
+                } else if (isNaturalLanguageImageStyle(ig.promptStyle) && booruStableLead) {
                     styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
                 }
-                if (igLi && igLi.enabled && igLi.useDanbooruTags && ig.promptStyle !== "sdxl" && !booruStd) {
+                if (igLi && igLi.enabled && igLi.useDanbooruTags && !isNaturalLanguageImageStyle(ig.promptStyle) && !booruStd) {
                     styleStr += " For Anima, use lowercase tags with spaces instead of underscores, escape literal parentheses in known character/series tags (example: saber \\(fate\\)), and do not combine story character names with look-alike tags.";
                 }
                 const maxAnimaTags = getAnimaMaxTags(ig);
-                if (maxAnimaTags && ig.promptStyle !== "sdxl" && !booruStd) {
+                if (maxAnimaTags && !isNaturalLanguageImageStyle(ig.promptStyle) && !booruStd) {
                     styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
                 }
                 styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
@@ -3943,11 +3989,11 @@ export function createVisualGeneration(api) {
                                         kwStrings.push(`${a.character}: ${keywords.join(', ')}`);
                                     }
                                 }
-                                const tagBlock = useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : getAssignmentTagBlock(a, li);
-                                if (li.useDanbooruTags && tagBlock) {
+                                const tagBlock = allowStoredAppearanceGuidance ? (useStableCharacterGuidance ? getStableAssignmentTagBlock(a, li) : getAssignmentTagBlock(a, li)) : "";
+                                if (allowStoredAppearanceGuidance && li.useDanbooruTags && tagBlock) {
                                     booruStrings.push(`${a.character}: ${tagBlock}`);
                                 }
-                                if (li.useCharDescriptions && a.description) {
+                                if (allowStoredAppearanceGuidance && li.useCharDescriptions && a.description) {
                                     descStrings.push(`${a.character}: ${a.description}`);
                                 }
                             });
@@ -3961,7 +4007,7 @@ export function createVisualGeneration(api) {
                             if (booruStrings.length > 0) {
                                 if (booruStd) {
                                     liInstructions += `\nCharacter appearance (per role); merge into your flowing prose naturally—do not paste as a comma tag block after the mandatory prefix: ${booruStrings.join(' | ')}`;
-                                } else if (ig.promptStyle === "sdxl") {
+                                } else if (isNaturalLanguageImageStyle(ig.promptStyle)) {
                                     liInstructions += `\nCharacter cues (per role)—weave into English prose in the prompt value only; no underscore tokens or comma tag lists: ${booruStrings.join(' | ')}`;
                                 } else {
                                     liInstructions += `\nCharacter appearance tags by role. Use these as Anima-style comma tags with spaces instead of underscores. Keep known character/series tags exact and escaped when they have parentheses. Do not combine story names with look-alike tags: ${booruStrings.join(' | ')}`;
@@ -3974,7 +4020,7 @@ export function createVisualGeneration(api) {
                     }
                 }
                 if (personaGuidance) {
-                    if (booruStd || ig.promptStyle === "sdxl") {
+                    if (booruStd || isNaturalLanguageImageStyle(ig.promptStyle)) {
                         liInstructions += `\nPlayer character visibility: ${personaGuidance} Integrate this into the generated image description.`;
                     } else {
                         liInstructions += `\nPlayer character visibility: ${personaGuidance} Add concise Anima-style tags for this visible participant.`;
@@ -3985,18 +4031,18 @@ export function createVisualGeneration(api) {
                 const extraLine = peTrim
                     ? (booruStd
                         ? `\nExtra (scene tags and cues—integrate into your flowing prose; translate shorthand to natural language; do not duplicate the mandatory leading-tag prefix):\n${peTrim}`
-                        : (ig.promptStyle === "sdxl"
+                        : (isNaturalLanguageImageStyle(ig.promptStyle)
                             ? `\nExtra (scene cues—translate into flowing English inside the prompt; no comma-tag or underscore fragments):\n${peTrim}`
                             : `\nExtra (tags / instructions to keep as comma-separated tags): ${peTrim}`))
                     : "";
                 const tagLeadLine = booruStableLead
-                    ? (ig.promptStyle === "sdxl"
+                    ? (isNaturalLanguageImageStyle(ig.promptStyle)
                         ? `\nReference leading tags (the app prepends these; do NOT paste them into the attribute—write prose only inside prompt=\"\"): ${booruStableLead}`
                         : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
                     : "";
 
                 const adultPrecisionLine = ig.adultTagPrecision ? `\n${IMAGE_ADULT_TAG_PRECISION_INSTRUCTION}` : "";
-                const examplesLine = ig.includePromptExamples ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
+                const examplesLine = ig.includePromptExamples || ig.promptStyle === "zimage" ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
 
                 dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}${adultPrecisionLine}${examplesLine}`;
                 dict["[[img2]]"] = `<img prompt="prompt">`;
