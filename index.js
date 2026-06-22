@@ -2209,6 +2209,29 @@ function npcParseBlock(rawBlock) {
 
 // Generate NPC portrait via ComfyUI — uses AI to generate the prompt from full NPC info
 let activeNpcPfpRequest = null;
+const NPC_IMAGE_ADULT_ONLY_PREFIX = "adults only, every visible person is age 21 or older";
+const NPC_IMAGE_ADULT_ONLY_NEGATIVE = "child, children, kid, kids, toddler, infant, baby, babies, minor, minors, underage, preteen, teen, teenager, adolescent, juvenile, childlike, young-looking, loli, lolicon, shota, shotacon, schoolgirl, schoolboy";
+const NPC_IMAGE_MINOR_BLOCK_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
+
+function npcImageHasMinorContent(text) {
+    const normalized = String(text || "").replace(/[_-]+/g, " ");
+    return NPC_IMAGE_MINOR_BLOCK_RE.test(normalized) || /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-9]|20)[ -]?(?:years?[ -]?old|y\/?o)\b/i.test(normalized);
+}
+
+function npcEnforceAdultOnlyPrompt(text) {
+    if (npcImageHasMinorContent(text)) throw new Error("NPC portrait blocked: adults age 21+ only.");
+    const prompt = String(text || "").trim()
+        .replace(/\bgirls\b/gi, "adult women").replace(/\bgirl\b/gi, "adult woman")
+        .replace(/\bboys\b/gi, "adult men").replace(/\bboy\b/gi, "adult man");
+    return prompt.toLowerCase().includes(NPC_IMAGE_ADULT_ONLY_PREFIX)
+        ? prompt
+        : `${NPC_IMAGE_ADULT_ONLY_PREFIX}, ${prompt}`;
+}
+
+function npcAdultOnlyNegativePrompt(customNegative) {
+    const current = String(customNegative || "").trim();
+    return current ? `${current}, ${NPC_IMAGE_ADULT_ONLY_NEGATIVE}` : NPC_IMAGE_ADULT_ONLY_NEGATIVE;
+}
 
 async function npcGeneratePfp(npcName) {
     const s = localProfile.imageGen;
@@ -2219,11 +2242,21 @@ async function npcGeneratePfp(npcName) {
 
     const npc = localProfile.npcBank.npcs.find(n => n.name === npcName);
     if (!npc) return null;
+    const selectedAssets = [s.selectedModel, s.selectedLora, s.selectedLora2, s.selectedLora3, s.selectedLora4].filter(Boolean);
+    if (selectedAssets.some(npcImageHasMinorContent)) {
+        toastr.error("NPC portrait blocked: a selected model or LoRA may depict minors.");
+        return null;
+    }
 
     // Build full NPC dossier text for the AI
     const npcText = npcBuildTextFromData(npc);
+    if (npcImageHasMinorContent(npcText)) {
+        toastr.error("NPC portrait blocked: the character may be under 21.");
+        return null;
+    }
 
     let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas. Focus on anime art style." : (s.promptStyle === "zimage" ? "Use one compact, detailed natural-language paragraph. Describe the subject, pose, expression, setting, lighting, camera, and focus with concrete observable details; do not use tag lists or shorthand." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences. Focus on photorealism." : "Use a comma-separated list of detailed keywords and visual descriptors."));
+    styleStr += " Absolute adult-only requirement: depict only adults age 21 or older. Never depict a child, minor, teenager, childlike person, or ambiguous-age person; abort instead.";
     let perspStr = "This is a CHARACTER PORTRAIT. Frame it as an upper-body/bust shot focused on the character's face and shoulders. Soft, flattering lighting. Clean or simple background. Capture their personality through expression and posture.";
 
     toastr.info(`Generating portrait prompt for ${npcName}...`, "NPC Bank");
@@ -2241,6 +2274,7 @@ async function npcGeneratePfp(npcName) {
         const imgRegex = /<img\s+prompt=["'](.*?)["']\s*\/?>/i;
         const match = promptText.match(imgRegex);
         if (match) promptText = match[1];
+        promptText = npcEnforceAdultOnlyPrompt(promptText);
     } catch (e) {
         console.error("NPC PFP prompt generation failed:", e);
         $("#kazuma_progress_overlay").hide();
@@ -2277,7 +2311,7 @@ async function npcGeneratePfp(npcName) {
             for (const key in node.inputs) {
                 const val = node.inputs[key];
                 if (val === "%prompt%") node.inputs[key] = promptText;
-                if (val === "%negative_prompt%") node.inputs[key] = s.customNegative || "";
+                if (val === "%negative_prompt%") node.inputs[key] = npcAdultOnlyNegativePrompt(s.customNegative);
                 if (val === "%seed%") node.inputs[key] = finalSeed;
                 if (val === "%sampler%") node.inputs[key] = s.selectedSampler || "euler";
                 if (val === "%scheduler%") node.inputs[key] = s.selectedScheduler || "simple";
