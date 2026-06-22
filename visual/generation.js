@@ -72,45 +72,6 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
 
-    const IMAGE_ADULT_ONLY_GUARD = "Absolute adult-only requirement: every depicted or implied human or humanoid must be an adult age 21 or older. Never depict children, minors, teenagers, childlike people, or an ambiguous-age person under any circumstance. If the source scene includes one, omit the image rather than adapting or depicting them. Use adult woman, adult man, or adult person wording; never girl or boy wording.";
-    const IMAGE_ADULT_ONLY_PREFIX = "adults only, every visible person is age 21 or older";
-    const IMAGE_ADULT_ONLY_NEGATIVE = "child, children, kid, kids, toddler, infant, baby, babies, minor, minors, underage, preteen, teen, teenager, adolescent, juvenile, childlike, young-looking, loli, lolicon, shota, shotacon, schoolgirl, schoolboy, elementary school, middle school, high school student";
-    const IMAGE_MINOR_HARD_BLOCK_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy)|elementary[ -]?school|middle[ -]?school|high[ -]?school[ -]?student)\b/i;
-    const IMAGE_UNDER_21_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-9]|20)[ -]?(?:years?[ -]?old|y\/?o)\b/i;
-
-    function hasBlockedMinorImageContent(prompt) {
-        const normalized = String(prompt || "").replace(/[_-]+/g, " ");
-        return IMAGE_MINOR_HARD_BLOCK_RE.test(normalized) || IMAGE_UNDER_21_AGE_RE.test(normalized);
-    }
-
-    function normalizeAdultOnlyImageWording(prompt) {
-        let text = String(prompt || "").trim();
-        text = text.replace(/\b([1-9])girls?\b/gi, (_, count) => `${count} adult ${count === "1" ? "woman" : "women"}, age 21 or older`);
-        text = text.replace(/\b([1-9])boys?\b/gi, (_, count) => `${count} adult ${count === "1" ? "man" : "men"}, age 21 or older`);
-        text = text.replace(/\byoung\s+women?\b/gi, match => /women/i.test(match) ? "adult women, age 21 or older" : "adult woman, age 21 or older");
-        text = text.replace(/\byoung\s+men\b/gi, "adult men, age 21 or older");
-        text = text.replace(/\byoung\s+man\b/gi, "adult man, age 21 or older");
-        text = text.replace(/\bgirls\b/gi, "adult women").replace(/\bgirl\b/gi, "adult woman");
-        text = text.replace(/\bboys\b/gi, "adult men").replace(/\bboy\b/gi, "adult man");
-        return text;
-    }
-
-    function enforceAdultOnlyImagePrompt(prompt) {
-        if (hasBlockedMinorImageContent(prompt)) {
-            throw new Error("Image generation blocked: the prompt contains child, minor, teenage, childlike, or under-21 content.");
-        }
-        const normalized = normalizeAdultOnlyImageWording(prompt);
-        if (!normalized) return normalized;
-        return normalized.toLowerCase().includes(IMAGE_ADULT_ONLY_PREFIX)
-            ? normalized
-            : `${IMAGE_ADULT_ONLY_PREFIX}, ${normalized}`;
-    }
-
-    function buildAdultOnlyNegativePrompt(customNegative) {
-        const current = String(customNegative || "").trim();
-        return current ? `${current}, ${IMAGE_ADULT_ONLY_NEGATIVE}` : IMAGE_ADULT_ONLY_NEGATIVE;
-    }
-
     const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl.";
 
     const Z_IMAGE_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and choose unspecified visual details yourself.
@@ -2070,7 +2031,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             comfy_url: s.comfyUrl,
             workflow_file: s.currentWorkflowName,
             positive_prompt: finalPrompt,
-            negative_prompt: buildAdultOnlyNegativePrompt(s.customNegative),
+            negative_prompt: s.customNegative || "",
             final_seed: finalSeed,
             megumin: {
                 model: s.selectedModel || "",
@@ -3023,7 +2984,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
         }
         styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
-        styleStr += ` ${IMAGE_ADULT_ONLY_GUARD}`;
         if (s.structuredPromptRules) {
             styleStr += ` ${buildImagePromptStructureRules(s, booruStd)}`;
         }
@@ -3096,9 +3056,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
         let finalPrompt = stripUtilityThinkingWrapper(rawOutput);
-        if (hasBlockedMinorImageContent(finalPrompt)) {
-            throw new Error("Image prompt generation was blocked because the generated prompt included minor or ambiguous under-21 content.");
-        }
         if (s.promptStyle === "illustrious") {
             finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
         }
@@ -3286,12 +3243,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (ensureRunpodSettings(s).enabled && ensureRunpodDropdownValues(s)) saveProfileToMemory();
         igSyncImageGenLoraFromDom(s);
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
-        if (hasBlockedMinorImageContent(raw)) {
-            $("#kazuma_progress_overlay").hide();
-            toastr.error("Blocked: image prompts may depict adults age 21+ only.");
-            console.warn("[Megumin Suite] Adult-only image guard blocked a prompt before renderer submission.");
-            return;
-        }
         let finalPrompt;
         if (opts && opts.preserveStoredPrompt) {
             finalPrompt = raw.trim();
@@ -3309,14 +3260,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
         finalPrompt = ensureSelectedVrtlIdentityPrompt(finalPrompt, s);
-        try {
-            finalPrompt = enforceAdultOnlyImagePrompt(finalPrompt);
-        } catch (error) {
-            $("#kazuma_progress_overlay").hide();
-            toastr.error(error.message);
-            console.warn("[Megumin Suite] Adult-only image guard blocked the final prompt.");
-            return;
-        }
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt) {
@@ -3346,12 +3289,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             finalPrompt = liveText.trim();
             if (!finalPrompt) return toastr.warning("Prompt cannot be empty.");
-            try {
-                finalPrompt = enforceAdultOnlyImagePrompt(finalPrompt);
-            } catch (error) {
-                toastr.error(error.message);
-                return;
-            }
 
             showKazumaProgress("Preparing to Render..."); // Bring progress bar back
         }
@@ -3472,17 +3409,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
 
-        const selectedImageAssets = [s.selectedModel, l1, l2, l3, l4].filter(Boolean);
-        if (selectedImageAssets.some(hasBlockedMinorImageContent)) {
-            $("#kazuma_progress_overlay").hide();
-            toastr.error("Blocked: a selected model or LoRA name indicates minor or childlike content.");
-            console.warn("[Megumin Suite] Adult-only image guard blocked a selected model/LoRA asset.");
-            return;
-        }
-
         const comfyRepl = {
             "%prompt%": finalPrompt,
-            "%negative_prompt%": buildAdultOnlyNegativePrompt(s.customNegative),
+            "%negative_prompt%": s.customNegative || "",
             "%seed%": finalSeed,
             "%sampler%": s.selectedSampler || "euler",
             "%scheduler%": s.selectedScheduler || "simple",
@@ -4174,7 +4103,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     styleStr += ` Keep the complete prompt concise: output no more than ${maxAnimaTags} comma-separated tags total, prioritizing characters, action, pose, expression, camera, and setting.`;
                 }
                 styleStr += ` ${IMAGE_SCENE_FIDELITY_INSTRUCTION}`;
-                styleStr += ` ${IMAGE_ADULT_ONLY_GUARD}`;
                 if (ig.structuredPromptRules) {
                     styleStr += ` ${buildImagePromptStructureRules(ig, booruStd)}`;
                 }
