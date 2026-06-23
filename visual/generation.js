@@ -474,8 +474,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         getModeCharacterAssignments(li, charKey);
         ensureStructuredCharacterAssignments(li, charKey);
     }
-        });
-    }
 
     function buildCharacterAnalysisSnapshot(li, charKey, scope = "global") {
         ensureLoraIntelDefaults(li);
