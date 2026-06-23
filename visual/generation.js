@@ -33,6 +33,7 @@ export function createVisualGeneration(api) {
     let activeVideoGenRequest = null;
     let activeLoraAssignRequest = null;
     let activeVideoGenJob = false;
+    let activeManualImageScene = null;
     const completedVideoPromptIds = new Set();
     let danbooruTagsMap = null;
     let civitaiKeywordCache = {};
@@ -740,6 +741,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.adultTagPrecision === undefined) s.adultTagPrecision = true;
         if (s.includePromptExamples === undefined) s.includePromptExamples = false;
         if (s.selectedScheduler === undefined) s.selectedScheduler = "simple";
+        if (s.manualSceneSelector === undefined) s.manualSceneSelector = false;
 
         // LoRA Intelligence state
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
@@ -851,6 +853,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight:600; font-size:0.85rem;">Preview Prompt Before Sending</span>
                             <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Show a popup to view or edit the AI's prompt before rendering.</div>
+                        </div>
+                        <div class="ps-switch"></div>
+                    </div>
+
+                    <div class="ps-toggle-card ${s.manualSceneSelector ? 'active' : ''}" id="ig_manual_scene_selector_card" style="padding: 12px 18px; margin-bottom: 15px;">
+                        <div style="display:flex; flex-direction:column;">
+                            <span style="font-weight:600; font-size:0.85rem;">Manual Scene Character Selector</span>
+                            <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">When clicking the quick Generate Prompt button, choose which analyzed characters are in this scene. Bypasses match keywords for this generation.</div>
                         </div>
                         <div class="ps-switch"></div>
                     </div>
@@ -1195,6 +1205,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (s.previewPrompt) $(this).addClass("active");
             else $(this).removeClass("active");
         });
+        $("#ig_manual_scene_selector_card").on("click", function() {
+            s.manualSceneSelector = !s.manualSceneSelector;
+            saveProfileToMemory();
+            $(this).toggleClass("active", s.manualSceneSelector);
+        });
         $("#ig_structured_rules_card").on("click", function() {
             s.structuredPromptRules = !s.structuredPromptRules;
             saveProfileToMemory();
@@ -1325,6 +1340,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
                     promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
                     structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
+                    manualSceneSelector: s.manualSceneSelector,
                     selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
                     selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
                     loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
@@ -2703,20 +2719,196 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         $("#kazuma_progress_text").text(text); $("#kazuma_progress_overlay").css("display", "flex");
     }
 
+    function getManualImageSelectableAssignments(li, charKey) {
+        ensureLoraIntelDefaults(li);
+        ensureStructuredCharacterAssignments(li, charKey);
+        return (li?.characterAssignments?.[charKey] || [])
+            .map(ensureStructuredCharacterAssignment)
+            .filter(a => !a.neverInclude && String(a.character || "").trim());
+    }
+
+    function normalizeManualImageScene(scene) {
+        const assignments = Array.isArray(scene?.assignments)
+            ? scene.assignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude)
+            : [];
+        const positions = Array.isArray(scene?.positions)
+            ? scene.positions.map(p => ({
+                label: String(p?.label || "").trim(),
+                prompt: String(p?.prompt || "").trim()
+            })).filter(p => p.label && p.prompt)
+            : [];
+        return { assignments, positions };
+    }
+
+    function buildManualImageSceneInstruction(scene, s, li, booruStd = false) {
+        const normalized = normalizeManualImageScene(scene);
+        const lines = [];
+        if (normalized.assignments.length > 0) {
+            const names = normalized.assignments.map(a => a.character || "character").join(", ");
+            lines.push(`Manual scene cast override: include exactly these analyzed character(s) from the selector when deciding who is present: ${names}. Ignore match-keyword absence for these characters for this generation. Do not add other analyzed characters just because their match keywords appear elsewhere.`);
+
+            const loraLines = normalized.assignments.map(a => {
+                if (!a.lora) return "";
+                const keywords = getVrtlLoraIdentityKeywords(a.lora);
+                const keywordText = keywords && keywords.length > 0 ? `; exact activation keyword(s): ${keywords.join(", ")}` : "";
+                return `${a.character || "character"} -> ${a.lora}${keywordText}`;
+            }).filter(Boolean);
+            if (loraLines.length > 0) {
+                lines.push(`Manual LoRA character selection: ${loraLines.join(" | ")}. Use this only to identify the selected people; keep action, pose, expression, clothing state, camera, and setting grounded in the latest chat scene.`);
+            }
+
+            const allowStoredAppearanceGuidance = s?.promptStyle !== "zimage";
+            const booruLines = allowStoredAppearanceGuidance && li?.useDanbooruTags
+                ? normalized.assignments.map(a => {
+                    const tagBlock = getStableAssignmentTagBlock(a, li);
+                    return tagBlock ? `${a.character || "character"}: ${tagBlock}` : "";
+                }).filter(Boolean)
+                : [];
+            if (booruLines.length > 0) {
+                if (booruStd || isNaturalLanguageImageStyle(s?.promptStyle)) {
+                    lines.push(`Manual selected character appearance cues. Merge these into prose naturally and do not paste them as a tag dump: ${booruLines.join(" | ")}`);
+                } else {
+                    lines.push(`Manual selected character booru tags. Use these as the character appearance tags for the selected scene cast: ${booruLines.join(" | ")}`);
+                }
+            }
+        }
+
+        if (normalized.positions.length > 0) {
+            lines.push(`Optional selected adult position/act cue(s): ${normalized.positions.map(p => `${p.label}: ${p.prompt}`).join(" | ")}. Use only if compatible with the latest chat scene and visible participants; do not force or invent explicit contact if the scene does not support it.`);
+        }
+
+        return lines.join("\n");
+    }
+
+    function showManualImageSceneSelector(s, li, charKey) {
+        const assignments = getManualImageSelectableAssignments(li, charKey);
+        if (assignments.length === 0) {
+            toastr.warning("No analyzed characters available. Analyze or add character assignments first.");
+            return Promise.resolve(null);
+        }
+
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = (value) => {
+                if (done) return;
+                done = true;
+                $overlay.remove();
+                resolve(value ? normalizeManualImageScene(value) : null);
+            };
+
+            const renderAssignmentRow = (a, idx) => {
+                const tagBlock = getStableAssignmentTagBlock(a, li) || getAssignmentTagBlock(a, li) || "";
+                const loraText = a.lora ? `<span style="color:#a855f7;">${psEscapeText(a.lora)}</span>` : '<span style="color:var(--text-muted);">No LoRA</span>';
+                const tagText = tagBlock ? psEscapeText(tagBlock) : "No booru tags";
+                return `
+                    <div class="ig-manual-scene-row" style="display:grid; grid-template-columns: auto minmax(0, 1fr) auto; gap:10px; align-items:center; padding:10px; background:rgba(0,0,0,0.18); border:1px solid var(--border-color); border-radius:8px;">
+                        <input type="checkbox" class="ig-manual-scene-check" data-idx="${idx}" style="width:18px; height:18px;" />
+                        <div style="min-width:0;">
+                            <div style="font-size:0.85rem; font-weight:800; color:var(--text-main);">${psEscapeText(a.character || `Character ${idx + 1}`)}</div>
+                            <div style="font-size:0.67rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">LoRA: ${loraText}</div>
+                            <div style="font-size:0.67rem; color:#10b981; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${psEscapeAttr(tagBlock)}">Tags: ${tagText}</div>
+                        </div>
+                        <button type="button" class="ps-modern-btn primary ig-manual-scene-one" data-idx="${idx}" style="background:var(--gold); color:#000; padding:6px 10px; font-size:0.7rem; font-weight:800;">Use Only</button>
+                    </div>
+                `;
+            };
+
+            const positionOptions = NSFW_POSITION_PRESETS
+                .filter(p => p.prompt)
+                .map((p, idx) => `
+                    <label style="display:flex; align-items:center; gap:8px; padding:7px 8px; background:rgba(0,0,0,0.14); border:1px solid var(--border-color); border-radius:7px; cursor:pointer;">
+                        <input type="checkbox" class="ig-manual-position-check" data-idx="${idx}" style="width:16px; height:16px;" />
+                        <span style="font-size:0.76rem; font-weight:700; color:var(--text-main);">${psEscapeText(p.label)}</span>
+                    </label>
+                `).join("");
+
+            const $overlay = $(`
+                <div class="ig-manual-scene-overlay" style="position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.72); font-family:'Inter', sans-serif;">
+                    <style>
+                        @media (max-width: 560px) {
+                            .ig-manual-scene-overlay { align-items: stretch !important; padding: 8px !important; box-sizing: border-box !important; }
+                            .ig-manual-scene-dialog { width: 100% !important; max-height: 100% !important; border-radius: 12px !important; }
+                            .ig-manual-scene-header { align-items: flex-start !important; padding: 12px !important; }
+                            .ig-manual-scene-body { padding: 10px !important; }
+                            .ig-manual-scene-row { grid-template-columns: auto minmax(0, 1fr) !important; gap: 8px !important; }
+                            .ig-manual-scene-one { grid-column: 1 / -1 !important; width: 100% !important; justify-content: center !important; }
+                            .ig-manual-scene-position-grid { grid-template-columns: 1fr !important; }
+                            .ig-manual-scene-footer { padding: 10px !important; flex-direction: column-reverse !important; }
+                            .ig-manual-scene-footer button { width: 100% !important; justify-content: center !important; }
+                        }
+                    </style>
+                    <div class="ig-manual-scene-dialog" style="width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 48px); display:flex; flex-direction:column; background:#18181b; border:1px solid var(--border-color); border-radius:14px; box-shadow:0 18px 60px rgba(0,0,0,0.65); overflow:hidden;">
+                        <div class="ig-manual-scene-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--border-color);">
+                            <div>
+                                <div style="font-size:1rem; font-weight:900; color:var(--gold);"><i class="fa-solid fa-users-viewfinder"></i> Select Scene Characters</div>
+                                <div style="font-size:0.73rem; color:var(--text-muted); margin-top:3px;">Choose one with Use Only, or check multiple characters and Send Selected. This overrides match keywords for this render only.</div>
+                            </div>
+                            <button type="button" class="ps-modern-btn secondary ig-manual-scene-cancel" style="padding:6px 10px;"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="ig-manual-scene-body" style="padding:14px 18px; overflow:auto; display:flex; flex-direction:column; gap:10px;">
+                            ${assignments.map(renderAssignmentRow).join("")}
+                            <details style="margin-top:4px; background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.18); border-radius:9px; padding:10px;">
+                                <summary style="cursor:pointer; user-select:none; font-size:0.82rem; font-weight:800; color:#c084fc;"><i class="fa-solid fa-venus-mars"></i> Optional sex-position cues</summary>
+                                <div style="font-size:0.68rem; color:var(--text-muted); margin:8px 0 10px;">These only inform the prompt model. It may skip them when the current scene does not fit.</div>
+                                <div class="ig-manual-scene-position-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:7px;">${positionOptions}</div>
+                            </details>
+                        </div>
+                        <div class="ig-manual-scene-footer" style="display:flex; justify-content:flex-end; gap:10px; padding:14px 18px; border-top:1px solid var(--border-color);">
+                            <button type="button" class="ps-modern-btn secondary ig-manual-scene-cancel">Cancel</button>
+                            <button type="button" class="ps-modern-btn primary ig-manual-scene-send" style="background:var(--gold); color:#000; font-weight:900;">Send Selected</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+
+            const readPositions = () => $overlay.find(".ig-manual-position-check:checked").map(function() {
+                return NSFW_POSITION_PRESETS.filter(p => p.prompt)[parseInt($(this).attr("data-idx"), 10)];
+            }).get().filter(Boolean);
+
+            $("body").append($overlay);
+            $overlay.find(".ig-manual-scene-one").on("click", function() {
+                const idx = parseInt($(this).attr("data-idx"), 10);
+                finish({ assignments: [assignments[idx]].filter(Boolean), positions: readPositions() });
+            });
+            $overlay.find(".ig-manual-scene-send").on("click", function() {
+                const selected = $overlay.find(".ig-manual-scene-check:checked").map(function() {
+                    return assignments[parseInt($(this).attr("data-idx"), 10)];
+                }).get().filter(Boolean);
+                if (selected.length === 0) {
+                    toastr.warning("Select at least one character, or click Use Only on a row.");
+                    return;
+                }
+                finish({ assignments: selected, positions: readPositions() });
+            });
+            $overlay.find(".ig-manual-scene-cancel").on("click", () => finish(null));
+            $overlay.on("click", function(e) {
+                if (e.target === this) finish(null);
+            });
+        });
+    }
+
     async function igManualGenerate() {
         const s = getLocalProfile()?.imageGen;
         if (!s || !s.enabled) return;
 
-        showKazumaProgress("Analyzing Scene...");
-
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        let manualScene = null;
         try {
+            if (s.manualSceneSelector) {
+                manualScene = await showManualImageSceneSelector(s, li, charKey);
+                if (!manualScene) return;
+            }
+            activeManualImageScene = manualScene;
+            showKazumaProgress("Analyzing Scene...");
+
             let gen;
             if (s.generatorBackend === "direct") {
-                gen = await generateImagePromptText();
+                gen = await generateImagePromptText({ manualScene });
             } else {
                 gen = null;
                 await useMeguminEngine(async () => {
-                    gen = await generateImagePromptText();
+                    gen = await generateImagePromptText({ manualScene });
                 }, "Megumin Image");
             }
 
@@ -2728,7 +2920,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (match) promptText = match[1];
 
             toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
-            igGenerateWithComfy(promptText, null, { skipLeadPrefix });
+            igGenerateWithComfy(promptText, null, { skipLeadPrefix, manualScene });
 
         } catch(e) {
             console.error(e);
@@ -2736,6 +2928,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             toastr.error(e?.message || "Manual generation failed.");
         } finally {
             activeImageGenRequest = null;
+            activeManualImageScene = null;
         }
     }
 
@@ -2782,11 +2975,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     // New Helper Function for generating the prompt text
-    function getMatchedBooruTags(li, charKey) {
+    function getMatchedBooruTags(li, charKey, manualAssignments = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
         const matched = [];
 
-        for (const a of getActiveCharacterAssignments(li, charKey)) {
+        for (const a of getActiveCharacterAssignments(li, charKey, manualAssignments)) {
             ensureStructuredCharacterAssignment(a);
             const tagBlock = getAssignmentTagBlock(a, li);
             if (!tagBlock) continue;
@@ -2795,13 +2988,16 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return matched;
     }
 
-    function getMatchedCharacterAssignments(li, charKey) {
+    function getMatchedCharacterAssignments(li, charKey, manualAssignments = null) {
         if (!li || !li.enabled) return [];
-        return getActiveCharacterAssignments(li, charKey);
+        return getActiveCharacterAssignments(li, charKey, manualAssignments);
     }
 
-    function getActiveCharacterAssignments(li, charKey) {
+    function getActiveCharacterAssignments(li, charKey, manualAssignments = null) {
         if (!li || !li.characterAssignments) return [];
+        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+            return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
+        }
         const assignments = (li.characterAssignments[charKey] || [])
             .map(ensureStructuredCharacterAssignment)
             .filter(a => !a.neverInclude);
@@ -2911,9 +3107,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         ].filter(Boolean).join(', '));
     }
 
-    function getMatchedCharacterGuidance(li, charKey) {
+    function getMatchedCharacterGuidance(li, charKey, manualAssignments = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
-        return getActiveCharacterAssignments(li, charKey)
+        return getActiveCharacterAssignments(li, charKey, manualAssignments)
             .map(a => ({ character: a.character || "character", tags: getStableAssignmentTagBlock(a, li) }))
             .filter(a => a.tags);
     }
@@ -2958,9 +3154,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return normalizeGeneratedTagField(raw);
     }
 
-    async function generateImagePromptText() {
+    async function generateImagePromptText(opts = null) {
         const s = getLocalProfile().imageGen;
         const li = s.loraIntel;
+        const manualScene = normalizeManualImageScene(opts?.manualScene || activeManualImageScene);
 
         const chat = getContext().chat;
         const charKey = getCharacterKey() || "default";
@@ -2973,9 +3170,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const booruStd = isBooruStandardImageMode(s, li);
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
         const allowStoredAppearanceGuidance = s.promptStyle !== "zimage";
-        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey) : [];
+        const manualAssignments = manualScene.assignments;
+        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments) : [];
         const guidedCharacters = characterGuidance.length > 0;
         const personaGuidance = buildPersonaImageGuidance(s, booruStd);
+        const manualSceneInstruction = buildManualImageSceneInstruction(manualScene, s, li, booruStd);
 
         let styleStr;
         if (s.promptStyle === "illustrious") {
@@ -3028,7 +3227,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 extraParts.push(`Matched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat scene. Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     extraParts.push(`Character appearance cues (Danbooru-style tags per role). Weave into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
@@ -3039,6 +3238,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
             if (s.adultTagPrecision) {
                 extraParts.push(IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+            }
+            if (manualSceneInstruction) {
+                extraParts.push(manualSceneInstruction);
             }
             if (s.includePromptExamples || s.promptStyle === "zimage") {
                 extraParts.push(`Template example:\n${buildImagePromptExamples(s, booruStd)}`);
@@ -3054,7 +3256,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Keep Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
                 }
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     if (isNaturalLanguageImageStyle(s.promptStyle)) {
@@ -3069,6 +3271,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
             if (s.adultTagPrecision) {
                 extraStr = appendImagePromptInstruction(extraStr, IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+            }
+            if (manualSceneInstruction) {
+                extraStr = appendImagePromptInstruction(extraStr, manualSceneInstruction);
             }
             if (s.includePromptExamples || s.promptStyle === "zimage") {
                 extraStr = appendImagePromptInstruction(extraStr, `Template example: ${buildImagePromptExamples(s, booruStd)}`);
@@ -3266,6 +3471,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     async function igGenerateWithComfy(positivePrompt, target = null, opts = null) {
         const s = getLocalProfile().imageGen;
         ensureImageGenLoraArrays(s);
+        const manualScene = normalizeManualImageScene(opts?.manualScene || activeManualImageScene);
+        const manualAssignments = manualScene.assignments;
         if (ensureRunpodSettings(s).enabled && ensureRunpodDropdownValues(s)) saveProfileToMemory();
         igSyncImageGenLoraFromDom(s);
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
@@ -3286,7 +3493,6 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 finalPrompt = ensureImageLeadPrefix(finalPrompt);
             }
         }
-        finalPrompt = ensureSelectedVrtlIdentityPrompt(finalPrompt, s);
         if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
@@ -3353,17 +3559,19 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
-        if (li && li.enabled && li.ensureLoras && li.characterAssignments && li.characterAssignments[charKey]) {
+        const hasManualLoraSelection = manualAssignments.length > 0;
+        if (li && (hasManualLoraSelection || (li.enabled && li.ensureLoras)) && li.characterAssignments && li.characterAssignments[charKey]) {
             ensureImageGenLoraArrays(s);
             const locked = s.loraSlotLocked;
             const kwManaged = s.loraSlotKeywordManaged;
 
-            const activeAssignments = getActiveCharacterAssignments(li, charKey);
+            const activeAssignments = getActiveCharacterAssignments(li, charKey, hasManualLoraSelection ? manualAssignments : null);
 
             const occupiedKeys = new Set();
             slots.forEach((sl, idx) => {
                 if (!sl || sl === "None" || sl === "") return;
                 if (locked[idx]) occupiedKeys.add(normalizeLoraKeyForDedupe(sl));
+                else if (hasManualLoraSelection) return;
                 else if (!kwManaged[idx]) occupiedKeys.add(normalizeLoraKeyForDedupe(sl));
             });
 
@@ -3381,6 +3589,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             const slotEligible = (i) => {
                 if (locked[i]) return false;
+                if (hasManualLoraSelection) return true;
                 const empty = !slots[i] || slots[i] === "None" || slots[i] === "";
                 if (empty) return true;
                 return kwManaged[i];
@@ -3410,7 +3619,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 uniqueLoras.map(l => normalizeLoraKeyForDedupe(resolveLoraPathForDropdown(l, comfyLoraFiles) || l)).filter(Boolean)
             );
             for (let i = 0; i < 4; i++) {
-                if (locked[i] || !kwManaged[i]) continue;
+                if (locked[i]) continue;
+                if (!hasManualLoraSelection && !kwManaged[i]) continue;
                 const sk = slots[i] ? normalizeLoraKeyForDedupe(slots[i]) : "";
                 if (!sk || !desiredKeysNormalized.has(sk)) {
                     if (slots[i]) {
@@ -3437,6 +3647,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
+        finalPrompt = ensureSelectedVrtlIdentityPromptForLoras(finalPrompt, [l1, l2, l3, l4]);
+        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
 
         const comfyRepl = {
             "%prompt%": finalPrompt,
@@ -4035,14 +4247,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function ensureSelectedVrtlIdentityPrompt(prompt, s) {
-        const selected = [s?.selectedLora, s?.selectedLora2, s?.selectedLora3, s?.selectedLora4];
-        const li = s?.loraIntel;
-        const charKey = getCharacterKey() || "default";
-        const assigned = li?.enabled && li?.ensureLoras
-            ? getActiveCharacterAssignments(li, charKey).map(a => a.lora)
-            : [];
+        return ensureSelectedVrtlIdentityPromptForLoras(prompt, [s?.selectedLora, s?.selectedLora2, s?.selectedLora3, s?.selectedLora4]);
+    }
+
+    function ensureSelectedVrtlIdentityPromptForLoras(prompt, loraNames) {
         const required = [...new Map(
-            [...selected, ...assigned]
+            (Array.isArray(loraNames) ? loraNames : [])
                 .flatMap(name => getVrtlLoraIdentityKeywords(name) || [])
                 .map(keyword => [keyword.toLowerCase(), keyword])
         ).values()];
