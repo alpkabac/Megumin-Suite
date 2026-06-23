@@ -358,6 +358,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (!Array.isArray(li.globalActiveLoras)) li.globalActiveLoras = [];
         if (!li.characterActiveLoras || typeof li.characterActiveLoras !== "object") li.characterActiveLoras = {};
         if (!li.characterAssignments || typeof li.characterAssignments !== "object") li.characterAssignments = {};
+        if (!li.characterAssignmentsByMode || typeof li.characterAssignmentsByMode !== "object") li.characterAssignmentsByMode = {};
+        ["lora", "booru", "mixed", "description", "shared"].forEach(mode => {
+            if (!li.characterAssignmentsByMode[mode] || typeof li.characterAssignmentsByMode[mode] !== "object") {
+                li.characterAssignmentsByMode[mode] = {};
+            }
+        });
         if (li.ensureCharacterTag === undefined) li.ensureCharacterTag = false;
         if (li.descriptionStyle === undefined) li.descriptionStyle = 'booru';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
@@ -395,11 +401,79 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function ensureStructuredCharacterAssignments(li, charKey = null) {
-        if (!li || !li.characterAssignments) return;
-        const keys = charKey ? [charKey] : Object.keys(li.characterAssignments);
-        keys.forEach(key => {
-            if (!Array.isArray(li.characterAssignments[key])) return;
-            li.characterAssignments[key].forEach(ensureStructuredCharacterAssignment);
+        if (!li) return;
+        ensureLoraIntelDefaults(li);
+        const normalizeStore = (store) => {
+            const keys = charKey ? [charKey] : Object.keys(store || {});
+            keys.forEach(key => {
+                if (!Array.isArray(store[key])) return;
+                store[key].forEach(ensureStructuredCharacterAssignment);
+            });
+        };
+        normalizeStore(li.characterAssignments);
+        Object.values(li.characterAssignmentsByMode || {}).forEach(normalizeStore);
+    }
+
+    function getCharacterAssignmentModeKey(li) {
+        if (!li) return "shared";
+        if (li.ensureLoras && li.useDanbooruTags) return "mixed";
+        if (li.ensureLoras) return "lora";
+        if (li.useDanbooruTags) return "booru";
+        if (li.useCharDescriptions) return "description";
+        return "shared";
+    }
+
+    function getModeCharacterAssignmentStore(li, modeKey = null) {
+        ensureLoraIntelDefaults(li);
+        const key = modeKey || getCharacterAssignmentModeKey(li);
+        if (!li.characterAssignmentsByMode[key]) li.characterAssignmentsByMode[key] = {};
+        return li.characterAssignmentsByMode[key];
+    }
+
+    function getModeCharacterAssignments(li, charKey, modeKey = null) {
+        if (!li) return [];
+        ensureLoraIntelDefaults(li);
+        const store = getModeCharacterAssignmentStore(li, modeKey);
+        if (!Array.isArray(store[charKey])) {
+            const anyModeAlreadyHasCharacter = Object.values(li.characterAssignmentsByMode || {})
+                .some(modeStore => Array.isArray(modeStore?.[charKey]));
+            const legacy = !anyModeAlreadyHasCharacter && Array.isArray(li.characterAssignments?.[charKey])
+                ? JSON.parse(JSON.stringify(li.characterAssignments[charKey]))
+                : [];
+            store[charKey] = legacy;
+        }
+        store[charKey].forEach(ensureStructuredCharacterAssignment);
+        if (!li.characterAssignments || typeof li.characterAssignments !== "object") li.characterAssignments = {};
+        li.characterAssignments[charKey] = store[charKey];
+        return store[charKey];
+    }
+
+    function setModeCharacterAssignments(li, charKey, assignments, modeKey = null) {
+        ensureLoraIntelDefaults(li);
+        const store = getModeCharacterAssignmentStore(li, modeKey);
+        store[charKey] = Array.isArray(assignments) ? assignments.map(ensureStructuredCharacterAssignment) : [];
+        if (!li.characterAssignments || typeof li.characterAssignments !== "object") li.characterAssignments = {};
+        li.characterAssignments[charKey] = store[charKey];
+        return store[charKey];
+    }
+
+    function countModeCharacterAssignments(li, charKey, modeKey = null) {
+        return getModeCharacterAssignments(li, charKey, modeKey).length;
+    }
+
+    function getAssignmentModeLabel(li) {
+        const key = getCharacterAssignmentModeKey(li);
+        if (key === "lora") return "LoRA";
+        if (key === "booru") return "Booru Tags";
+        if (key === "mixed") return "LoRA + Booru";
+        if (key === "description") return "Description";
+        return "Shared";
+    }
+
+    function syncCurrentModeCharacterAssignments(li, charKey) {
+        getModeCharacterAssignments(li, charKey);
+        ensureStructuredCharacterAssignments(li, charKey);
+    }
         });
     }
 
@@ -428,7 +502,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             },
             loraScope: scope === "character" ? "character" : "global",
             activeLoras: JSON.parse(JSON.stringify(activeLoras || [])),
-            assignments: JSON.parse(JSON.stringify(li.characterAssignments[charKey] || [])),
+            assignmentMode: getCharacterAssignmentModeKey(li),
+            assignments: JSON.parse(JSON.stringify(getModeCharacterAssignments(li, charKey))),
             lastCharacterAnalysisResponse: li.lastCharacterAnalysisResponse || ""
         };
     }
@@ -453,7 +528,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         const assignments = JSON.parse(JSON.stringify(payload.assignments));
         assignments.forEach(ensureStructuredCharacterAssignment);
-        li.characterAssignments[charKey] = assignments;
+        setModeCharacterAssignments(li, charKey, assignments);
 
         if (Array.isArray(payload.activeLoras)) {
             const activeLoras = payload.activeLoras
@@ -744,7 +819,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.manualSceneSelector === undefined) s.manualSceneSelector = false;
 
         // LoRA Intelligence state
-        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
+        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'booru', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
         if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
         ensureLoraIntelDefaults(s.loraIntel);
@@ -752,7 +827,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const charKey = getCharacterKey() || "default";
         ensureStructuredCharacterAssignments(li, charKey);
         const liScope = li.characterActiveLoras[charKey] ? 'character' : 'global';
-        const liAssignments = (li.characterAssignments[charKey] || []);
+        syncCurrentModeCharacterAssignments(li, charKey);
+        const liAssignments = getModeCharacterAssignments(li, charKey);
 
         c.append(`
             <!-- MASTER TOGGLE -->
@@ -1449,7 +1525,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         $("#li_analysis_export_btn").on("click", function() {
             const scope = $("#li_scope_select").val() || "global";
             downloadCharacterAnalysisSnapshot(li, charKey, scope);
-            toastr.success(`Exported ${(li.characterAssignments[charKey] || []).length} character assignments.`);
+            toastr.success(`Exported ${countModeCharacterAssignments(li, charKey)} ${getAssignmentModeLabel(li)} character assignments.`);
         });
         $("#li_analysis_import_btn").on("click", function() {
             $("#li_analysis_import_file").trigger("click");
@@ -1600,7 +1676,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                             }
                         }
 
-                        li.characterAssignments[charKey] = assignments;
+                        setModeCharacterAssignments(li, charKey, assignments);
                         saveProfileToMemory();
                         liRenderAssignmentTable(li, charKey, s);
                         toastr.success(`Mapped ${assignments.length} characters!`);
@@ -2346,6 +2422,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     function liRenderAssignmentTable(li, charKey, s) {
         const table = $("#li_assignment_table");
         table.empty();
+        syncCurrentModeCharacterAssignments(li, charKey);
 
         if (!li.ensureLoras && !li.useCharDescriptions && !li.useDanbooruTags) {
             table.hide();
@@ -2354,8 +2431,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             table.show();
         }
 
-        if (!li.characterAssignments[charKey]) li.characterAssignments[charKey] = [];
-        const assignments = li.characterAssignments[charKey];
+        const assignments = getModeCharacterAssignments(li, charKey);
 
         const showLoras = li.ensureLoras;
         const showDesc = li.useCharDescriptions;
@@ -2387,13 +2463,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const header = $(`
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
                 ${headerHtml}
+                <span style="font-size:0.62rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-left:10px;">${psEscapeText(getAssignmentModeLabel(li))}</span>
                 <button id="li_add_custom_assign" class="ps-modern-btn primary" style="padding: 2px 8px; font-size: 0.65rem; margin-left: 10px; background: var(--gold); color: #000;"><i class="fa-solid fa-plus"></i> Add</button>
             </div>
         `);
 
         header.find("#li_add_custom_assign").on("click", function() {
             assignments.push(ensureStructuredCharacterAssignment({ character: "", match_keywords: "", lora: "", description: "", plain_description: "", booru_tags: "", character_tag: "", series_tag: "", physical_tags: "", clothing_tags: "", alwaysInclude: false, neverInclude: false }));
-            li.characterAssignments[charKey] = assignments;
+            setModeCharacterAssignments(li, charKey, assignments);
             saveProfileToMemory();
             liRenderAssignmentTable(li, charKey, s);
         });
@@ -2444,7 +2521,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                     row.find(".li-remove-assign").on("click", function() {
                         assignments.splice(idx, 1);
-                        li.characterAssignments[charKey] = assignments;
+                        setModeCharacterAssignments(li, charKey, assignments);
                         saveProfileToMemory();
                         liRenderAssignmentTable(li, charKey, s);
                     });
@@ -2510,7 +2587,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 });
                 row.find(".li-remove-assign").on("click", function() {
                     assignments.splice(idx, 1);
-                    li.characterAssignments[charKey] = assignments;
+                    setModeCharacterAssignments(li, charKey, assignments);
                     saveProfileToMemory();
                     liRenderAssignmentTable(li, charKey, s);
                 });
@@ -2573,7 +2650,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             row.find(".li-remove-assign").on("click", function() {
                 assignments.splice(idx, 1);
-                li.characterAssignments[charKey] = assignments;
+                setModeCharacterAssignments(li, charKey, assignments);
                 saveProfileToMemory();
                 liRenderAssignmentTable(li, charKey, s);
             });
@@ -2722,7 +2799,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     function getManualImageSelectableAssignments(li, charKey) {
         ensureLoraIntelDefaults(li);
         ensureStructuredCharacterAssignments(li, charKey);
-        return (li?.characterAssignments?.[charKey] || [])
+        return getModeCharacterAssignments(li, charKey)
             .map(ensureStructuredCharacterAssignment)
             .filter(a => !a.neverInclude && String(a.character || "").trim());
     }
@@ -2747,12 +2824,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             const names = normalized.assignments.map(a => a.character || "character").join(", ");
             lines.push(`Manual scene cast override: include exactly these analyzed character(s) from the selector when deciding who is present: ${names}. Ignore match-keyword absence for these characters for this generation. Do not add other analyzed characters just because their match keywords appear elsewhere.`);
 
-            const loraLines = normalized.assignments.map(a => {
+            const loraLines = li?.ensureLoras ? normalized.assignments.map(a => {
                 if (!a.lora) return "";
                 const keywords = getVrtlLoraIdentityKeywords(a.lora);
                 const keywordText = keywords && keywords.length > 0 ? `; exact activation keyword(s): ${keywords.join(", ")}` : "";
                 return `${a.character || "character"} -> ${a.lora}${keywordText}`;
-            }).filter(Boolean);
+            }).filter(Boolean) : [];
             if (loraLines.length > 0) {
                 lines.push(`Manual LoRA character selection: ${loraLines.join(" | ")}. Use this only to identify the selected people; keep action, pose, expression, clothing state, camera, and setting grounded in the latest chat scene.`);
             }
@@ -2798,15 +2875,24 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             const renderAssignmentRow = (a, idx) => {
                 const tagBlock = getStableAssignmentTagBlock(a, li) || getAssignmentTagBlock(a, li) || "";
-                const loraText = a.lora ? `<span style="color:#a855f7;">${psEscapeText(a.lora)}</span>` : '<span style="color:var(--text-muted);">No LoRA</span>';
-                const tagText = tagBlock ? psEscapeText(tagBlock) : "No booru tags";
+                const modeLines = [];
+                if (li?.ensureLoras) {
+                    const loraText = a.lora ? `<span style="color:#a855f7;">${psEscapeText(a.lora)}</span>` : '<span style="color:var(--text-muted);">No LoRA</span>';
+                    modeLines.push(`<div style="font-size:0.67rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">LoRA: ${loraText}</div>`);
+                }
+                if (li?.useDanbooruTags) {
+                    const tagText = tagBlock ? psEscapeText(tagBlock) : "No booru tags";
+                    modeLines.push(`<div style="font-size:0.67rem; color:#10b981; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${psEscapeAttr(tagBlock)}">Tags: ${tagText}</div>`);
+                }
+                if (modeLines.length === 0) {
+                    modeLines.push('<div style="font-size:0.67rem; color:var(--text-muted);">No LoRA/Booru mode enabled; selection will only force scene cast.</div>');
+                }
                 return `
                     <div class="ig-manual-scene-row" style="display:grid; grid-template-columns: auto minmax(0, 1fr) auto; gap:10px; align-items:center; padding:10px; background:rgba(0,0,0,0.18); border:1px solid var(--border-color); border-radius:8px;">
                         <input type="checkbox" class="ig-manual-scene-check" data-idx="${idx}" style="width:18px; height:18px;" />
                         <div style="min-width:0;">
                             <div style="font-size:0.85rem; font-weight:800; color:var(--text-main);">${psEscapeText(a.character || `Character ${idx + 1}`)}</div>
-                            <div style="font-size:0.67rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">LoRA: ${loraText}</div>
-                            <div style="font-size:0.67rem; color:#10b981; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${psEscapeAttr(tagBlock)}">Tags: ${tagText}</div>
+                            ${modeLines.join("")}
                         </div>
                         <button type="button" class="ps-modern-btn primary ig-manual-scene-one" data-idx="${idx}" style="background:var(--gold); color:#000; padding:6px 10px; font-size:0.7rem; font-weight:800;">Use Only</button>
                     </div>
@@ -2951,12 +3037,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
     function igAddCharacterInfoToManualPrompt(s, li, charKey) {
         ensureLoraIntelDefaults(li);
-        if (!li || !li.characterAssignments || !li.characterAssignments[charKey] || li.characterAssignments[charKey].length === 0) {
+        if (!li || getModeCharacterAssignments(li, charKey).length === 0) {
             toastr.warning("No character assignments available. Analyze characters first.");
             return;
         }
         let assignments = getMatchedCharacterAssignments(li, charKey);
-        if (assignments.length === 0) assignments = li.characterAssignments[charKey].map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
+        if (assignments.length === 0) assignments = getModeCharacterAssignments(li, charKey).map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
 
         const snippets = assignments.map((a) => {
             const tagBlock = getAssignmentTagBlock(a, li);
@@ -2994,11 +3080,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function getActiveCharacterAssignments(li, charKey, manualAssignments = null) {
-        if (!li || !li.characterAssignments) return [];
+        if (!li) return [];
         if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
             return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
         }
-        const assignments = (li.characterAssignments[charKey] || [])
+        const assignments = getModeCharacterAssignments(li, charKey)
             .map(ensureStructuredCharacterAssignment)
             .filter(a => !a.neverInclude);
         if (assignments.length === 0) return [];
@@ -3560,7 +3646,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
         const hasManualLoraSelection = manualAssignments.length > 0;
-        if (li && (hasManualLoraSelection || (li.enabled && li.ensureLoras)) && li.characterAssignments && li.characterAssignments[charKey]) {
+        if (li && (hasManualLoraSelection || (li.enabled && li.ensureLoras)) && getModeCharacterAssignments(li, charKey).length > 0) {
             ensureImageGenLoraArrays(s);
             const locked = s.loraSlotLocked;
             const kwManaged = s.loraSlotKeywordManaged;
