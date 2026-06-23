@@ -2849,7 +2849,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         }
 
         if (normalized.positions.length > 0) {
-            lines.push(`Optional selected adult position/act cue(s): ${normalized.positions.map(p => `${p.label}: ${p.prompt}`).join(" | ")}. Use only if compatible with the latest chat scene and visible participants; do not force or invent explicit contact if the scene does not support it.`);
+            lines.push(`MANDATORY selected adult action override: ${normalized.positions.map(p => `${p.label}: ${p.prompt}`).join(" | ")}. Apply the selected sex act/position to the selected visible adult character(s) even if the latest chat scene is doing a different action. Preserve the scene context around it: same environment, background, lighting, camera mood, visible participants, identities, clothing/nudity state unless the selected act logically requires shifting or opening clothing, and any important props. Change only the action, pose, body placement, and contact needed to depict the selected act clearly. Do not skip this override.`);
         }
 
         return lines.join("\n");
@@ -2932,8 +2932,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         <div class="ig-manual-scene-body" style="padding:14px 18px; overflow:auto; display:flex; flex-direction:column; gap:10px;">
                             ${assignments.map(renderAssignmentRow).join("")}
                             <details style="margin-top:4px; background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.18); border-radius:9px; padding:10px;">
-                                <summary style="cursor:pointer; user-select:none; font-size:0.82rem; font-weight:800; color:#c084fc;"><i class="fa-solid fa-venus-mars"></i> Optional sex-position cues</summary>
-                                <div style="font-size:0.68rem; color:var(--text-muted); margin:8px 0 10px;">These only inform the prompt model. It may skip them when the current scene does not fit.</div>
+                                <summary style="cursor:pointer; user-select:none; font-size:0.82rem; font-weight:800; color:#c084fc;"><i class="fa-solid fa-venus-mars"></i> Sex-position action override</summary>
+                                <div style="font-size:0.68rem; color:var(--text-muted); margin:8px 0 10px;">When selected, these override the current action/pose while keeping the scene environment, clothing, lighting, and background context.</div>
                                 <div class="ig-manual-scene-position-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:7px;">${positionOptions}</div>
                             </details>
                         </div>
