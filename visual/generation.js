@@ -72,7 +72,7 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
 
-    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl.";
+    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl. Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
     const Z_IMAGE_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
     const Z_IMAGE_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
@@ -3075,7 +3075,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
 
-        activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr };
+        activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr, isZImage: s.promptStyle === "zimage" };
 
         let rawOutput = await generateQuietPrompt({ prompt: "___PS_IMAGE_GEN___" });
         let finalPrompt = stripUtilityThinkingWrapper(rawOutput);
@@ -4252,16 +4252,19 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         // --- INJECT IMAGE GEN PROMPT ---
         if (activeImageGenRequest) {
+            const zImageOutputContract = activeImageGenRequest.isZImage
+                ? " Z-IMAGE OUTPUT CONTRACT: Return exactly one finished image prompt and nothing else. Start directly with the image description. Do not analyze the chat, enumerate details, explain decisions, plan, draft, refine, repeat, or add text before or after the prompt."
+                : "";
             messages.length = 0;
             messages.push({
                 "role": "system",
-                "content": `You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. ${IMAGE_SCENE_FIDELITY_INSTRUCTION} STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. "I need to", "I'll craft"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text.`
+                "content": `You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. ${IMAGE_SCENE_FIDELITY_INSTRUCTION} STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. "I need to", "I'll craft"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text.${zImageOutputContract}`
             });
             messages.push({
                 "role": "user",
-                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nScene Fidelity Requirement: ${IMAGE_SCENE_FIDELITY_INSTRUCTION}\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.`
+                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nScene Fidelity Requirement: ${IMAGE_SCENE_FIDELITY_INSTRUCTION}\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.${zImageOutputContract}`
             });
-        if (!disablePrefill) {
+        if (!disablePrefill && !activeImageGenRequest.isZImage) {
             messages.push({
                 "role": "assistant",
                 "content": "Understood.\n"
