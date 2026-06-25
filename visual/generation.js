@@ -3381,14 +3381,16 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 promptText = gen ? gen.prompt : "";
                 skipLeadPrefix = !!(gen && gen.skipLeadPrefix);
             } else {
-                const sceneText = getSceneSnapshotForMessage((getContext().chat || []).filter(m => !m.is_system).slice(-1)[0]);
+                const lastMessage = (getContext().chat || []).filter(m => !m.is_system).slice(-1)[0];
+                const sceneText = getSceneSnapshotForMessage(lastMessage);
+                const latestSceneText = getLatestVisualSceneText(lastMessage);
                 const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
                 const selectedPositions = normalizeManualImageScene(manualScene).positions;
-                const position = selectedPositions[0] || detectPositionPresetFromScene(sceneText);
-                promptText = buildDeterministicBackgroundPrompt(s, sceneText, {
+                const position = selectedPositions[0] || detectPositionPresetFromScene(latestSceneText);
+                promptText = buildDeterministicBackgroundPrompt(s, latestSceneText, {
                     assignments: selectedAssignments.length ? selectedAssignments : null,
                     position,
-                    sceneType: position || isExplicitSceneText(sceneText) ? "explicit" : "normal"
+                    sceneType: position || isExplicitSceneText(latestSceneText) ? "explicit" : "normal"
                 });
                 if (source === "comfy_llm") {
                     aiText = buildBackgroundAiText({
@@ -5212,6 +5214,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             .join("\n\n");
     }
 
+    function getLatestVisualSceneText(message = null) {
+        const chat = getContext().chat || [];
+        const target = message || [...chat].reverse().find(m => !m.is_user && !m.is_system);
+        return cleanMessageTextForKeywords(target?.mes || "");
+    }
+
     function isExplicitSceneText(text) {
         return /\b(?:sex|fucking|fuck(?:s|ed|ing)?|penetrat(?:e|es|ed|ing|ion)|missionary|cowgirl|doggy|doggystyle|oral|blowjob|deepthroat|cunnilingus|handjob|fingering|anal|cum|ejaculat(?:e|es|ed|ing|ion)|orgasm|naked|nude|erection|cock|penis|pussy|vagina|breasts?|nipples?|thrust(?:s|ed|ing)?|grind(?:s|ing)?|masturbat(?:e|es|ed|ing|ion))\b/i.test(String(text || ""));
     }
@@ -5471,12 +5479,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const sceneType = String(job?.metadata?.sceneType || "").trim();
         return [
             "Create one finished image-generation prompt from the following source.",
-            "Treat the required visual prompt/tags as mandatory. Preserve exact character identities, LoRA triggers, participant counts, adult anatomy/contact, position, environment, clothing state, and camera cues.",
+            "Hard constraints: preserve exact character identities and LoRA triggers, participant counts, the detected adult action/position, and explicit anatomy/contact when present.",
+            "The fallback visual prompt is guidance, not a list of mandatory tags. Treat location, clothing, lighting, expression, atmosphere, and camera terms as soft scene evidence. Keep only details supported by the latest scene, reconcile contradictions, and discard stale context.",
             "Return only the final prompt with no explanation.",
             sceneType ? `Scene type: ${sceneType}` : "",
             position ? `Required position/action: ${position}` : "",
             source ? `Roleplay scene:\n${source}` : "",
-            required ? `Required visual prompt/tags:\n${required}` : "",
+            required ? `Deterministic fallback and visual cues:\n${required}` : "",
         ].filter(Boolean).join("\n\n");
     }
 
@@ -5736,6 +5745,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             return;
         }
         const sceneText = getSceneSnapshotForMessage(message);
+        const latestSceneText = getLatestVisualSceneText(message);
         if (!sceneText || findZImageForbiddenMinorTerm(sceneText)) {
             if (automation.smartEnabled) setQwenStatus("Skipped · empty or age-safety guard");
             return;
@@ -5755,7 +5765,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 try {
                     qwenAnalysis = await classifySceneWithLocalQwen(sceneText, knownNames, automation);
                 } catch (qwenError) {
-                    if (!detectPositionPresetFromScene(sceneText) && !isExplicitSceneText(sceneText)) throw qwenError;
+                    if (!detectPositionPresetFromScene(latestSceneText) && !isExplicitSceneText(latestSceneText)) throw qwenError;
                     console.warn("[Megumin Suite] Qwen failed; using deterministic explicit-scene routing:", qwenError);
                     qwenAnalysis = {
                         trigger: false,
@@ -5769,7 +5779,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     };
                     setQwenStatus("Qwen failed · deterministic explicit override");
                 }
-                const analysis = applyDeterministicSceneOverride(qwenAnalysis, sceneText, knownNames);
+                const analysis = applyDeterministicSceneOverride(qwenAnalysis, latestSceneText, knownNames);
                 if (analysis.trigger && analysis.confidence >= Number(automation.qwenMinConfidence || 0.7)) {
                     if (automation.smartSearchLibrary) {
                         const ready = findBestLibraryImage(analysis, automation);
@@ -5781,14 +5791,16 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         }
                     }
                     if (automation.smartGenerateFallback) {
-                        const selected = assignments.filter(a => analysis.characters.some(name => name.toLowerCase() === String(a.character || "").toLowerCase()));
-                        const position = analysis.position
-                            ? (NSFW_POSITION_PRESETS.find(p => p.label.toLowerCase() === analysis.position.toLowerCase()) || { label: analysis.position, prompt: analysis.position })
-                            : detectPositionPresetFromScene(sceneText);
-                        const directPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+                        // Qwen is only a trigger/library router. A fresh render must be
+                        // assembled independently from the RP text and local deterministic
+                        // components so the classifier JSON cannot constrain NanoGPT.
+                        const selected = getDeterministicSceneAssignments(s, latestSceneText);
+                        const position = detectPositionPresetFromScene(latestSceneText);
+                        const sceneType = isExplicitSceneText(latestSceneText) ? "explicit" : "normal";
+                        const directPrompt = buildDeterministicBackgroundPrompt(s, latestSceneText, {
                             assignments: selected.length ? selected : null,
                             position,
-                            sceneType: analysis.sceneType
+                            sceneType
                         });
                         enqueueBackgroundImageJob({
                             priority: "smart",
@@ -5797,9 +5809,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                             sceneText,
                             directPrompt,
                             manualScene: selected.length ? { assignments: selected, positions: position ? [position] : [] } : null,
-                            metadata: { source: "qwen", ...analysis }
+                            metadata: {
+                                source: "smart-fresh-render",
+                                position: position?.label || "",
+                                sceneType
+                            }
                         });
-                        setQwenStatus(`No library match · render queued for message ${origin.index + 1}`);
+                        setQwenStatus(`No library match · independent NanoGPT render queued for message ${origin.index + 1}`);
                         automation.lastAutoAiCount = aiCount;
                         saveProfileToMemory();
                         return;
@@ -5814,11 +5830,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
 
-        if (automation.autoEnabled && shouldAutoGenerateScene(sceneText, automation)) {
-            const position = detectPositionPresetFromScene(sceneText);
-            const directPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+        if (automation.autoEnabled && shouldAutoGenerateScene(latestSceneText, automation)) {
+            const position = detectPositionPresetFromScene(latestSceneText);
+            const directPrompt = buildDeterministicBackgroundPrompt(s, latestSceneText, {
                 position,
-                sceneType: isExplicitSceneText(sceneText) ? "explicit" : "normal"
+                sceneType: isExplicitSceneText(latestSceneText) ? "explicit" : "normal"
             });
             enqueueBackgroundImageJob({
                 priority: "auto",
@@ -5826,8 +5842,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 originKey: origin.originKey,
                 sceneText,
                 directPrompt,
-                manualScene: position ? { assignments: getDeterministicSceneAssignments(s, sceneText), positions: [position] } : null,
-                metadata: { source: "auto", sceneType: isExplicitSceneText(sceneText) ? "explicit" : "normal" }
+                manualScene: position ? { assignments: getDeterministicSceneAssignments(s, latestSceneText), positions: [position] } : null,
+                metadata: { source: "auto", sceneType: isExplicitSceneText(latestSceneText) ? "explicit" : "normal" }
             });
             if (automation.smartEnabled) {
                 setQwenStatus(`Qwen skipped · Auto render queued for message ${origin.index + 1}`);

@@ -56,10 +56,12 @@ class MeguminNanoGPTText:
                     "STRING",
                     {
                         "default": (
-                            "Convert the supplied roleplay scene and mandatory visual tags into one "
-                            "finished image-generation prompt. Preserve character identities, participant "
-                            "counts, explicit adult action and contact, environment, clothing state, and "
-                            "camera cues. Output only the final prompt."
+                            "Convert the supplied roleplay scene into one finished image-generation prompt. "
+                            "Treat character identities, LoRA triggers, participant counts, detected adult "
+                            "action/position, and explicit anatomy/contact as hard constraints. Treat location, "
+                            "clothing, lighting, expression, atmosphere, and camera terms as soft evidence: "
+                            "keep only details supported by the latest scene, reconcile contradictions, and "
+                            "discard stale context. Output only the final prompt."
                         ),
                         "multiline": True,
                         "dynamicPrompts": False,

@@ -180,7 +180,7 @@
       "model": "zai-org/glm-5",
       "api_key": "no-no-no",
       "endpoint": "https://nano-gpt.com/api/v1/chat/completions",
-      "system_prompt": "Convert the supplied roleplay scene and mandatory visual tags into one finished image-generation prompt. Preserve character identities, participant counts, explicit adult action and contact, environment, clothing state, and camera cues. Output only the final prompt.",
+      "system_prompt": "Convert the supplied roleplay scene into one finished image-generation prompt. Treat character identities, LoRA triggers, participant counts, detected adult action/position, and explicit anatomy/contact as hard constraints. Treat location, clothing, lighting, expression, atmosphere, and camera terms as soft evidence: keep only details supported by the latest scene, reconcile contradictions, and discard stale context. Output only the final prompt.",
       "temperature": 0.2,
       "max_tokens": 500,
       "timeout_seconds": 120,
