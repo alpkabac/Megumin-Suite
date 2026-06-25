@@ -38,6 +38,7 @@ export function createVisualGeneration(api) {
     const backgroundImageQueue = [];
     const backgroundOriginKeys = new Set();
     let backgroundImageWorkerActive = false;
+    let backgroundActiveJob = null;
     let danbooruTagsMap = null;
     let civitaiKeywordCache = {};
 
@@ -93,6 +94,8 @@ export function createVisualGeneration(api) {
         queuePaused: false,
         batchPositions: ["Missionary", "Cowgirl", "Doggy Style", "Spooning", "Blowjob", "Cunnilingus"],
         batchMaleAnatomy: "huge",
+        batchImagesPerGroup: 1,
+        batchLibraryOpen: false,
         library: [],
         lastAutoAiCount: 0
     };
@@ -109,6 +112,67 @@ export function createVisualGeneration(api) {
         if (!Array.isArray(s.backgroundAutomation.batchPositions)) s.backgroundAutomation.batchPositions = [...DEFAULT_BACKGROUND_AUTOMATION.batchPositions];
         if (!Array.isArray(s.backgroundAutomation.library)) s.backgroundAutomation.library = [];
         return s.backgroundAutomation;
+    }
+
+    function getBatchLibraryFilename(item) {
+        if (item?.filename) return String(item.filename);
+        const url = String(item?.url || "").split(/[?#]/)[0];
+        const name = url.split(/[\\/]/).filter(Boolean).pop();
+        return name || item?.id || "unnamed image";
+    }
+
+    function getBatchLibraryPrimaryCharacter(item) {
+        return String(item?.primaryCharacter || item?.characters?.[0] || "Unknown character");
+    }
+
+    function buildBatchLibraryInventoryHtml(automation) {
+        const batchItems = automation.library.filter(item => item?.source === "batch" || item?.batchKey);
+        if (!batchItems.length) {
+            return '<div style="font-size:.7rem; color:var(--text-muted); padding:10px; text-align:center;">No batch images generated yet.</div>';
+        }
+        const groups = new Map();
+        for (const item of batchItems) {
+            const character = getBatchLibraryPrimaryCharacter(item);
+            const position = String(item.position || "Uncategorized");
+            if (!groups.has(character)) groups.set(character, new Map());
+            const positionGroups = groups.get(character);
+            if (!positionGroups.has(position)) positionGroups.set(position, []);
+            positionGroups.get(position).push(item);
+        }
+        return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([character, positions]) => `
+            <details style="border:1px solid var(--border-color); border-radius:7px; background:rgba(0,0,0,.14);">
+                <summary style="cursor:pointer; padding:9px 10px; font-size:.73rem; font-weight:800;">${psEscapeText(character)} <span style="color:var(--text-muted); font-weight:500;">(${[...positions.values()].reduce((n, items) => n + items.length, 0)})</span></summary>
+                <div style="padding:0 9px 9px; display:flex; flex-direction:column; gap:7px;">
+                    ${[...positions.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([position, items]) => `
+                        <div style="border:1px solid rgba(255,255,255,.07); border-radius:7px; padding:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
+                                <span style="font-size:.7rem; font-weight:800; color:#c084fc;">${psEscapeText(position)} <span style="color:var(--text-muted); font-weight:500;">(${items.length})</span></span>
+                                <div style="display:flex; gap:5px;">
+                                    <button type="button" class="ps-modern-btn secondary ig-batch-group-add" data-character="${psEscapeAttr(character)}" data-position="${psEscapeAttr(position)}" style="padding:4px 9px; font-size:.65rem;"><i class="fa-solid fa-plus"></i> Add ${Math.max(1, parseInt(automation.batchImagesPerGroup, 10) || 1)}</button>
+                                    <button type="button" class="ps-modern-btn secondary ig-batch-group-delete" data-character="${psEscapeAttr(character)}" data-position="${psEscapeAttr(position)}" title="Remove this group from the Batch Library index. Saved files remain on disk." style="padding:4px 8px; font-size:.65rem; color:#ef4444;"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:3px;">
+                                ${items.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map(item => `
+                                    <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                                        <span title="${psEscapeAttr(item.url || "")}" style="flex:1; min-width:0; font-family:Consolas,monospace; font-size:.65rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${psEscapeText(getBatchLibraryFilename(item))}</span>
+                                        <button type="button" class="ig-batch-item-delete" data-library-id="${psEscapeAttr(item.id || "")}" title="Remove from Batch Library index. Saved file remains on disk." style="border:0; background:transparent; color:#ef4444; cursor:pointer; padding:2px 4px;"><i class="fa-solid fa-xmark"></i></button>
+                                    </div>
+                                `).join("")}
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            </details>
+        `).join("");
+    }
+
+    function refreshBatchLibraryInventory() {
+        const s = getLocalProfile()?.imageGen;
+        if (!s) return;
+        const automation = ensureBackgroundAutomationSettings(s);
+        $("#ig_bg_batch_library_body").html(buildBatchLibraryInventoryHtml(automation));
+        $("#ig_bg_batch_library_count").text(`${automation.library.filter(item => item?.source === "batch" || item?.batchKey).length} images`);
     }
 
     const IMAGE_SCENE_FIDELITY_INSTRUCTION = "Scene fidelity: derive the image from the latest visible moment in the chat, not a generic mood. Preserve who is present, subject count, body placement, role/orientation, pose, contact points, clothing/nudity state, expression, camera angle, and setting. For adult/NSFW scenes, name the specific position or act when it is present in the chat or Extra field, and use concrete visual staging instead of vague terms like intimate, sensual, passionate, or suggestive. Do not swap to an unrelated pose, solo portrait, pinup, or aftermath unless the chat actually says so.";
@@ -881,16 +945,16 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 </div>
                 <div class="ps-switch"></div>
             </div>
-            <!-- Generator Backend -->
+            <!-- Utility / legacy prompt backend -->
                 <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-gears"></i> Prompt Generator Backend</div>
+                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-gears"></i> SillyTavern Utility LLM Backend</div>
                     <div style="display: flex; align-items: center; gap: 15px;">
                         <div style="flex: 1;">
-                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Generation Method</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted);">"Direct" is faster. "Megumin Image" is more creative and follows your preset instructions.</div>
+                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Character analysis and legacy prompt calls</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">Used by character analysis and when the yellow quick-image source below is set to SillyTavern. It does not control ComfyUI NanoGPT mode.</div>
                         </div>
                         <select id="img_gen_backend" class="ps-modern-input" style="width: 220px; cursor: pointer;">
-                            <option value="direct" ${s.generatorBackend === 'direct' ? 'selected' : ''}>Direct API Call (Fast)</option>
+                            <option value="direct" ${s.generatorBackend === 'direct' ? 'selected' : ''}>Current ST Connection</option>
                             <option value="preset" ${s.generatorBackend === 'preset' ? 'selected' : ''}>Megumin Image Preset</option>
                         </select>
                     </div>
@@ -984,8 +1048,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     </div>
                     <div style="display:flex; align-items:center; gap:12px; margin-bottom:15px; padding:12px 14px; border:1px solid var(--border-color); border-radius:9px; background:rgba(0,0,0,.16);">
                         <div style="flex:1; min-width:180px;">
-                            <div style="font-size:.8rem; font-weight:700;">Manual Generate Prompt Source</div>
-                            <div style="font-size:.66rem; color:var(--text-muted); margin-top:2px;">Controls the quick image button. ComfyUI NanoGPT uses %ai_text% without occupying SillyTavern generation.</div>
+                            <div style="font-size:.8rem; font-weight:700;">Yellow Quick-Image Button</div>
+                            <div style="font-size:.66rem; color:var(--text-muted); margin-top:2px;">This directly controls what happens when you click the yellow image button beside Send. ComfyUI NanoGPT uses %ai_text% without calling SillyTavern's LLM.</div>
                         </div>
                         <select id="ig_manual_prompt_source" class="ps-modern-input" style="width:245px; padding:8px; font-size:.75rem;">
                             <option value="comfy_llm" ${s.manualPromptSource === 'comfy_llm' ? 'selected' : ''}>ComfyUI NanoGPT (Fast)</option>
@@ -1134,11 +1198,27 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         </select>
                         <span style="font-size:0.65rem; color:var(--text-muted);">Applied only when the selected act visibly involves a penis.</span>
                     </div>
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                        <span style="font-size:0.68rem; color:var(--text-muted);">Images per character/position group</span>
+                        <input id="ig_bg_batch_count" type="number" min="1" max="20" value="${Math.max(1, parseInt(automation.batchImagesPerGroup, 10) || 1)}" class="ps-modern-input" style="width:85px; padding:7px; font-size:.72rem;" />
+                        <span style="font-size:0.65rem; color:var(--text-muted);">Initial batch fills each group to this count. Category Add buttons queue this many more.</span>
+                    </div>
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <button id="ig_bg_batch_start" class="ps-modern-btn primary" style="padding:7px 12px;"><i class="fa-solid fa-list-check"></i> Queue Character Batch</button>
                         <button id="ig_bg_queue_pause" class="ps-modern-btn secondary" style="padding:7px 12px;"><i class="fa-solid ${automation.queuePaused ? 'fa-play' : 'fa-pause'}"></i> ${automation.queuePaused ? 'Resume Queue' : 'Pause Queue'}</button>
                         <button id="ig_bg_queue_clear" class="ps-modern-btn secondary" style="padding:7px 12px;"><i class="fa-solid fa-ban"></i> Clear Pending</button>
-                        <span style="align-self:center; font-size:0.7rem; color:var(--text-muted);">${automation.library.length} ready library image(s)</span>
+                        <span style="align-self:center; font-size:0.7rem; color:var(--text-muted);">${automation.library.filter(item => item?.source === "batch" || item?.batchKey).length} ready batch image(s)</span>
+                    </div>
+                    <div style="margin-top:12px; border:1px solid var(--border-color); border-radius:8px; overflow:hidden;">
+                        <div id="ig_bg_batch_library_header" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 11px; cursor:pointer; user-select:none;">
+                            <span style="font-size:.72rem; font-weight:800;"><i class="fa-solid fa-folder-tree" style="color:#a855f7;"></i> Batch Library Names</span>
+                            <div style="display:flex; align-items:center; gap:9px;">
+                                <span id="ig_bg_batch_library_count" style="font-size:.65rem; color:var(--text-muted);">${automation.library.filter(item => item?.source === "batch" || item?.batchKey).length} images</span>
+                                <i id="ig_bg_batch_library_chevron" class="fa-solid fa-chevron-down" style="font-size:.7rem; color:var(--text-muted); transform:${automation.batchLibraryOpen ? 'rotate(180deg)' : 'none'};"></i>
+                            </div>
+                        </div>
+                        <div id="ig_bg_batch_library_body" style="display:${automation.batchLibraryOpen ? 'flex' : 'none'}; flex-direction:column; gap:7px; padding:0 10px 10px;">${buildBatchLibraryInventoryHtml(automation)}</div>
+                        <div style="padding:0 10px 9px; font-size:.61rem; color:var(--text-muted);">Delete removes entries from Megumin's Batch Library and Qwen matching. Saved image files remain on disk.</div>
                     </div>
                     </div>
                 </div>
@@ -1516,6 +1596,53 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         $("#ig_bg_batch_male_anatomy").on("change", (e) => {
             automation.batchMaleAnatomy = $(e.target).val() || "standard";
             saveProfileToMemory();
+        });
+        $("#ig_bg_batch_count").on("input", (e) => {
+            automation.batchImagesPerGroup = Math.max(1, Math.min(20, parseInt($(e.target).val(), 10) || 1));
+            saveProfileToMemory();
+            refreshBatchLibraryInventory();
+        });
+        $("#ig_bg_batch_library_header").on("click", function() {
+            automation.batchLibraryOpen = !automation.batchLibraryOpen;
+            saveProfileToMemory();
+            $("#ig_bg_batch_library_body").stop(true, true).slideToggle(160);
+            $("#ig_bg_batch_library_chevron").css("transform", automation.batchLibraryOpen ? "rotate(180deg)" : "none");
+        });
+        $("#ig_bg_batch_library_body").on("click", ".ig-batch-group-add", function() {
+            try {
+                const character = String($(this).attr("data-character") || "");
+                const position = String($(this).attr("data-position") || "");
+                const count = queueBatchCategoryJobs(character, position, Math.max(1, parseInt(automation.batchImagesPerGroup, 10) || 1), true);
+                if (count > 0) toastr.success(`Queued ${count} more ${character} / ${position} image(s).`);
+            } catch (e) {
+                toastr.error(e.message || "Could not queue category images.");
+            }
+        });
+        $("#ig_bg_batch_library_body").on("click", ".ig-batch-item-delete", function() {
+            const id = String($(this).attr("data-library-id") || "");
+            const item = automation.library.find(entry => entry.id === id);
+            if (!item) return;
+            if (!window.confirm(`Remove "${getBatchLibraryFilename(item)}" from the Batch Library?\n\nThe saved image file will remain on disk.`)) return;
+            automation.library = automation.library.filter(entry => entry.id !== id);
+            saveProfileToMemory();
+            refreshBatchLibraryInventory();
+            toastr.success("Batch Library entry removed.");
+        });
+        $("#ig_bg_batch_library_body").on("click", ".ig-batch-group-delete", function() {
+            const character = String($(this).attr("data-character") || "");
+            const position = String($(this).attr("data-position") || "");
+            const matches = automation.library.filter(item =>
+                (item?.source === "batch" || item?.batchKey) &&
+                getBatchLibraryPrimaryCharacter(item) === character &&
+                String(item.position || "Uncategorized") === position
+            );
+            if (!matches.length) return;
+            if (!window.confirm(`Remove all ${matches.length} "${character} / ${position}" entries from the Batch Library?\n\nSaved image files will remain on disk.`)) return;
+            const ids = new Set(matches.map(item => item.id));
+            automation.library = automation.library.filter(item => !ids.has(item.id));
+            saveProfileToMemory();
+            refreshBatchLibraryInventory();
+            toastr.success(`Removed ${matches.length} Batch Library entries.`);
         });
         $("#ig_bg_batch_start").on("click", async function() {
             try {
@@ -3715,12 +3842,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             automation.library.push({
                 id: `megumin-lib-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 url: savedPath,
+                filename: String(savedPath || "").split(/[\\/]/).filter(Boolean).pop() || "",
                 prompt: finalPrompt,
                 createdAt: Date.now(),
                 ...(target.metadata || {})
             });
             if (automation.library.length > 500) automation.library.splice(0, automation.library.length - 500);
             saveProfileToMemory();
+            refreshBatchLibraryInventory();
             if (!target.background) toastr.success("Batch image added to library.");
         } else if (target && target.message) {
             if (!target.message.extra) target.message.extra = {};
@@ -5329,6 +5458,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             const automation = ensureBackgroundAutomationSettings(getLocalProfile()?.imageGen || {});
             if (automation.queuePaused) break;
             const job = backgroundImageQueue.shift();
+            backgroundActiveJob = job;
             refreshBackgroundQueueStatus();
             try {
                 const s = getLocalProfile()?.imageGen;
@@ -5349,6 +5479,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 console.error("[Megumin Suite] Background image job failed:", e);
             } finally {
                 if (job.originKey) backgroundOriginKeys.delete(job.originKey);
+                backgroundActiveJob = null;
             }
         }
         backgroundImageWorkerActive = false;
@@ -5478,6 +5609,59 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         };
     }
 
+    function queueBatchCategoryJobs(characterName, positionName, requestedCount, addMore = false) {
+        const s = getLocalProfile()?.imageGen;
+        const automation = ensureBackgroundAutomationSettings(s);
+        if (!automation.batchEnabled) throw new Error("Enable Batch Library Generator first.");
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        const assignments = getModeCharacterAssignments(li, charKey).map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude && !assignmentHasMinorWording(a));
+        if (!assignments.length) throw new Error("Analyze characters before starting a batch.");
+        const assignment = assignments.find(a => String(a.character || "").toLowerCase() === String(characterName || "").toLowerCase());
+        if (!assignment) throw new Error(`Analyzed character not found: ${characterName}`);
+        const preset = NSFW_POSITION_PRESETS.find(p => p.label.toLowerCase() === String(positionName || "").toLowerCase());
+        const positionPrompt = preset?.prompt || positionName;
+        const groupKey = `batch-group-v3:${charKey}:${assignment.character}:${positionName}:${automation.batchMaleAnatomy}`.toLowerCase();
+        const ready = automation.library.filter(item =>
+            item.batchGroupKey === groupKey ||
+            (!item.batchGroupKey && getBatchLibraryPrimaryCharacter(item).toLowerCase() === String(assignment.character).toLowerCase() && String(item.position || "").toLowerCase() === String(positionName).toLowerCase())
+        );
+        const pending = backgroundImageQueue.filter(job => job.metadata?.batchGroupKey === groupKey);
+        if (backgroundActiveJob?.metadata?.batchGroupKey === groupKey) pending.push(backgroundActiveJob);
+        const wanted = Math.max(1, parseInt(requestedCount, 10) || 1);
+        const jobsToAdd = addMore ? wanted : Math.max(0, wanted - ready.length - pending.length);
+        let nextVariant = Math.max(
+            0,
+            ...ready.map(item => parseInt(item.batchVariant, 10) || 0),
+            ...pending.map(job => parseInt(job.metadata?.batchVariant, 10) || 0)
+        ) + 1;
+        let count = 0;
+        for (let i = 0; i < jobsToAdd; i++, nextVariant++) {
+            const scenePlan = buildBatchScenePlan(assignment, assignments, positionName, positionPrompt, s, automation);
+            const batchKey = `${groupKey}:variant:${nextVariant}`;
+            enqueueBackgroundImageJob({
+                priority: "batch",
+                libraryOnly: true,
+                sceneText: scenePlan.sceneText,
+                extraInstruction: scenePlan.extraInstruction,
+                directPrompt: scenePlan.directPrompt,
+                manualScene: scenePlan.manualScene,
+                metadata: {
+                    batchKey,
+                    batchGroupKey: groupKey,
+                    batchVariant: nextVariant,
+                    primaryCharacter: assignment.character,
+                    characters: scenePlan.characters,
+                    position: positionName,
+                    sceneType: "explicit",
+                    source: "batch"
+                }
+            });
+            count++;
+        }
+        return count;
+    }
+
     function queueCharacterBatchJobs() {
         const s = getLocalProfile()?.imageGen;
         const automation = ensureBackgroundAutomationSettings(s);
@@ -5491,27 +5675,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         let count = 0;
         for (const assignment of assignments) {
             for (const positionName of positionNames) {
-                const preset = NSFW_POSITION_PRESETS.find(p => p.label.toLowerCase() === positionName.toLowerCase());
-                const positionPrompt = preset?.prompt || positionName;
-                const scenePlan = buildBatchScenePlan(assignment, assignments, positionName, positionPrompt, s, automation);
-                const batchKey = `batch-v2:${charKey}:${assignment.character}:${positionName}:${automation.batchMaleAnatomy}`.toLowerCase();
-                if (automation.library.some(item => item.batchKey === batchKey) || backgroundImageQueue.some(job => job.metadata?.batchKey === batchKey)) continue;
-                enqueueBackgroundImageJob({
-                    priority: "batch",
-                    libraryOnly: true,
-                    sceneText: scenePlan.sceneText,
-                    extraInstruction: scenePlan.extraInstruction,
-                    directPrompt: scenePlan.directPrompt,
-                    manualScene: scenePlan.manualScene,
-                    metadata: {
-                        batchKey,
-                        characters: scenePlan.characters,
-                        position: positionName,
-                        sceneType: "explicit",
-                        source: "batch"
-                    }
-                });
-                count++;
+                count += queueBatchCategoryJobs(assignment.character, positionName, automation.batchImagesPerGroup, false);
             }
         }
         return count;

@@ -199,6 +199,8 @@ function initProfile() {
                 queuePaused: false,
                 batchPositions: ["Missionary", "Cowgirl", "Doggy Style", "Spooning", "Blowjob", "Cunnilingus"],
                 batchMaleAnatomy: "huge",
+                batchImagesPerGroup: 1,
+                batchLibraryOpen: false,
                 library: [],
                 lastAutoAiCount: 0
             },
