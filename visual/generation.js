@@ -5052,6 +5052,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         for (const [needle, label] of aliases) {
             if (normalized.includes(needle)) return NSFW_POSITION_PRESETS.find(p => p.label === label) || null;
         }
+        if (/\b(?:mouth|lips?|tongue|throat)\b[\s\S]{0,100}\b(?:cock|penis|shaft|head|tip)\b|\b(?:cock|penis|shaft)\b[\s\S]{0,100}\b(?:mouth|lips?|tongue|throat|suck(?:s|ed|ing)?)\b/.test(normalized)) {
+            return NSFW_POSITION_PRESETS.find(p => p.label === "Blowjob") || null;
+        }
         if (/\b(?:penetrat(?:e|es|ed|ing|ion)|thrust(?:s|ed|ing)?|fucking|sex)\b/.test(normalized)) {
             return NSFW_POSITION_PRESETS.find(p => p.label === "Missionary") || null;
         }
@@ -5067,6 +5070,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         add(/\b(?:pool|hot tub|jacuzzi)\b/.test(text), "poolside");
         add(/\b(?:kitchen)\b/.test(text), "kitchen");
         add(/\b(?:office|desk)\b/.test(text), "office");
+        add(/\b(?:fitting room|changing room|dressing room)\b/.test(text), "fitting room", "fluorescent lighting");
         add(/\b(?:car|vehicle)\b/.test(text), "car interior");
         add(/\b(?:forest|woods)\b/.test(text), "forest");
         add(/\b(?:beach|shore)\b/.test(text), "beach");
@@ -5081,6 +5085,24 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         add(/\b(?:cum|ejaculat(?:e|es|ed|ing|ion))\b/.test(text), "cum", "ejaculation");
         add(/\b(?:pov|first person)\b/.test(text), "pov");
         return [...new Set(tags)];
+    }
+
+    function applyDeterministicSceneOverride(analysis, sceneText, knownNames) {
+        const position = detectPositionPresetFromScene(sceneText);
+        if (!position && !isExplicitSceneText(sceneText)) return analysis;
+        const normalized = String(sceneText || "").toLowerCase();
+        const matchedNames = knownNames.filter(name => normalized.includes(String(name || "").toLowerCase()));
+        const sceneTags = extractDeterministicSceneTags(sceneText);
+        return {
+            ...analysis,
+            trigger: true,
+            sceneType: "explicit",
+            position: position?.label || analysis.position || "explicit sex",
+            location: analysis.location || sceneTags.find(tag => /room|office|bedroom|bathroom|pool|beach|forest|kitchen|car/.test(tag)) || "",
+            characters: analysis.characters?.length ? analysis.characters : matchedNames,
+            query: analysis.query || [position?.label, ...matchedNames, ...sceneTags].filter(Boolean).join(", "),
+            confidence: Math.max(Number(analysis.confidence) || 0, 1)
+        };
     }
 
     function getDeterministicSceneAssignments(s, sceneText, preferredAssignments = null) {
@@ -5486,7 +5508,25 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (automation.smartEnabled) {
             try {
                 setQwenStatus(`Checking ${triggerReason.replace(/-/g, " ")}…`);
-                const analysis = await classifySceneWithLocalQwen(sceneText, knownNames, automation);
+                let qwenAnalysis;
+                try {
+                    qwenAnalysis = await classifySceneWithLocalQwen(sceneText, knownNames, automation);
+                } catch (qwenError) {
+                    if (!detectPositionPresetFromScene(sceneText) && !isExplicitSceneText(sceneText)) throw qwenError;
+                    console.warn("[Megumin Suite] Qwen failed; using deterministic explicit-scene routing:", qwenError);
+                    qwenAnalysis = {
+                        trigger: false,
+                        sceneType: "explicit",
+                        characters: [],
+                        position: "",
+                        location: "",
+                        clothing: "",
+                        query: "",
+                        confidence: 0
+                    };
+                    setQwenStatus("Qwen failed · deterministic explicit override");
+                }
+                const analysis = applyDeterministicSceneOverride(qwenAnalysis, sceneText, knownNames);
                 if (analysis.trigger && analysis.confidence >= Number(automation.qwenMinConfidence || 0.7)) {
                     if (automation.smartSearchLibrary) {
                         const ready = findBestLibraryImage(analysis, automation);
@@ -5546,6 +5586,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 manualScene: position ? { assignments: getDeterministicSceneAssignments(s, sceneText), positions: [position] } : null,
                 metadata: { source: "auto", sceneType: isExplicitSceneText(sceneText) ? "explicit" : "normal" }
             });
+            if (automation.smartEnabled) {
+                setQwenStatus(`Qwen skipped · Auto render queued for message ${origin.index + 1}`);
+            }
             automation.lastAutoAiCount = aiCount;
             saveProfileToMemory();
         }
