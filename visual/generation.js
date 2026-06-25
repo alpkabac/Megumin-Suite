@@ -2467,6 +2467,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return val;
     }
 
+    function igWorkflowContainsPlaceholder(value, placeholder) {
+        if (typeof value === "string") return value === placeholder;
+        if (!value || typeof value !== "object") return false;
+        if (Array.isArray(value)) return value.some(item => igWorkflowContainsPlaceholder(item, placeholder));
+        return Object.values(value).some(item => igWorkflowContainsPlaceholder(item, placeholder));
+    }
+
     function igCollectWorkflowLoraNodes(workflow) {
         const out = [];
         if (!workflow || typeof workflow !== "object") return out;
@@ -3401,7 +3408,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (match) promptText = match[1];
 
             toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
-            igGenerateWithComfy(promptText, null, { skipLeadPrefix, manualScene, aiText: aiText || promptText });
+            await igGenerateWithComfy(promptText, null, {
+                skipLeadPrefix,
+                manualScene,
+                aiText: aiText || promptText,
+                requireAiTextWorkflow: source === "comfy_llm"
+            });
 
         } catch(e) {
             console.error(e);
@@ -4027,12 +4039,25 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.previewPrompt && !background) {
             $("#kazuma_progress_overlay").hide(); // Hide the progress bar temporarily
 
-            const $content = $(`
-                <div style="display:flex; flex-direction:column; gap:10px; font-family: 'Inter', sans-serif;">
-                    <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the prompt before it goes to the image renderer.</div>
-                    <textarea class="ps-modern-input ig-preview-textarea" style="height: 150px; resize: vertical; font-family: monospace; font-size: 0.85rem; padding: 10px;">${finalPrompt}</textarea>
-                </div>
-            `);
+            const isWorkflowAiPrompt = !!opts?.requireAiTextWorkflow;
+            const $content = isWorkflowAiPrompt
+                ? $(`
+                    <div style="display:flex; flex-direction:column; gap:10px; font-family:'Inter',sans-serif;">
+                        <div style="font-size:.82rem; color:var(--text-main); font-weight:700;">NanoGPT will generate the final prompt inside ComfyUI after you send this workflow.</div>
+                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the rich <code>%ai_text%</code> source. The deterministic <code>%prompt%</code> remains only as an API-error fallback.</div>
+                        <textarea class="ps-modern-input ig-ai-source-preview" readonly style="height:180px; resize:vertical; font-family:monospace; font-size:.75rem; padding:10px;">${psEscapeText(aiText)}</textarea>
+                        <details>
+                            <summary style="cursor:pointer; font-size:.7rem; color:var(--text-muted);">Show deterministic fallback</summary>
+                            <textarea class="ps-modern-input ig-preview-textarea" style="height:100px; resize:vertical; font-family:monospace; font-size:.72rem; padding:10px; margin-top:7px;">${psEscapeText(finalPrompt)}</textarea>
+                        </details>
+                    </div>
+                `)
+                : $(`
+                    <div style="display:flex; flex-direction:column; gap:10px; font-family: 'Inter', sans-serif;">
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">Review or modify the prompt before it goes to the image renderer.</div>
+                        <textarea class="ps-modern-input ig-preview-textarea" style="height: 150px; resize: vertical; font-family: monospace; font-size: 0.85rem; padding: 10px;">${psEscapeText(finalPrompt)}</textarea>
+                    </div>
+                `);
 
             // CRITICAL FIX: SillyTavern destroys the popup HTML when it closes.
             // We MUST capture the text while the user is typing!
@@ -4041,7 +4066,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 liveText = $(this).val();
             });
 
-            const popup = new Popup($content, POPUP_TYPE.CONFIRM, "Preview Image Prompt", { okButton: "Send to Renderer", cancelButton: "Cancel", wide: true });
+            const popup = new Popup(
+                $content,
+                POPUP_TYPE.CONFIRM,
+                isWorkflowAiPrompt ? "Preview ComfyUI NanoGPT Request" : "Preview Image Prompt",
+                { okButton: isWorkflowAiPrompt ? "Send to ComfyUI" : "Send to Renderer", cancelButton: "Cancel", wide: true }
+            );
             const confirmed = await popup.show();
 
             if (!confirmed) {
@@ -4063,6 +4093,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         } catch (e) { return toastr.error(`Could not load ${s.currentWorkflowName}`); }
 
         let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
+        const workflowHasAiText = igWorkflowContainsPlaceholder(workflow, "%ai_text%");
+        if (opts?.requireAiTextWorkflow && !workflowHasAiText) {
+            $("#kazuma_progress_overlay").hide();
+            throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json or add %ai_text% to the NanoGPT node.`);
+        }
         let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
 
         const comfyLoraFiles = await ensureMeguminComfyLoraList(s);
