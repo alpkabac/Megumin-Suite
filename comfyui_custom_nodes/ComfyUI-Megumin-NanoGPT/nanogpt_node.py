@@ -57,11 +57,11 @@ class MeguminNanoGPTText:
                     {
                         "default": (
                             "Convert the supplied roleplay scene into one finished image-generation prompt. "
-                            "Treat character identities, LoRA triggers, participant counts, detected adult "
-                            "action/position, and explicit anatomy/contact as hard constraints. Treat location, "
-                            "clothing, lighting, expression, atmosphere, and camera terms as soft evidence: "
-                            "keep only details supported by the latest scene, reconcile contradictions, and "
-                            "discard stale context. Output only the final prompt."
+                            "Infer the visible action, pose, anatomy/contact, clothing state, location, lighting, "
+                            "expression, and camera composition directly from the roleplay scene. Preserve "
+                            "configured character identities and LoRA triggers, but do not treat appearance or "
+                            "style tags as evidence for the action. Only an explicitly labeled user-selected "
+                            "action override may replace the scene action. Output only the final prompt."
                         ),
                         "multiline": True,
                         "dynamicPrompts": False,

@@ -1158,7 +1158,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     <div class="ps-toggle-card ${automation.smartEnabled ? 'active' : ''}" id="ig_bg_qwen_card" style="padding:12px 18px; margin-bottom:10px;">
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight:600; font-size:0.85rem;">Smart Qwen Mode (local)</span>
-                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Optional classifier/library router only. Fresh renders still use deterministic tag chaining; Qwen never writes the image prompt.</div>
+                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Optional classifier/library router only. On a library miss, NanoGPT reads the RP scene plus configured UI/character/LoRA tags; Qwen never writes the image prompt.</div>
                         </div>
                         <div class="ps-switch"></div>
                     </div>
@@ -3386,21 +3386,19 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 const latestSceneText = getLatestVisualSceneText(lastMessage);
                 const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
                 const selectedPositions = normalizeManualImageScene(manualScene).positions;
-                const position = selectedPositions[0] || detectPositionPresetFromScene(latestSceneText);
-                promptText = buildDeterministicBackgroundPrompt(s, latestSceneText, {
-                    assignments: selectedAssignments.length ? selectedAssignments : null,
-                    position,
-                    sceneType: position || isExplicitSceneText(latestSceneText) ? "explicit" : "normal"
-                });
                 if (source === "comfy_llm") {
-                    aiText = buildBackgroundAiText({
-                        sceneText,
-                        directPrompt: promptText,
-                        metadata: {
-                            source: "manual-comfy-llm",
-                            position: position?.label || "",
-                            sceneType: position || isExplicitSceneText(sceneText) ? "explicit" : "normal"
-                        }
+                    const nanoContext = buildComfyNanoPromptContext(s, sceneText, {
+                        assignments: selectedAssignments,
+                        positions: selectedPositions
+                    });
+                    promptText = nanoContext.fallbackPrompt;
+                    aiText = nanoContext.aiText;
+                } else {
+                    const position = selectedPositions[0] || detectPositionPresetFromScene(latestSceneText);
+                    promptText = buildDeterministicBackgroundPrompt(s, latestSceneText, {
+                        assignments: selectedAssignments.length ? selectedAssignments : null,
+                        position,
+                        sceneType: position || isExplicitSceneText(latestSceneText) ? "explicit" : "normal"
                     });
                 }
             }
@@ -3411,10 +3409,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
             await igGenerateWithComfy(promptText, null, {
-                skipLeadPrefix,
                 manualScene,
                 aiText: aiText || promptText,
-                requireAiTextWorkflow: source === "comfy_llm"
+                requireAiTextWorkflow: source === "comfy_llm",
+                skipLeadPrefix: source === "comfy_llm" ? true : skipLeadPrefix
             });
 
         } catch(e) {
@@ -4046,10 +4044,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 ? $(`
                     <div style="display:flex; flex-direction:column; gap:10px; font-family:'Inter',sans-serif;">
                         <div style="font-size:.82rem; color:var(--text-main); font-weight:700;">NanoGPT will generate the final prompt inside ComfyUI after you send this workflow.</div>
-                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the rich <code>%ai_text%</code> source. The deterministic <code>%prompt%</code> remains only as an API-error fallback.</div>
+                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the scene-native <code>%ai_text%</code> source. <code>%prompt%</code> contains only configured UI/character/LoRA guidance as an API-error fallback.</div>
                         <textarea class="ps-modern-input ig-ai-source-preview" readonly style="height:180px; resize:vertical; font-family:monospace; font-size:.75rem; padding:10px;">${psEscapeText(aiText)}</textarea>
                         <details>
-                            <summary style="cursor:pointer; font-size:.7rem; color:var(--text-muted);">Show deterministic fallback</summary>
+                            <summary style="cursor:pointer; font-size:.7rem; color:var(--text-muted);">Show configured-tag fallback</summary>
                             <textarea class="ps-modern-input ig-preview-textarea" style="height:100px; resize:vertical; font-family:monospace; font-size:.72rem; padding:10px; margin-top:7px;">${psEscapeText(finalPrompt)}</textarea>
                         </details>
                     </div>
@@ -5472,6 +5470,45 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return true;
     }
 
+    function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
+        const normalizedScene = normalizeManualImageScene(manualScene);
+        const assignments = normalizedScene.assignments.length
+            ? normalizedScene.assignments
+            : getDeterministicSceneAssignments(s, sceneText);
+        const identityTriggers = assignments
+            .flatMap(a => getVrtlLoraIdentityKeywords(a.lora) || [])
+            .filter(Boolean);
+        const characterTags = assignments
+            .flatMap(a => getAssignmentTagParts(a, s.loraIntel))
+            .filter(Boolean);
+        const selectedActionTags = normalizedScene.positions
+            .map(position => getBatchPositionStaging(position.label, position.prompt))
+            .filter(Boolean);
+        const configuredTags = normalizeGeneratedTagField([
+            buildBooruStandardTagLead(s, s.loraIntel),
+            s.promptExtra,
+            ...identityTriggers,
+            ...characterTags,
+            ...selectedActionTags
+        ].filter(Boolean).join(", "));
+        const selectedActionInstruction = selectedActionTags.length
+            ? `Explicit user-selected action override:\n${selectedActionTags.join(", ")}`
+            : "";
+
+        return {
+            fallbackPrompt: configuredTags || "roleplay scene image",
+            aiText: [
+                "Create one finished image-generation prompt for the latest visible roleplay moment.",
+                "Infer the action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Do not use or invent a deterministic action classification.",
+                "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
+                selectedActionInstruction,
+                `Roleplay scene:\n${String(sceneText || "").trim()}`,
+                configuredTags ? `Configured UI, character, and LoRA tags:\n${configuredTags}` : "",
+                "Return only the final image-generation prompt with no explanation."
+            ].filter(Boolean).join("\n\n")
+        };
+    }
+
     function buildBackgroundAiText(job) {
         const source = String(job?.sceneText || "").trim();
         const required = String(job?.directPrompt || "").trim();
@@ -5791,27 +5828,25 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         }
                     }
                     if (automation.smartGenerateFallback) {
-                        // Qwen is only a trigger/library router. A fresh render must be
-                        // assembled independently from the RP text and local deterministic
-                        // components so the classifier JSON cannot constrain NanoGPT.
+                        // Qwen is only a trigger/library router. A fresh render lets
+                        // NanoGPT infer the scene from RP text plus configured identity tags;
+                        // neither Qwen JSON nor deterministic action presets constrain it.
                         const selected = getDeterministicSceneAssignments(s, latestSceneText);
-                        const position = detectPositionPresetFromScene(latestSceneText);
                         const sceneType = isExplicitSceneText(latestSceneText) ? "explicit" : "normal";
-                        const directPrompt = buildDeterministicBackgroundPrompt(s, latestSceneText, {
-                            assignments: selected.length ? selected : null,
-                            position,
-                            sceneType
+                        const nanoContext = buildComfyNanoPromptContext(s, sceneText, {
+                            assignments: selected,
+                            positions: []
                         });
                         enqueueBackgroundImageJob({
                             priority: "smart",
                             origin,
                             originKey: origin.originKey,
                             sceneText,
-                            directPrompt,
-                            manualScene: selected.length ? { assignments: selected, positions: position ? [position] : [] } : null,
+                            directPrompt: nanoContext.fallbackPrompt,
+                            aiText: nanoContext.aiText,
+                            manualScene: selected.length ? { assignments: selected, positions: [] } : null,
                             metadata: {
                                 source: "smart-fresh-render",
-                                position: position?.label || "",
                                 sceneType
                             }
                         });
