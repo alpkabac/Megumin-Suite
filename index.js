@@ -177,6 +177,24 @@ function initProfile() {
             triggerMode: "always",
             autoGenFreq: 1,
             previewPrompt: false,
+            backgroundAutomation: {
+                autoEnabled: false,
+                autoTriggerMode: "explicit",
+                autoRandomChance: 20,
+                cooldownReplies: 3,
+                smartEnabled: false,
+                qwenUrl: "http://127.0.0.1:8080/v1/chat/completions",
+                qwenModel: "Qwen2-0.5B-Instruct",
+                qwenTimeoutMs: 30000,
+                qwenMinConfidence: 0.7,
+                smartSearchLibrary: true,
+                smartGenerateFallback: true,
+                batchEnabled: false,
+                batchPositions: ["Missionary", "Cowgirl", "Doggy Style", "Spooning", "Blowjob", "Cunnilingus"],
+                batchMaleAnatomy: "huge",
+                library: [],
+                lastAutoAiCount: 0
+            },
             runpod: {
                 enabled: false,
                 endpointId: "",
@@ -294,6 +312,12 @@ function initProfile() {
     if (!localProfile.imageGen) localProfile.imageGen = defaults.imageGen;
     Object.keys(defaults.imageGen).forEach(k => {
         if (localProfile.imageGen[k] === undefined) localProfile.imageGen[k] = defaults.imageGen[k];
+    });
+    if (!localProfile.imageGen.backgroundAutomation) localProfile.imageGen.backgroundAutomation = JSON.parse(JSON.stringify(defaults.imageGen.backgroundAutomation));
+    Object.keys(defaults.imageGen.backgroundAutomation).forEach(k => {
+        if (localProfile.imageGen.backgroundAutomation[k] === undefined) {
+            localProfile.imageGen.backgroundAutomation[k] = JSON.parse(JSON.stringify(defaults.imageGen.backgroundAutomation[k]));
+        }
     });
     if (!localProfile.imageGen.runpod) localProfile.imageGen.runpod = JSON.parse(JSON.stringify(defaults.imageGen.runpod));
     Object.keys(defaults.imageGen.runpod).forEach(k => {
@@ -4969,6 +4993,7 @@ jQuery(async () => {
 
 
                 await visualGeneration.handleMessageReceived();
+                await visualGeneration.handleBackgroundAutomation();
             });
             visualGeneration.registerImageSwipeHandler();
         }
