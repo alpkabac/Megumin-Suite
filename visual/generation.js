@@ -857,6 +857,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.includePromptExamples === undefined) s.includePromptExamples = false;
         if (s.selectedScheduler === undefined) s.selectedScheduler = "simple";
         if (s.manualSceneSelector === undefined) s.manualSceneSelector = false;
+        if (s.manualPromptSource === undefined) s.manualPromptSource = "comfy_llm";
         const automation = ensureBackgroundAutomationSettings(s);
 
         // LoRA Intelligence state
@@ -980,6 +981,17 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                             <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">When clicking the quick Generate Prompt button, choose which analyzed characters are in this scene. Bypasses match keywords for this generation.</div>
                         </div>
                         <div class="ps-switch"></div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:15px; padding:12px 14px; border:1px solid var(--border-color); border-radius:9px; background:rgba(0,0,0,.16);">
+                        <div style="flex:1; min-width:180px;">
+                            <div style="font-size:.8rem; font-weight:700;">Manual Generate Prompt Source</div>
+                            <div style="font-size:.66rem; color:var(--text-muted); margin-top:2px;">Controls the quick image button. ComfyUI NanoGPT uses %ai_text% without occupying SillyTavern generation.</div>
+                        </div>
+                        <select id="ig_manual_prompt_source" class="ps-modern-input" style="width:245px; padding:8px; font-size:.75rem;">
+                            <option value="comfy_llm" ${s.manualPromptSource === 'comfy_llm' ? 'selected' : ''}>ComfyUI NanoGPT (Fast)</option>
+                            <option value="deterministic" ${s.manualPromptSource === 'deterministic' ? 'selected' : ''}>Deterministic Tags</option>
+                            <option value="sillytavern" ${s.manualPromptSource === 'sillytavern' ? 'selected' : ''}>SillyTavern / Megumin Image</option>
+                        </select>
                     </div>
 
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 15px;">
@@ -1424,6 +1436,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             s.manualSceneSelector = !s.manualSceneSelector;
             saveProfileToMemory();
             $(this).toggleClass("active", s.manualSceneSelector);
+        });
+        $("#ig_manual_prompt_source").on("change", (e) => {
+            s.manualPromptSource = $(e.target).val() || "comfy_llm";
+            saveProfileToMemory();
         });
         $("#ig_structured_rules_card").on("click", function() {
             s.structuredPromptRules = !s.structuredPromptRules;
@@ -3212,27 +3228,53 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 if (!manualScene) return;
             }
             activeManualImageScene = manualScene;
-            showKazumaProgress("Analyzing Scene...");
+            const source = s.manualPromptSource || "comfy_llm";
+            showKazumaProgress(source === "sillytavern" ? "Analyzing Scene..." : "Preparing Scene...");
 
-            let gen;
-            if (s.generatorBackend === "direct") {
-                gen = await generateImagePromptText({ manualScene });
-            } else {
-                gen = null;
-                await useMeguminEngine(async () => {
+            let promptText = "";
+            let skipLeadPrefix = false;
+            let aiText = "";
+            if (source === "sillytavern") {
+                let gen;
+                if (s.generatorBackend === "direct") {
                     gen = await generateImagePromptText({ manualScene });
-                }, "Megumin Image");
+                } else {
+                    gen = null;
+                    await useMeguminEngine(async () => {
+                        gen = await generateImagePromptText({ manualScene });
+                    }, "Megumin Image");
+                }
+                promptText = gen ? gen.prompt : "";
+                skipLeadPrefix = !!(gen && gen.skipLeadPrefix);
+            } else {
+                const sceneText = getSceneSnapshotForMessage((getContext().chat || []).filter(m => !m.is_system).slice(-1)[0]);
+                const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
+                const selectedPositions = normalizeManualImageScene(manualScene).positions;
+                const position = selectedPositions[0] || detectPositionPresetFromScene(sceneText);
+                promptText = buildDeterministicBackgroundPrompt(s, sceneText, {
+                    assignments: selectedAssignments.length ? selectedAssignments : null,
+                    position,
+                    sceneType: position || isExplicitSceneText(sceneText) ? "explicit" : "normal"
+                });
+                if (source === "comfy_llm") {
+                    aiText = buildBackgroundAiText({
+                        sceneText,
+                        directPrompt: promptText,
+                        metadata: {
+                            source: "manual-comfy-llm",
+                            position: position?.label || "",
+                            sceneType: position || isExplicitSceneText(sceneText) ? "explicit" : "normal"
+                        }
+                    });
+                }
             }
-
-            let promptText = gen ? gen.prompt : "";
-            const skipLeadPrefix = !!(gen && gen.skipLeadPrefix);
 
             const imgRegex = /<img\s+prompt=["'](.*?)["']\s*\/?>/i;
             const match = promptText.match(imgRegex);
             if (match) promptText = match[1];
 
             toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
-            igGenerateWithComfy(promptText, null, { skipLeadPrefix, manualScene });
+            igGenerateWithComfy(promptText, null, { skipLeadPrefix, manualScene, aiText: aiText || promptText });
 
         } catch(e) {
             console.error(e);
@@ -4996,7 +5038,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
     function getSceneSnapshotForMessage(message) {
         const chat = getContext().chat || [];
-        const index = Math.max(0, chat.indexOf(message));
+        if (!chat.length) return "";
+        const foundIndex = chat.indexOf(message);
+        const index = foundIndex >= 0 ? foundIndex : chat.length - 1;
         return chat.slice(Math.max(0, index - 4), index + 1)
             .filter(m => !m.is_system)
             .map(m => `${m.name}: ${cleanMessageTextForKeywords(m.mes).trim()}`)

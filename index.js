@@ -170,6 +170,7 @@ function initProfile() {
             promptExtra: "",
             animaMaxTags: 60,
             manualPrompt: "",
+            manualPromptSource: "comfy_llm",
             standardBooruLeadTags: "",
             structuredPromptRules: true,
             adultTagPrecision: true,
