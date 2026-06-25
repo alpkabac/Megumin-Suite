@@ -178,6 +178,7 @@ function initProfile() {
             triggerMode: "always",
             autoGenFreq: 1,
             previewPrompt: false,
+            sectionOpenStates: {},
             backgroundAutomation: {
                 autoEnabled: false,
                 autoTriggerMode: "explicit",

@@ -1,6 +1,6 @@
 # ComfyUI-Megumin-NanoGPT
 
-A small ComfyUI node that sends text to NanoGPT's OpenAI-compatible chat-completions API and returns the generated result as a plain `STRING`.
+A small ComfyUI node that sends text to NanoGPT's OpenAI-compatible chat-completions API, returns the generated result as a plain `STRING`, and publishes that text in ComfyUI history so Megumin can store the prompt that actually rendered the image.
 
 ## Installation
 

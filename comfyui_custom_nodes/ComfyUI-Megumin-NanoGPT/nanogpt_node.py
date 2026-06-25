@@ -87,6 +87,15 @@ class MeguminNanoGPTText:
     RETURN_NAMES = ("text",)
     FUNCTION = "generate"
     CATEGORY = "Megumin/LLM"
+    OUTPUT_NODE = True
+
+    @staticmethod
+    def _result(text):
+        clean = str(text or "").strip()
+        return {
+            "ui": {"text": [clean]},
+            "result": (clean,),
+        }
 
     def generate(
         self,
@@ -144,20 +153,20 @@ class MeguminNanoGPTText:
         except urllib.error.HTTPError as error:
             details = error.read().decode("utf-8", errors="replace")
             if fallback_on_error and str(fallback_text or "").strip():
-                return (str(fallback_text).strip(),)
+                return self._result(fallback_text)
             raise RuntimeError(
                 f"NanoGPT returned HTTP {error.code}: {details[:1000]}"
             ) from error
         except urllib.error.URLError as error:
             if fallback_on_error and str(fallback_text or "").strip():
-                return (str(fallback_text).strip(),)
+                return self._result(fallback_text)
             raise RuntimeError(f"Could not reach NanoGPT: {error.reason}") from error
 
         try:
             data = json.loads(response_text)
         except json.JSONDecodeError as error:
             if fallback_on_error and str(fallback_text or "").strip():
-                return (str(fallback_text).strip(),)
+                return self._result(fallback_text)
             raise RuntimeError(
                 f"NanoGPT returned invalid JSON: {response_text[:1000]}"
             ) from error
@@ -165,11 +174,11 @@ class MeguminNanoGPTText:
         text = self._extract_text(data)
         if not text:
             if fallback_on_error and str(fallback_text or "").strip():
-                return (str(fallback_text).strip(),)
+                return self._result(fallback_text)
             raise RuntimeError(
                 f"NanoGPT response contained no generated text: {response_text[:1000]}"
             )
-        return (text.strip(),)
+        return self._result(text)
 
     @staticmethod
     def _extract_text(data):

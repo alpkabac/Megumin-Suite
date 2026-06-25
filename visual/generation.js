@@ -910,6 +910,47 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         }
     }
 
+    function setupImageGenCollapsibleSections(s) {
+        const states = s.sectionOpenStates;
+        $("[data-ig-collapse]").each(function() {
+            const $panel = $(this);
+            const key = String($panel.attr("data-ig-collapse") || "").trim();
+            if (!key || $panel.data("ig-collapse-ready")) return;
+
+            let $header = $panel.children("[data-ig-collapse-header]").first();
+            if (!$header.length) $header = $panel.children(".ps-rule-title").first();
+            if (!$header.length) return;
+
+            const $bodyChildren = $panel.children().not($header);
+            if (!$bodyChildren.length) return;
+            $bodyChildren.wrapAll(`<div class="ig-collapsible-section-body" data-ig-collapse-body="${psEscapeAttr(key)}"></div>`);
+            const $body = $panel.children(`[data-ig-collapse-body="${key}"]`);
+            const isOpen = states[key] === true;
+
+            $panel.data("ig-collapse-ready", true);
+            $header.css({
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                cursor: "pointer",
+                userSelect: "none",
+                marginBottom: "0"
+            });
+            $header.append(`<i class="fa-solid fa-chevron-down ig-section-chevron" aria-hidden="true" style="margin-left:auto; color:var(--text-muted); font-size:.72rem; transition:transform .2s; transform:${isOpen ? "rotate(180deg)" : "none"};"></i>`);
+            $body.css({ marginTop: "12px", display: isOpen ? "block" : "none" });
+
+            $header.on("click.igCollapse", function(event) {
+                if ($(event.target).closest("button,input,select,textarea,a,.ps-toggle-card").length) return;
+                const nextOpen = !$body.is(":visible");
+                states[key] = nextOpen;
+                saveProfileToMemory();
+                $header.find(".ig-section-chevron").css("transform", nextOpen ? "rotate(180deg)" : "none");
+                $body.stop(true, true)[nextOpen ? "slideDown" : "slideUp"](180);
+            });
+        });
+    }
+
     function renderImageGen(c) {
         c.empty();
         const s = getLocalProfile().imageGen;
@@ -922,6 +963,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.selectedScheduler === undefined) s.selectedScheduler = "simple";
         if (s.manualSceneSelector === undefined) s.manualSceneSelector = false;
         if (s.manualPromptSource === undefined) s.manualPromptSource = "comfy_llm";
+        if (!s.sectionOpenStates || typeof s.sectionOpenStates !== "object" || Array.isArray(s.sectionOpenStates)) s.sectionOpenStates = {};
         const automation = ensureBackgroundAutomationSettings(s);
 
         // LoRA Intelligence state
@@ -946,7 +988,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 <div class="ps-switch"></div>
             </div>
             <!-- Utility / legacy prompt backend -->
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="utility-backend" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-gears"></i> SillyTavern Utility LLM Backend</div>
                     <div style="display: flex; align-items: center; gap: 15px;">
                         <div style="flex: 1;">
@@ -963,7 +1005,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             <div id="ig_main_content" style="display: ${s.enabled ? 'block' : 'none'};">
 
                 <!-- Connection & Workflow -->
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="comfy-workflow" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-link"></i> ComfyUI Server & Workflow</div>
 
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
@@ -979,7 +1021,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     </div>
                 </div>
 
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="runpod" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-cloud"></i> RunPod Serverless</div>
                     <div class="ps-toggle-card ${runpod.enabled ? 'active' : ''}" id="ig_runpod_card" style="padding: 12px 18px; margin-bottom: 15px;">
                         <div style="display:flex; flex-direction:column;">
@@ -1012,7 +1054,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     </div>
                 </div>
 
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="generation-formatting" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-pen-nib"></i> Generation Triggers & Formatting</div>
 
                     <div style="display: flex; gap: 15px; margin-bottom: 15px;">
@@ -1224,7 +1266,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 </div>
 
                 <!-- Parameters Grid -->
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="image-parameters" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-sliders"></i> Image Parameters</div>
 
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
@@ -1285,7 +1327,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 </div>
 
                 <!-- LoRA Lab -->
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         ${[1,2,3,4].map(i => `
@@ -1307,8 +1349,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 </div>
 
                 <!-- LoRA Intelligence -->
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div data-ig-collapse="lora-intelligence" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7;"><i class="fa-solid fa-brain"></i> LoRA Intelligence</div>
                         <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
                             <div class="ps-switch" style="transform: scale(0.8);"></div>
@@ -1359,8 +1401,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         </div>
 
                         <!-- Prompt Assembly -->
-                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <div data-ig-collapse="prompt-assembly" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                            <div data-ig-collapse-header style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                                 <div style="flex: 1; min-width: 220px;">
                                     <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-main);">Prompt Assembly</div>
                                     <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">Character Guided gives the prompt model matched stable character references; LLM Full is looser.</div>
@@ -1383,8 +1425,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         </div>
 
                         <!-- LoRA Browser -->
-                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div data-ig-collapse="lora-browser" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                            <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="display: flex; align-items: center; gap: 10px;">
                                     <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-folder-tree" style="color: #a855f7; margin-right: 6px;"></i>LoRA Browser</span>
                                     <select id="li_scope_select" class="ps-modern-input" style="width: auto; padding: 4px 10px; font-size: 0.7rem; font-weight: 600;">
@@ -1403,8 +1445,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         </div>
 
                         <!-- AI Character Assignment -->
-                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div data-ig-collapse="character-assignment" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                            <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-users-gear" style="color: var(--gold); margin-right: 6px;"></i>AI Character → LoRA Assignment</span>
                                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                     <button id="li_analysis_export_btn" class="ps-modern-btn secondary" title="Export assignments, booru fields, LoRA files, trigger keywords, and analysis-mode settings" style="padding: 6px 10px; font-size: 0.7rem;">
@@ -1425,7 +1467,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         </div>
 
                         <!-- Manual Render -->
-                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div data-ig-collapse="manual-render" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
                             <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-keyboard"></i> Manual Render</div>
                             <div style="display:flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; flex-wrap: wrap;">
                                 <div style="flex: 1; min-width: 220px;">
@@ -1447,9 +1489,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
                             <div id="li_prompt_preview_header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; cursor: pointer; user-select: none;">
                                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);"><i class="fa-solid fa-bug" style="color: #3b82f6; margin-right: 6px;"></i>Debug Viewers</span>
-                                <i id="li_prompt_chevron" class="fa-solid fa-chevron-down" style="color: var(--text-muted); transition: transform 0.2s;"></i>
+                                <i id="li_prompt_chevron" class="fa-solid fa-chevron-down" style="color: var(--text-muted); transition: transform 0.2s; transform:${s.sectionOpenStates["debug-viewers"] === true ? "rotate(180deg)" : "none"};"></i>
                             </div>
-                            <div id="li_prompt_preview_body" style="display: none; padding: 0 15px 15px 15px;">
+                            <div id="li_prompt_preview_body" style="display:${s.sectionOpenStates["debug-viewers"] === true ? "block" : "none"}; padding: 0 15px 15px 15px;">
                                 <div id="li_last_comfy_api_wrap" style="margin-bottom: 14px;">
                                     <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
                                         <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-main);"><i class="fa-solid fa-paper-plane" style="color: #a855f7; margin-right: 6px;"></i>Last ComfyUI <span style="font-family: Consolas, Monaco, monospace; font-size: 0.78rem;">/prompt</span> request</span>
@@ -1484,6 +1526,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if ($backgroundModesPanel.length && $characterAnalysisCard.length) {
             $backgroundModesPanel.insertAfter($characterAnalysisCard);
         }
+        setupImageGenCollapsibleSections(s);
 
         // --- EVENTS & BINDINGS ---
         $("#ig_enable_card").on("click", function() {
@@ -1868,8 +1911,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         $("#li_prompt_preview_header").on("click", function() {
             const body = $("#li_prompt_preview_body");
             const chevron = $("#li_prompt_chevron");
-            if (body.is(":visible")) { body.slideUp(200); chevron.css("transform", "rotate(0deg)"); }
-            else { body.slideDown(200); chevron.css("transform", "rotate(180deg)"); }
+            const nextOpen = !body.is(":visible");
+            s.sectionOpenStates["debug-viewers"] = nextOpen;
+            saveProfileToMemory();
+            if (nextOpen) { body.slideDown(200); chevron.css("transform", "rotate(180deg)"); }
+            else { body.slideUp(200); chevron.css("transform", "rotate(0deg)"); }
         });
         $("#li_last_comfy_req_view").on("change", function() { igRefreshLastComfyApiPanel(); });
         $("#li_last_comfy_req_copy").on("click", async function() {
@@ -2472,6 +2518,29 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (!value || typeof value !== "object") return false;
         if (Array.isArray(value)) return value.some(item => igWorkflowContainsPlaceholder(item, placeholder));
         return Object.values(value).some(item => igWorkflowContainsPlaceholder(item, placeholder));
+    }
+
+    function igExtractComfyGeneratedPrompt(historyEntry, workflow) {
+        const outputs = historyEntry?.outputs;
+        if (!outputs || typeof outputs !== "object") return "";
+        const nanoNodeIds = Object.entries(workflow || {})
+            .filter(([, node]) => node?.class_type === "MeguminNanoGPTText")
+            .map(([nodeId]) => String(nodeId));
+        for (const nodeId of nanoNodeIds) {
+            const nodeOutput = outputs[nodeId];
+            if (!nodeOutput || typeof nodeOutput !== "object") continue;
+            const candidates = [
+                nodeOutput.text,
+                nodeOutput.generated_text,
+                nodeOutput.prompt,
+                nodeOutput.result
+            ];
+            for (const candidate of candidates) {
+                const value = Array.isArray(candidate) ? candidate[0] : candidate;
+                if (typeof value === "string" && value.trim()) return stripUtilityThinkingWrapper(value);
+            }
+        }
+        return "";
     }
 
     function igCollectWorkflowLoraNodes(workflow) {
@@ -4281,6 +4350,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 const historyRes = await fetch(`${s.comfyUrl}/history/${data.prompt_id}`);
                 const h = await historyRes.json();
                 if (!h[data.prompt_id]) continue;
+                const generatedPrompt = igExtractComfyGeneratedPrompt(h[data.prompt_id], workflow);
                 let finalImage = null;
                 for (const nodeId in h[data.prompt_id].outputs) {
                     const nodeOut = h[data.prompt_id].outputs[nodeId];
@@ -4292,7 +4362,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 const response = await fetch(imgUrl);
                 const base64Raw = await igReadBlobAsDataUrl(await response.blob());
                 const { base64Clean, format } = await igMaybeCompressDataUrl(base64Raw, s);
-                await igAttachGeneratedImage(base64Clean, finalPrompt, target, format);
+                await igAttachGeneratedImage(base64Clean, generatedPrompt || finalPrompt, target, format);
                 if (!background) $("#kazuma_progress_overlay").hide();
                 return;
             }
