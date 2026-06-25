@@ -189,7 +189,13 @@ function initProfile() {
                 qwenMinConfidence: 0.7,
                 smartSearchLibrary: true,
                 smartGenerateFallback: true,
+                qwenStatus: "Idle",
+                qwenStatusAt: 0,
+                lastProcessedRevisionKey: "",
+                lastProcessedMessageIndex: -1,
                 batchEnabled: false,
+                panelOpen: false,
+                queuePaused: false,
                 batchPositions: ["Missionary", "Cowgirl", "Doggy Style", "Spooning", "Blowjob", "Cunnilingus"],
                 batchMaleAnatomy: "huge",
                 library: [],
@@ -2301,6 +2307,7 @@ async function npcGeneratePfp(npcName) {
             for (const key in node.inputs) {
                 const val = node.inputs[key];
                 if (val === "%prompt%") node.inputs[key] = promptText;
+                if (val === "%ai_text%") node.inputs[key] = promptText;
                 if (val === "%negative_prompt%") node.inputs[key] = s.customNegative || "";
                 if (val === "%seed%") node.inputs[key] = finalSeed;
                 if (val === "%sampler%") node.inputs[key] = s.selectedSampler || "euler";
@@ -4993,8 +5000,18 @@ jQuery(async () => {
 
 
                 await visualGeneration.handleMessageReceived();
-                await visualGeneration.handleBackgroundAutomation();
+                await visualGeneration.handleBackgroundAutomation("message-received");
             });
+            if (event_types.MESSAGE_SWIPED) {
+                eventSource.on(event_types.MESSAGE_SWIPED, async () => {
+                    await visualGeneration.handleBackgroundAutomation("message-rerolled");
+                });
+            }
+            if (event_types.MESSAGE_EDITED) {
+                eventSource.on(event_types.MESSAGE_EDITED, async () => {
+                    await visualGeneration.handleBackgroundAutomation("message-edited");
+                });
+            }
             visualGeneration.registerImageSwipeHandler();
         }
 

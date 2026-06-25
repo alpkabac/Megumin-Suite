@@ -84,7 +84,13 @@ export function createVisualGeneration(api) {
         qwenMinConfidence: 0.7,
         smartSearchLibrary: true,
         smartGenerateFallback: true,
+        qwenStatus: "Idle",
+        qwenStatusAt: 0,
+        lastProcessedRevisionKey: "",
+        lastProcessedMessageIndex: -1,
         batchEnabled: false,
+        panelOpen: false,
+        queuePaused: false,
         batchPositions: ["Missionary", "Cowgirl", "Doggy Style", "Spooning", "Blowjob", "Cunnilingus"],
         batchMaleAnatomy: "huge",
         library: [],
@@ -1034,17 +1040,22 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     </div>
                 </div>
 
-                <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
+                <div id="ig_bg_modes_panel" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 20px; overflow:hidden;">
+                    <div id="ig_bg_modes_header" style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 15px; cursor:pointer; user-select:none;">
                         <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-layer-group"></i> Background Visual Modes</div>
-                        <span id="ig_bg_queue_status" style="font-size:0.7rem; color:var(--text-muted);">${backgroundImageWorkerActive ? "Working" : "Idle"} · ${backgroundImageQueue.length} queued</span>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span id="ig_bg_qwen_status_compact" title="Latest Smart Qwen activity" style="font-size:0.66rem; color:#a855f7; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Qwen: ${psEscapeText(automation.qwenStatus || "Idle")}</span>
+                            <span id="ig_bg_queue_status" style="font-size:0.7rem; color:var(--text-muted);">${automation.queuePaused ? "Paused" : (backgroundImageWorkerActive ? "Working" : "Idle")} · ${backgroundImageQueue.length} queued</span>
+                            <i id="ig_bg_modes_chevron" class="fa-solid fa-chevron-down" style="color:var(--text-muted); transition:transform .2s; transform:${automation.panelOpen ? 'rotate(180deg)' : 'none'};"></i>
+                        </div>
                     </div>
+                    <div id="ig_bg_modes_body" style="display:${automation.panelOpen ? 'block' : 'none'}; padding:0 15px 15px;">
                     <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:14px;">These modes share one low-priority queue. RP continues normally, and completed images are attached to the message that started the job.</div>
 
                     <div class="ps-toggle-card ${automation.autoEnabled ? 'active' : ''}" id="ig_bg_auto_card" style="padding:12px 18px; margin-bottom:10px;">
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight:600; font-size:0.85rem;">RP Auto-Generation</span>
-                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Deterministic scene triggers only. Does not use Qwen or the batch library.</div>
+                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Builds prompts directly from UI pre-tags, matched character tags, participant/anatomy tags, and detected scene/position tags. No LLM.</div>
                         </div>
                         <div class="ps-switch"></div>
                     </div>
@@ -1071,7 +1082,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     <div class="ps-toggle-card ${automation.smartEnabled ? 'active' : ''}" id="ig_bg_qwen_card" style="padding:12px 18px; margin-bottom:10px;">
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight:600; font-size:0.85rem;">Smart Qwen Mode (local)</span>
-                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Classifies the current RP text, searches ready batch images, then optionally requests a fresh render.</div>
+                            <div style="margin-top:2px; font-size:0.68rem; color:var(--text-muted);">Optional classifier/library router only. Fresh renders still use deterministic tag chaining; Qwen never writes the image prompt.</div>
                         </div>
                         <div class="ps-switch"></div>
                     </div>
@@ -1087,6 +1098,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                             <input id="ig_bg_qwen_confidence" type="number" min="0" max="1" step="0.05" class="ps-modern-input" value="${automation.qwenMinConfidence}" style="padding:6px; font-size:0.72rem;" />
                         </div>
                         <button id="ig_bg_qwen_test" class="ps-modern-btn secondary" style="padding:7px 10px;"><i class="fa-solid fa-microchip"></i> Test Qwen</button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; margin:-7px 0 16px; padding:8px 10px; border-radius:7px; background:rgba(168,85,247,.08); border:1px solid rgba(168,85,247,.18);">
+                        <i class="fa-solid fa-satellite-dish" style="color:#a855f7;"></i>
+                        <span style="font-size:.68rem; color:var(--text-muted);">Qwen activity:</span>
+                        <span id="ig_bg_qwen_status" style="font-size:.7rem; color:var(--text-main); font-weight:700;">${psEscapeText(automation.qwenStatus || "Idle")}</span>
                     </div>
 
                     <div class="ps-toggle-card ${automation.batchEnabled ? 'active' : ''}" id="ig_bg_batch_card" style="padding:12px 18px; margin-bottom:10px;">
@@ -1108,8 +1124,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     </div>
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
                         <button id="ig_bg_batch_start" class="ps-modern-btn primary" style="padding:7px 12px;"><i class="fa-solid fa-list-check"></i> Queue Character Batch</button>
+                        <button id="ig_bg_queue_pause" class="ps-modern-btn secondary" style="padding:7px 12px;"><i class="fa-solid ${automation.queuePaused ? 'fa-play' : 'fa-pause'}"></i> ${automation.queuePaused ? 'Resume Queue' : 'Pause Queue'}</button>
                         <button id="ig_bg_queue_clear" class="ps-modern-btn secondary" style="padding:7px 12px;"><i class="fa-solid fa-ban"></i> Clear Pending</button>
                         <span style="align-self:center; font-size:0.7rem; color:var(--text-muted);">${automation.library.length} ready library image(s)</span>
+                    </div>
                     </div>
                 </div>
 
@@ -1368,6 +1386,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             </div>
         `);
 
+        // Keep automation beside the character data it consumes instead of among core render parameters.
+        const $backgroundModesPanel = $("#ig_bg_modes_panel").detach();
+        const $characterAnalysisCard = $("#li_assignment_table").closest("div[style*='background: rgba(0,0,0,0.2)']");
+        if ($backgroundModesPanel.length && $characterAnalysisCard.length) {
+            $backgroundModesPanel.insertAfter($characterAnalysisCard);
+        }
+
         // --- EVENTS & BINDINGS ---
         $("#ig_enable_card").on("click", function() {
             s.enabled = !s.enabled;
@@ -1415,6 +1440,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             saveProfileToMemory();
             $(this).toggleClass("active", s.includePromptExamples);
         });
+        $("#ig_bg_modes_header").on("click", function() {
+            automation.panelOpen = !automation.panelOpen;
+            saveProfileToMemory();
+            $("#ig_bg_modes_body").stop(true, true).slideToggle(180);
+            $("#ig_bg_modes_chevron").css("transform", automation.panelOpen ? "rotate(180deg)" : "none");
+        });
         $("#ig_bg_auto_card").on("click", function() {
             automation.autoEnabled = !automation.autoEnabled;
             saveProfileToMemory();
@@ -1445,10 +1476,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         $("#ig_bg_qwen_test").on("click", async function() {
             const btn = $(this);
             btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Testing...');
+            setQwenStatus("Testing local endpoint…");
             try {
                 const result = await classifySceneWithLocalQwen("Two adults are talking together in a quiet room.", [], automation);
+                setQwenStatus(`Connected · ${result.sceneType || "normal"} · ${Math.round((result.confidence || 0) * 100)}%`);
                 toastr.success(`Qwen connected: ${result.sceneType || "normal"} (${Math.round((result.confidence || 0) * 100)}%)`);
             } catch (e) {
+                setQwenStatus(`Error · ${e.message}`);
                 toastr.error("Qwen connection failed: " + e.message);
             } finally {
                 btn.prop("disabled", false).html('<i class="fa-solid fa-microchip"></i> Test Qwen');
@@ -1474,6 +1508,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             } catch (e) {
                 toastr.error(e.message || "Could not queue batch images.");
             }
+        });
+        $("#ig_bg_queue_pause").on("click", function() {
+            automation.queuePaused = !automation.queuePaused;
+            saveProfileToMemory();
+            $(this).html(`<i class="fa-solid ${automation.queuePaused ? 'fa-play' : 'fa-pause'}"></i> ${automation.queuePaused ? 'Resume Queue' : 'Pause Queue'}`);
+            refreshBackgroundQueueStatus();
+            if (!automation.queuePaused) processBackgroundImageQueue();
+            else toastr.info("Queue paused. The active image will finish; pending jobs will wait.");
         });
         $("#ig_bg_queue_clear").on("click", function() {
             const removed = backgroundImageQueue.length;
@@ -2321,7 +2363,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return out;
     }
 
-    function igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4) {
+    function igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, aiText, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4) {
         const fullPayload = { prompt: JSON.parse(JSON.stringify(workflow)) };
         const cs = parseInt(s.clipSkip, 10);
         return {
@@ -2329,6 +2371,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             comfy_url: s.comfyUrl,
             workflow_file: s.currentWorkflowName,
             positive_prompt: finalPrompt,
+            ai_text: aiText,
             negative_prompt: s.customNegative || "",
             final_seed: finalSeed,
             megumin: {
@@ -3807,6 +3850,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
         if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
+        const aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt && !background) {
@@ -3965,6 +4009,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         const comfyRepl = {
             "%prompt%": finalPrompt,
+            "%ai_text%": aiText,
             "%negative_prompt%": s.customNegative || "",
             "%seed%": finalSeed,
             "%sampler%": s.selectedSampler || "euler",
@@ -3997,7 +4042,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             }
         }
 
-        igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
+        igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, aiText, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
         igRefreshLastComfyApiPanel();
 
         if (isRunpodReady(s)) {
@@ -4895,19 +4940,50 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function refreshBackgroundQueueStatus() {
-        const label = `${backgroundImageWorkerActive ? "Working" : "Idle"} · ${backgroundImageQueue.length} queued`;
+        const automation = ensureBackgroundAutomationSettings(getLocalProfile()?.imageGen || {});
+        const state = automation.queuePaused ? "Paused" : (backgroundImageWorkerActive ? "Working" : "Idle");
+        const label = `${state} · ${backgroundImageQueue.length} queued`;
         $("#ig_bg_queue_status").text(label);
     }
 
     function getBackgroundOrigin(message) {
         const chat = getContext().chat || [];
         const index = chat.indexOf(message);
+        const revisionKey = getMessageRevisionKey(message, index);
         return {
             index,
             sendDate: message?.send_date || null,
             name: message?.name || "",
-            originKey: `${getCharacterKey() || "default"}:${message?.send_date || index}:${index}`
+            revisionKey,
+            originKey: `${getCharacterKey() || "default"}:${revisionKey}`
         };
+    }
+
+    function hashBackgroundText(text) {
+        let hash = 2166136261;
+        const value = String(text || "");
+        for (let i = 0; i < value.length; i++) {
+            hash ^= value.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+    }
+
+    function getMessageRevisionKey(message, index) {
+        const swipe = Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
+        const textHash = hashBackgroundText(cleanMessageTextForKeywords(message?.mes || ""));
+        return `${message?.send_date || index}:${index}:${swipe}:${textHash}`;
+    }
+
+    function setQwenStatus(text) {
+        const s = getLocalProfile()?.imageGen;
+        if (!s) return;
+        const automation = ensureBackgroundAutomationSettings(s);
+        automation.qwenStatus = String(text || "Idle");
+        automation.qwenStatusAt = Date.now();
+        $("#ig_bg_qwen_status").text(automation.qwenStatus);
+        $("#ig_bg_qwen_status_compact").text(`Qwen: ${automation.qwenStatus}`).attr("title", automation.qwenStatus);
+        saveProfileToMemory();
     }
 
     function resolveBackgroundOrigin(origin) {
@@ -4940,6 +5016,145 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const chance = Math.max(0, Math.min(100, parseInt(automation.autoRandomChance, 10) || 0));
         const randomMatch = chance > 0 && Math.random() * 100 < chance;
         return mode === "random" ? randomMatch : (triggerMatch || randomMatch);
+    }
+
+    function detectPositionPresetFromScene(text) {
+        const normalized = String(text || "").toLowerCase().replace(/[_-]+/g, " ");
+        const aliases = [
+            ["reverse cowgirl", "Reverse Cowgirl"],
+            ["mating press", "Mating Press"],
+            ["legs over shoulders", "Legs Over Shoulders"],
+            ["against the wall", "Against Wall"],
+            ["doggy style", "Doggy Style"],
+            ["doggystyle", "Doggy Style"],
+            ["deepthroat", "Deepthroat"],
+            ["face sitting", "Face Sitting"],
+            ["facesitting", "Face Sitting"],
+            ["cunnilingus", "Cunnilingus"],
+            ["blowjob", "Blowjob"],
+            ["handjob", "Handjob"],
+            ["footjob", "Footjob"],
+            ["fingering", "Fingering"],
+            ["missionary", "Missionary"],
+            ["cowgirl", "Cowgirl"],
+            ["spooning", "Spooning"],
+            ["lotus", "Lotus"],
+            ["standing oral", "Standing Oral"],
+            ["69", "Oral 69"],
+            ["anal", "Anal"],
+            ["threesome", "Threesome"],
+            ["double penetration", "Double Penetration"],
+            ["paizuri", "Paizuri POV"],
+            ["titfuck", "Titfuck"],
+            ["grinding", "Grinding"],
+            ["lap dance", "Lap Dance"]
+        ];
+        for (const [needle, label] of aliases) {
+            if (normalized.includes(needle)) return NSFW_POSITION_PRESETS.find(p => p.label === label) || null;
+        }
+        if (/\b(?:penetrat(?:e|es|ed|ing|ion)|thrust(?:s|ed|ing)?|fucking|sex)\b/.test(normalized)) {
+            return NSFW_POSITION_PRESETS.find(p => p.label === "Missionary") || null;
+        }
+        return null;
+    }
+
+    function extractDeterministicSceneTags(sceneText) {
+        const text = String(sceneText || "").toLowerCase();
+        const tags = [];
+        const add = (condition, ...values) => { if (condition) tags.push(...values); };
+        add(/\bbed(?:room)?\b/.test(text), "bedroom", "on bed");
+        add(/\b(?:bath|shower|bathroom)\b/.test(text), "bathroom");
+        add(/\b(?:pool|hot tub|jacuzzi)\b/.test(text), "poolside");
+        add(/\b(?:kitchen)\b/.test(text), "kitchen");
+        add(/\b(?:office|desk)\b/.test(text), "office");
+        add(/\b(?:car|vehicle)\b/.test(text), "car interior");
+        add(/\b(?:forest|woods)\b/.test(text), "forest");
+        add(/\b(?:beach|shore)\b/.test(text), "beach");
+        add(/\b(?:night|darkness|moonlight)\b/.test(text), "night", "dim lighting");
+        add(/\b(?:sunlight|daylight|morning)\b/.test(text), "natural light");
+        add(/\b(?:naked|nude|undressed)\b/.test(text), "nude");
+        add(/\btopless\b/.test(text), "topless", "exposed breasts");
+        add(/\b(?:underwear|lingerie|panties|bra)\b/.test(text), "lingerie");
+        add(/\b(?:sweat|sweaty)\b/.test(text), "sweat");
+        add(/\b(?:blush|blushing|flushed)\b/.test(text), "blush", "flushed face");
+        add(/\b(?:moan|moaning)\b/.test(text), "moaning", "open mouth");
+        add(/\b(?:cum|ejaculat(?:e|es|ed|ing|ion))\b/.test(text), "cum", "ejaculation");
+        add(/\b(?:pov|first person)\b/.test(text), "pov");
+        return [...new Set(tags)];
+    }
+
+    function getDeterministicSceneAssignments(s, sceneText, preferredAssignments = null) {
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        if (Array.isArray(preferredAssignments) && preferredAssignments.length) {
+            return preferredAssignments.map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
+        }
+        const all = getModeCharacterAssignments(li, charKey).map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
+        const normalized = String(sceneText || "").toLowerCase();
+        const matched = all.filter(a => a.alwaysInclude || assignmentMatchesRecentChat(a, normalized, all.length <= 1));
+        return matched.length ? matched : (all.length === 1 ? all : []);
+    }
+
+    function buildDeterministicBackgroundPrompt(s, sceneText, options = {}) {
+        const assignments = getDeterministicSceneAssignments(s, sceneText, options.assignments);
+        const position = options.position || detectPositionPresetFromScene(sceneText);
+        const explicit = options.sceneType === "explicit" || isExplicitSceneText(sceneText) || !!position;
+        const sceneTags = extractDeterministicSceneTags(sceneText);
+        const loras = assignments.map(a => a.lora).filter(Boolean);
+        const identityTriggers = loras.flatMap(lora => getVrtlLoraIdentityKeywords(lora) || []);
+        const characterTags = assignments.flatMap(a => getAssignmentTagParts(a, s.loraIntel)).filter(Boolean);
+        const femaleCount = assignments.filter(a => inferAssignmentSex(a) === "female").length;
+        const maleCount = assignments.filter(a => inferAssignmentSex(a) === "male").length;
+        const userSex = String(getLocalProfile()?.userPronouns || "").toLowerCase();
+        let girls = femaleCount;
+        let boys = maleCount;
+        if (explicit && girls + boys < 2) {
+            if (userSex === "female") girls++;
+            else boys++;
+        }
+        if (explicit && girls === 0) girls = 1;
+        if (explicit && boys === 0) boys = 1;
+        const countTags = [
+            girls > 0 ? `${girls}girl${girls > 1 ? "s" : ""}` : "",
+            boys > 0 ? `${boys}boy${boys > 1 ? "s" : ""}` : ""
+        ].filter(Boolean);
+        const positionStaging = position ? getBatchPositionStaging(position.label, position.prompt) : "";
+        const anatomySetting = ensureBackgroundAutomationSettings(s).batchMaleAnatomy || "standard";
+        const anatomy = explicit && batchPositionUsesPenis(position?.label || "")
+            ? (anatomySetting === "huge" ? "huge penis" : (anatomySetting === "large" ? "large penis" : "erect penis"))
+            : "";
+        const baseTags = [
+            buildBooruStandardTagLead(s, s.loraIntel),
+            s.promptExtra,
+            ...countTags,
+            explicit ? "hetero, sex, nude, uncensored" : "",
+            anatomy,
+            ...identityTriggers,
+            ...characterTags,
+            positionStaging,
+            ...sceneTags
+        ].filter(Boolean);
+
+        if (!isNaturalLanguageImageStyle(s.promptStyle)) {
+            return normalizeGeneratedTagField(baseTags.join(", "));
+        }
+
+        const people = assignments.map(a => {
+            const identity = getVrtlLoraIdentityKeywords(a.lora);
+            const appearance = getPlainAssignmentText(a) || getAssignmentTagBlock(a, s.loraIntel);
+            return [a.character, identity?.join(", "), appearance].filter(Boolean).join(": ");
+        }).filter(Boolean).join(" | ");
+        const participantText = explicit
+            ? `${girls} adult ${girls === 1 ? "woman" : "women"} and ${boys} adult ${boys === 1 ? "man" : "men"}`
+            : `${Math.max(1, assignments.length)} adult character${assignments.length === 1 ? "" : "s"}`;
+        return [
+            `A clear image of ${participantText}.`,
+            people ? `Character identities and appearance: ${people}.` : "",
+            positionStaging ? `They are performing this exact action: ${positionStaging}.` : "",
+            anatomy ? `The adult male has a visibly ${anatomy}.` : "",
+            sceneTags.length ? `Visible scene details: ${sceneTags.join(", ")}.` : "",
+            s.promptExtra ? `Additional visual cues: ${s.promptExtra}.` : ""
+        ].filter(Boolean).join(" ");
     }
 
     function parseQwenJson(raw) {
@@ -5019,26 +5234,51 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return true;
     }
 
+    function buildBackgroundAiText(job) {
+        const source = String(job?.sceneText || "").trim();
+        const required = String(job?.directPrompt || "").trim();
+        const position = String(job?.metadata?.position || "").trim();
+        const sceneType = String(job?.metadata?.sceneType || "").trim();
+        return [
+            "Create one finished image-generation prompt from the following source.",
+            "Treat the required visual prompt/tags as mandatory. Preserve exact character identities, LoRA triggers, participant counts, adult anatomy/contact, position, environment, clothing state, and camera cues.",
+            "Return only the final prompt with no explanation.",
+            sceneType ? `Scene type: ${sceneType}` : "",
+            position ? `Required position/action: ${position}` : "",
+            source ? `Roleplay scene:\n${source}` : "",
+            required ? `Required visual prompt/tags:\n${required}` : "",
+        ].filter(Boolean).join("\n\n");
+    }
+
     async function processBackgroundImageQueue() {
         if (backgroundImageWorkerActive) return;
+        const initialAutomation = ensureBackgroundAutomationSettings(getLocalProfile()?.imageGen || {});
+        if (initialAutomation.queuePaused) {
+            refreshBackgroundQueueStatus();
+            return;
+        }
         backgroundImageWorkerActive = true;
         refreshBackgroundQueueStatus();
         while (backgroundImageQueue.length > 0) {
+            const automation = ensureBackgroundAutomationSettings(getLocalProfile()?.imageGen || {});
+            if (automation.queuePaused) break;
             const job = backgroundImageQueue.shift();
             refreshBackgroundQueueStatus();
             try {
                 const s = getLocalProfile()?.imageGen;
                 if (!s?.enabled) throw new Error("Image Generation was disabled.");
-                const gen = await generateImagePromptText({
-                    manualScene: job.manualScene,
-                    chatText: job.sceneText,
-                    extraInstruction: job.extraInstruction
-                });
+                if (!job.directPrompt) throw new Error("Background jobs require a deterministic direct prompt.");
+                const gen = { prompt: job.directPrompt, skipLeadPrefix: false };
                 const target = job.libraryOnly
                     ? { libraryOnly: true, background: true, metadata: job.metadata }
                     : { ...(resolveBackgroundOrigin(job.origin) || {}), background: true, metadata: job.metadata };
                 if (!job.libraryOnly && !target.message) throw new Error("The originating RP message no longer exists.");
-                await igGenerateWithComfy(gen.prompt, target, { skipLeadPrefix: !!gen.skipLeadPrefix, manualScene: job.manualScene, background: true });
+                await igGenerateWithComfy(gen.prompt, target, {
+                    skipLeadPrefix: !!gen.skipLeadPrefix,
+                    manualScene: job.manualScene,
+                    background: true,
+                    aiText: job.aiText || buildBackgroundAiText(job)
+                });
             } catch (e) {
                 console.error("[Megumin Suite] Background image job failed:", e);
             } finally {
@@ -5138,11 +5378,36 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             ? `Depict exactly ${isThreePerson ? "three" : "two"} consenting adults: ${castDescription}. Describe every person and the explicit anatomy/contact in fluent prose. Do not use shorthand such as 1girl or 1boy.`
             : `Mandatory cast and anatomy tags: ${isThreePerson ? "1girl, 2boys" : (primarySex === "male" ? "1boy, 1girl" : "1girl, 1boy")}, hetero, sex, nude, uncensored${anatomy ? `, ${anatomy}` : ""}.`;
         const extraInstruction = `Batch-library render. ${castInstruction} Selected adult character focus: ${primaryName}. Exact act staging: ${staging}${anatomy && naturalLanguage ? `. ${anatomyProse}` : "."} Keep analyzed character identities stable. Do not omit the partner, crop away the required contact, replace penetration with posing, or turn this into a solo pinup.`;
+        const selectedAssignments = manualAssignments;
+        let directPrompt;
+        if (naturalLanguage) {
+            const identities = selectedAssignments.map(a => {
+                const vrtl = getVrtlLoraIdentityKeywords(a.lora);
+                if (vrtl?.length) return `${a.character}: ${vrtl.join(", ")}`;
+                const description = a.plain_description || a.description || getAssignmentTagBlock(a, s.loraIntel);
+                return description ? `${a.character}: ${description}` : a.character;
+            }).filter(Boolean).join(" | ");
+            directPrompt = `${extraInstruction}${identities ? ` Character identity references: ${identities}.` : ""}`;
+        } else {
+            const characterTags = selectedAssignments.flatMap(a => getAssignmentTagParts(a, s.loraIntel)).filter(Boolean);
+            const castTags = isThreePerson ? ["1girl", "2boys"] : (primarySex === "male" ? ["1boy", "1girl"] : ["1girl", "1boy"]);
+            directPrompt = [
+                ...castTags,
+                "hetero",
+                "sex",
+                "nude",
+                "uncensored",
+                anatomy,
+                ...characterTags,
+                staging
+            ].filter(Boolean).join(", ");
+        }
 
         return {
             manualScene: { assignments: manualAssignments, positions: [{ label: positionName, prompt: staging }] },
             sceneText: `${castDescription}, all explicitly adult and consenting, performing this exact act: ${staging}.`,
             extraInstruction,
+            directPrompt,
             characters
         };
     }
@@ -5170,6 +5435,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     libraryOnly: true,
                     sceneText: scenePlan.sceneText,
                     extraInstruction: scenePlan.extraInstruction,
+                    directPrompt: scenePlan.directPrompt,
                     manualScene: scenePlan.manualScene,
                     metadata: {
                         batchKey,
@@ -5185,7 +5451,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         return count;
     }
 
-    async function handleBackgroundAutomation() {
+    async function handleBackgroundAutomation(triggerReason = "message-received") {
         const s = getLocalProfile()?.imageGen;
         if (!s?.enabled) return;
         const automation = ensureBackgroundAutomationSettings(s);
@@ -5194,13 +5460,24 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const message = chat[chat.length - 1];
         if (!message || message.is_user || message.is_system) return;
         const origin = getBackgroundOrigin(message);
+        if (automation.lastProcessedRevisionKey === origin.revisionKey) return;
         if (backgroundOriginKeys.has(origin.originKey)) return;
         const aiCount = chat.filter(m => !m.is_user && !m.is_system).length;
         const cooldown = Math.max(0, parseInt(automation.cooldownReplies, 10) || 0);
         const lastAutoAiCount = parseInt(automation.lastAutoAiCount, 10) || 0;
-        if (lastAutoAiCount > 0 && aiCount - lastAutoAiCount <= cooldown) return;
+        const isMessageRevision = automation.lastProcessedMessageIndex === origin.index && automation.lastProcessedRevisionKey !== origin.revisionKey;
+        if (!isMessageRevision && lastAutoAiCount > 0 && aiCount - lastAutoAiCount <= cooldown) {
+            if (automation.smartEnabled) setQwenStatus(`Skipped · cooldown (${triggerReason})`);
+            return;
+        }
         const sceneText = getSceneSnapshotForMessage(message);
-        if (!sceneText || findZImageForbiddenMinorTerm(sceneText)) return;
+        if (!sceneText || findZImageForbiddenMinorTerm(sceneText)) {
+            if (automation.smartEnabled) setQwenStatus("Skipped · empty or age-safety guard");
+            return;
+        }
+        automation.lastProcessedRevisionKey = origin.revisionKey;
+        automation.lastProcessedMessageIndex = origin.index;
+        saveProfileToMemory();
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
         const assignments = getModeCharacterAssignments(li, charKey).map(ensureStructuredCharacterAssignment).filter(a => !a.neverInclude);
@@ -5208,11 +5485,13 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         if (automation.smartEnabled) {
             try {
+                setQwenStatus(`Checking ${triggerReason.replace(/-/g, " ")}…`);
                 const analysis = await classifySceneWithLocalQwen(sceneText, knownNames, automation);
                 if (analysis.trigger && analysis.confidence >= Number(automation.qwenMinConfidence || 0.7)) {
                     if (automation.smartSearchLibrary) {
                         const ready = findBestLibraryImage(analysis, automation);
                         if (ready && await attachLibraryImageToOrigin(ready, origin)) {
+                            setQwenStatus(`Library hit · ${analysis.position || analysis.sceneType} · attached to message ${origin.index + 1}`);
                             automation.lastAutoAiCount = aiCount;
                             saveProfileToMemory();
                             return;
@@ -5220,31 +5499,51 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     }
                     if (automation.smartGenerateFallback) {
                         const selected = assignments.filter(a => analysis.characters.some(name => name.toLowerCase() === String(a.character || "").toLowerCase()));
+                        const position = analysis.position
+                            ? (NSFW_POSITION_PRESETS.find(p => p.label.toLowerCase() === analysis.position.toLowerCase()) || { label: analysis.position, prompt: analysis.position })
+                            : detectPositionPresetFromScene(sceneText);
+                        const directPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+                            assignments: selected.length ? selected : null,
+                            position,
+                            sceneType: analysis.sceneType
+                        });
                         enqueueBackgroundImageJob({
                             priority: "smart",
                             origin,
                             originKey: origin.originKey,
                             sceneText,
-                            manualScene: selected.length ? { assignments: selected, names: selected.map(a => a.character) } : null,
-                            extraInstruction: `Local scene-router summary: ${analysis.query || analysis.position || analysis.sceneType}. Preserve the latest RP moment exactly.`,
+                            directPrompt,
+                            manualScene: selected.length ? { assignments: selected, positions: position ? [position] : [] } : null,
                             metadata: { source: "qwen", ...analysis }
                         });
+                        setQwenStatus(`No library match · render queued for message ${origin.index + 1}`);
                         automation.lastAutoAiCount = aiCount;
                         saveProfileToMemory();
                         return;
                     }
+                    setQwenStatus("Matched scene · no fallback action enabled");
+                } else {
+                    setQwenStatus(`No fetch · ${Math.round(analysis.confidence * 100)}% confidence${analysis.trigger ? " below threshold" : ""}`);
                 }
             } catch (e) {
                 console.warn("[Megumin Suite] Smart Qwen mode skipped this message:", e);
+                setQwenStatus(`Error · ${e.message}`);
             }
         }
 
         if (automation.autoEnabled && shouldAutoGenerateScene(sceneText, automation)) {
+            const position = detectPositionPresetFromScene(sceneText);
+            const directPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+                position,
+                sceneType: isExplicitSceneText(sceneText) ? "explicit" : "normal"
+            });
             enqueueBackgroundImageJob({
                 priority: "auto",
                 origin,
                 originKey: origin.originKey,
                 sceneText,
+                directPrompt,
+                manualScene: position ? { assignments: getDeterministicSceneAssignments(s, sceneText), positions: [position] } : null,
                 metadata: { source: "auto", sceneType: isExplicitSceneText(sceneText) ? "explicit" : "normal" }
             });
             automation.lastAutoAiCount = aiCount;

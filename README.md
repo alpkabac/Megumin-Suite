@@ -10,6 +10,22 @@ llama-server.exe -m .\Qwen2-0.5B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 80
 
 Use `http://127.0.0.1:8080/v1/chat/completions` in Smart Qwen settings. `--n-gpu-layers 0` keeps inference on CPU; use `--n-gpu-layers all` for GPU inference. The model only classifies RP text and selects batch-library metadata; it does not inspect generated images.
 
+## NanoGPT inside ComfyUI
+
+The repository includes a lightweight custom node at:
+
+```text
+comfyui_custom_nodes/ComfyUI-Megumin-NanoGPT
+```
+
+Copy that directory into `ComfyUI/custom_nodes/` and restart ComfyUI. Add **Megumin NanoGPT Text**, put `%ai_text%` in its `ai_text` widget, and connect its `text` output to the positive CLIP text encoder.
+
+- `%prompt%` is the deterministic ready-to-render prompt.
+- `%ai_text%` is an optional richer source package containing the RP scene and mandatory visual tags.
+- Workflows without `%ai_text%` continue to work unchanged.
+
+For safer key storage, set `NANOGPT_API_KEY` before starting ComfyUI instead of saving the key in workflow JSON.
+
 # beta 17/05/26
 * added full mamory manager change from Cohee/jina-embeddings-v2-base-en to Xenova/all-MiniLM-L6-v2 if you going to use Semantic Embeddings. i recommend only using the keywords its faster and do 90% like Semantic Embeddings.
 * added NPC bank.

@@ -1,5 +1,6 @@
 export const KAZUMA_PLACEHOLDERS = [
         { key: '"%prompt%"', desc: "Positive Prompt (Text)" },
+        { key: '"%ai_text%"', desc: "AI Prompt Source Text (optional)" },
         { key: '"%negative_prompt%"', desc: "Negative Prompt (Text)" },
         { key: '"%seed%"', desc: "Seed (Integer)" },
         { key: '"%steps%"', desc: "Sampling Steps (Integer)" },
