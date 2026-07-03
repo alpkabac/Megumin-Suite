@@ -42,7 +42,6 @@ const visualGeneration = createVisualGeneration({
 
 const {
     renderImageGen,
-    renderVideoGen,
     toggleQuickGenButton,
     igManualGenerate,
     getCleanedChatHistory,
@@ -221,7 +220,7 @@ function initProfile() {
                 useDanbooruTags: true,
                 ensureCharacterTag: false,
                 useCharDescriptions: false,
-                descriptionStyle: 'booru',
+                descriptionStyle: 'natural',
                 promptAssemblyMode: 'structured',
                 assignmentViewMode: 'structured',
                 globalActiveLoras: [],
@@ -236,43 +235,6 @@ function initProfile() {
                 lastCharacterAnalysisResponse: "",
                 compiledPromptOverride: ""
             }
-        },
-        videoGen: {
-            enabled: false,
-            generatorBackend: "direct",
-            comfyUrl: "http://127.0.0.1:8188",
-            workflowPath: "wan-api.json",
-            firstFrameImage: "",
-            lastFrameImage: "",
-            useLastFrame: false,
-            promptStyle: "cinematic",
-            motionStyle: "smooth",
-            promptExtra: "",
-            previewPrompt: true,
-            customNegative: "censored, mosaic, bar censor, pixelated, bloom, blurry, out of focus, low detail, bad anatomy, ugly, overexposed, underexposed, distorted face, extra limbs, cartoonish, 3d render artifacts, duplicate people, unnatural lighting, bad composition, missing shadows, low resolution, poorly textured, glitch, noise, grain, static, motionless, still frame, stylized, artwork, painting, illustration, watermark, text, logo, subtitle, flickering, frame inconsistency, morphing body, camera movement, camera pan, camera zoom, shaky cam",
-            customSeed: -1,
-            seconds: 5,
-            fps: 16,
-            stepsTotal: 4,
-            refinerStep: 2,
-            cfg: 1,
-            sampler: "euler",
-            scheduler: "linear_quadratic",
-            precisionPreset: "0.65 MP - Balanced",
-            resolutionPreset: "480p",
-            aspectPreset: "9:16 - Social",
-            swapAspect: false,
-            outputPrefix: "video/%date%/%time%",
-            outputFormat: "video/h264-mp4",
-            crf: 22,
-            enableUpscale: true,
-            upscaleMultiplier: 2,
-            upscaleQuality: "ULTRA",
-            enableSmoothLora: false,
-            lowLoraStrength: 0.8,
-            highLoraStrength: 0.8,
-            settingsLocked: false,
-            manualPrompt: ""
         },
         memoryCore: {
             enabled: false,
@@ -332,10 +294,6 @@ function initProfile() {
     if (!localProfile.imageGen.runpod) localProfile.imageGen.runpod = JSON.parse(JSON.stringify(defaults.imageGen.runpod));
     Object.keys(defaults.imageGen.runpod).forEach(k => {
         if (localProfile.imageGen.runpod[k] === undefined) localProfile.imageGen.runpod[k] = defaults.imageGen.runpod[k];
-    });
-    if (!localProfile.videoGen) localProfile.videoGen = defaults.videoGen;
-    Object.keys(defaults.videoGen).forEach(k => {
-        if (localProfile.videoGen[k] === undefined) localProfile.videoGen[k] = defaults.videoGen[k];
     });
     if (!localProfile.storyPlan) localProfile.storyPlan = defaults.storyPlan;
     if (!localProfile.memoryCore) localProfile.memoryCore = defaults.memoryCore;
@@ -528,7 +486,6 @@ const tabsUI = [
     { title: "Story Planner", sub: "Generate and track future plot developments.", icon: "fa-map", render: renderStoryPlanner },
     { title: "Dynamic Ban List", sub: "Scan and ban repetitive AI phrases.", icon: "fa-ban", render: renderBanList },
     { title: "Image Generation", sub: "Wire up ComfyUI to auto-generate scene images during roleplay.", icon: "fa-image", render: renderImageGen },
-    { title: "Video Generation", sub: "Use the WAN workflow to generate scene videos with ComfyUI.", icon: "fa-video", render: renderVideoGen },
     { title: "NPCs Bank", sub: "Automatically extract and track significant NPCs in the story.", icon: "fa-address-book", render: renderNpcBank },
     { title: "Memory Core", sub: "Advanced 3-Tier Context & History Management.", icon: "fa-memory", render: renderMemoryCore }
 ];
@@ -602,9 +559,8 @@ function applyTabToAll() {
         6: ["storyPlan"],
         7: ["banList"],
         8: ["imageGen"],
-        9: ["videoGen"],
-        10: ["npcBank"],
-        11: ["memoryCore"]
+        9: ["npcBank"],
+        10: ["memoryCore"]
     };
 
     const keysToSync = tabKeys[currentTab];
@@ -5004,18 +4960,7 @@ jQuery(async () => {
 
 
                 await visualGeneration.handleMessageReceived();
-                await visualGeneration.handleBackgroundAutomation("message-received");
             });
-            if (event_types.MESSAGE_SWIPED) {
-                eventSource.on(event_types.MESSAGE_SWIPED, async () => {
-                    await visualGeneration.handleBackgroundAutomation("message-rerolled");
-                });
-            }
-            if (event_types.MESSAGE_EDITED) {
-                eventSource.on(event_types.MESSAGE_EDITED, async () => {
-                    await visualGeneration.handleBackgroundAutomation("message-edited");
-                });
-            }
             visualGeneration.registerImageSwipeHandler();
         }
 
