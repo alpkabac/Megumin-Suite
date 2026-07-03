@@ -29,6 +29,9 @@ export function createVisualGeneration(api) {
 
     const getLocalProfile = api.getLocalProfile;
     const SHOW_RUNPOD_IMAGE_BACKEND = false;
+    const PS_BAD_STUFF_REGEX = globalThis.PS_BAD_STUFF_REGEX instanceof RegExp
+        ? globalThis.PS_BAD_STUFF_REGEX
+        : /$a/;
 
     let activeImageGenRequest = null;
     let activeLoraAssignRequest = null;
