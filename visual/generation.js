@@ -179,6 +179,7 @@ export function createVisualGeneration(api) {
     const IMAGE_SCENE_FIDELITY_INSTRUCTION = "Scene fidelity: derive the image from the latest visible moment in the chat, not a generic mood. Preserve who is present, subject count, body placement, role/orientation, pose, contact points, clothing/nudity state, expression, camera angle, and setting. For adult/NSFW scenes, name the specific position or act when it is present in the chat or Extra field, and use concrete visual staging instead of vague terms like intimate, sensual, passionate, or suggestive. Do not swap to an unrelated pose, solo portrait, pinup, or aftermath unless the chat actually says so.";
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
+    const IMAGE_ADULT_PROSE_PRECISION_INSTRUCTION = "Adult prose precision: if the scene is explicit and all visible participants are adults, use direct natural-language visual description and concrete staging instead of euphemisms or tag dumps. Describe only the anatomy, contact, expression, fluids, body placement, camera angle, and visible action that are actually present in the chat or Extra field. Do not add an explicit act that is not present.";
 
     const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
@@ -272,6 +273,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!text) return base || "None";
         const current = base && base !== "None" ? String(base).trim() : "";
         return current ? `${current}\n${text}` : text;
+    }
+
+    function getAdultPrecisionInstruction(s) {
+        return isNaturalLanguageImageStyle(s?.promptStyle) || isBooruStandardImageMode(s, s?.loraIntel)
+            ? IMAGE_ADULT_PROSE_PRECISION_INSTRUCTION
+            : IMAGE_ADULT_TAG_PRECISION_INSTRUCTION;
     }
 
     function escapeRegex(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -913,6 +920,19 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (s.manualPrompt === undefined) s.manualPrompt = "";
         ensureLoraIntelDefaults(s.loraIntel);
         const li = s.loraIntel;
+        const adultPrecisionTitle = isNaturalLanguageImageStyle(s.promptStyle) ? "Adult Prose Precision" : "Adult Tag Precision";
+        const adultPrecisionDesc = isNaturalLanguageImageStyle(s.promptStyle)
+            ? "Uses direct natural-language visual terms for explicit adult scenes."
+            : "Uses direct visual terms for explicit adult scenes.";
+        const structuredRulesTitle = isNaturalLanguageImageStyle(s.promptStyle) ? "Structured Prose Rules" : "Structured Prompt Rules";
+        const structuredRulesDesc = isNaturalLanguageImageStyle(s.promptStyle)
+            ? "Adds natural-language ordering and anti-feature-bleed rules."
+            : "Adds beta-style ordering and anti-feature-bleed rules.";
+        const promptExamplesEffective = s.includePromptExamples;
+        const promptExamplesTitle = s.promptStyle === "krea2" ? "Krea 2 Prose Examples" : "Template Examples";
+        const promptExamplesDesc = s.promptStyle === "krea2"
+            ? "Adds Krea 2 prose shape references for steadier composition."
+            : "Adds examples for steadier composition at higher token cost.";
         const charKey = getCharacterKey() || "default";
         ensureStructuredCharacterAssignments(li, charKey);
         syncCurrentModeCharacterAssignments(li, charKey);
@@ -1043,22 +1063,22 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 15px;">
                         <div class="ps-toggle-card ${s.structuredPromptRules ? 'active' : ''}" id="ig_structured_rules_card" style="padding: 12px 14px;">
                             <div style="display:flex; flex-direction:column;">
-                                <span style="font-weight:600; font-size:0.8rem;">Structured Prompt Rules</span>
-                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Adds beta-style ordering and anti-feature-bleed rules.</div>
+                                <span style="font-weight:600; font-size:0.8rem;">${structuredRulesTitle}</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">${structuredRulesDesc}</div>
                             </div>
                             <div class="ps-switch"></div>
                         </div>
                         <div class="ps-toggle-card ${s.adultTagPrecision ? 'active' : ''}" id="ig_adult_precision_card" style="padding: 12px 14px;">
                             <div style="display:flex; flex-direction:column;">
-                                <span style="font-weight:600; font-size:0.8rem;">Adult Tag Precision</span>
-                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Uses direct visual terms for explicit adult scenes.</div>
+                                <span style="font-weight:600; font-size:0.8rem;">${adultPrecisionTitle}</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">${adultPrecisionDesc}</div>
                             </div>
                             <div class="ps-switch"></div>
                         </div>
-                        <div class="ps-toggle-card ${s.includePromptExamples ? 'active' : ''}" id="ig_prompt_examples_card" style="padding: 12px 14px;">
+                        <div class="ps-toggle-card ${promptExamplesEffective ? 'active' : ''}" id="ig_prompt_examples_card" style="padding: 12px 14px;">
                             <div style="display:flex; flex-direction:column;">
-                                <span style="font-weight:600; font-size:0.8rem;">Template Examples</span>
-                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">Adds examples for steadier composition at higher token cost.</div>
+                                <span style="font-weight:600; font-size:0.8rem;">${promptExamplesTitle}</span>
+                                <div style="margin-top:2px; font-size: 0.65rem; color: var(--text-muted);">${promptExamplesDesc}</div>
                             </div>
                             <div class="ps-switch"></div>
                         </div>
@@ -1408,7 +1428,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             rp.timeoutMs = Math.max(30000, parseInt($(e.target).val(), 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
             saveProfileToMemory();
         });
-        $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); renderImageGen(c); });
         $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_anima_max_tags").on("input", (e) => {
             let v = parseInt($(e.target).val());
@@ -1478,7 +1498,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 s.savedWorkflowStates[oldWorkflow] = {
                     selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-                    promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
+                    promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
                     structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
                     manualSceneSelector: s.manualSceneSelector
                 };
@@ -2988,12 +3008,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 extraParts.push(`Player character visibility:\n${personaGuidance}`);
             }
             if (s.adultTagPrecision) {
-                extraParts.push(IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+                extraParts.push(getAdultPrecisionInstruction(s));
             }
             if (manualSceneInstruction) {
                 extraParts.push(manualSceneInstruction);
             }
-            if (s.includePromptExamples || s.promptStyle === "krea2") {
+            if (s.includePromptExamples) {
                 extraParts.push(`Template example:\n${buildImagePromptExamples(s, booruStd)}`);
             }
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
@@ -3021,12 +3041,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 extraStr += `\nPlayer character visibility: ${personaGuidance}`;
             }
             if (s.adultTagPrecision) {
-                extraStr = appendImagePromptInstruction(extraStr, IMAGE_ADULT_TAG_PRECISION_INSTRUCTION);
+                extraStr = appendImagePromptInstruction(extraStr, getAdultPrecisionInstruction(s));
             }
             if (manualSceneInstruction) {
                 extraStr = appendImagePromptInstruction(extraStr, manualSceneInstruction);
             }
-            if (s.includePromptExamples || s.promptStyle === "krea2") {
+            if (s.includePromptExamples) {
                 extraStr = appendImagePromptInstruction(extraStr, `Template example: ${buildImagePromptExamples(s, booruStd)}`);
             }
         }
@@ -3783,8 +3803,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                         : `\nMandatory tag prefix (copy exactly at the start of the prompt value, then comma, then your prose): ${booruStableLead}`)
                     : "";
 
-                const adultPrecisionLine = ig.adultTagPrecision ? `\n${IMAGE_ADULT_TAG_PRECISION_INSTRUCTION}` : "";
-                const examplesLine = ig.includePromptExamples || ig.promptStyle === "krea2" ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
+                const adultPrecisionLine = ig.adultTagPrecision ? `\n${getAdultPrecisionInstruction(ig)}` : "";
+                const examplesLine = ig.includePromptExamples ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
 
                 dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}${adultPrecisionLine}${examplesLine}`;
                 dict["[[img2]]"] = `<img prompt="prompt">`;
