@@ -482,6 +482,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         li.descriptionStyle = 'natural';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
         if (li.assignmentViewMode === undefined) li.assignmentViewMode = 'structured';
+        if (li.sendAllCharactersToPromptAi === undefined) li.sendAllCharactersToPromptAi = false;
         if (li.lastCharacterAnalysisResponse === undefined) li.lastCharacterAnalysisResponse = "";
         if (li.characterAnalysisFeedback === undefined) li.characterAnalysisFeedback = "";
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
@@ -606,6 +607,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 descriptionStyle: li.descriptionStyle,
                 promptAssemblyMode: li.promptAssemblyMode,
                 assignmentViewMode: li.assignmentViewMode,
+                sendAllCharactersToPromptAi: !!li.sendAllCharactersToPromptAi,
                 tagFieldToggles: JSON.parse(JSON.stringify(li.tagFieldToggles || {}))
             },
             assignmentMode: getCharacterAssignmentModeKey(li),
@@ -623,7 +625,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureLoraIntelDefaults(li);
 
         const settings = payload.settings && typeof payload.settings === "object" ? payload.settings : {};
-        ["ensureLoras", "useDanbooruTags", "ensureCharacterTag", "useCharDescriptions"].forEach(key => {
+        ["ensureLoras", "useDanbooruTags", "ensureCharacterTag", "useCharDescriptions", "sendAllCharactersToPromptAi"].forEach(key => {
             if (typeof settings[key] === "boolean") li[key] = settings[key];
         });
         ["descriptionStyle", "promptAssemblyMode", "assignmentViewMode"].forEach(key => {
@@ -949,7 +951,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!s.sectionOpenStates || typeof s.sectionOpenStates !== "object" || Array.isArray(s.sectionOpenStates)) s.sectionOpenStates = {};
 
         // LoRA Intelligence state
-        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
+        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', assignmentViewMode: 'structured', sendAllCharactersToPromptAi: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
         if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
         ensureLoraIntelDefaults(s.loraIntel);
@@ -1281,6 +1283,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                     <option value="plain" ${li.assignmentViewMode === 'plain' ? 'selected' : ''}>Plain Text View</option>
                                 </select>
                             </div>
+                            <div class="ps-toggle-card ${li.sendAllCharactersToPromptAi ? 'active' : ''}" id="li_send_all_chars_toggle" style="padding: 10px 12px; margin-top: 12px; min-height: auto; cursor: pointer;">
+                                <div style="display:flex; flex-direction:column;">
+                                    <span style="font-weight:700; font-size:0.78rem; color:var(--text-main);">Send All Character References To Prompt AI</span>
+                                    <div style="margin-top:2px; font-size:0.65rem; color:var(--text-muted);">Provides every analyzed character as a reference library and tells the AI to choose who appears from the latest message.</div>
+                                </div>
+                                <div class="ps-switch" style="transform:scale(0.75);"></div>
+                            </div>
                             <div style="display: ${li.useDanbooruTags ? 'grid' : 'none'}; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 14px;">
                                 ${liTagFieldToggle("li_field_character", "Character Tag", li.tagFieldToggles.characterTag)}
                                 ${liTagFieldToggle("li_field_series", "Series Tag", li.tagFieldToggles.seriesTag)}
@@ -1597,6 +1606,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         });
         $("#li_assignment_view_mode").on("change", function() {
             li.assignmentViewMode = $(this).val();
+            saveProfileToMemory();
+            renderImageGen(c);
+        });
+        $("#li_send_all_chars_toggle").on("click", function(e) {
+            e.stopPropagation();
+            li.sendAllCharactersToPromptAi = !li.sendAllCharactersToPromptAi;
             saveProfileToMemory();
             renderImageGen(c);
         });
@@ -2838,7 +2853,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
         const matched = [];
 
-        for (const a of getActiveCharacterAssignments(li, charKey, manualAssignments)) {
+        for (const a of getPromptAiCharacterAssignments(li, charKey, manualAssignments)) {
             ensureStructuredCharacterAssignment(a);
             const tagBlock = getAssignmentTagBlock(a, li);
             if (!tagBlock) continue;
@@ -2857,7 +2872,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     function getMatchedCharacterAssignments(li, charKey, manualAssignments = null) {
         if (!li || !li.enabled) return [];
-        return getActiveCharacterAssignments(li, charKey, manualAssignments);
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments);
     }
 
     function getActiveCharacterAssignments(li, charKey, manualAssignments = null) {
@@ -2874,6 +2889,30 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const allowEmptyMatch = assignments.length <= 1;
         return assignments
             .filter(a => assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch));
+    }
+
+    function getPromptAiCharacterAssignments(li, charKey, manualAssignments = null) {
+        if (!li) return [];
+        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+            return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
+        }
+        if (li.sendAllCharactersToPromptAi) {
+            return getModeCharacterAssignments(li, charKey)
+                .map(ensureStructuredCharacterAssignment)
+                .filter(a => a && !a.neverInclude);
+        }
+        return getActiveCharacterAssignments(li, charKey, manualAssignments);
+    }
+
+    function shouldPromptAiChooseCharacters(li, manualAssignments = null) {
+        return !!(li?.sendAllCharactersToPromptAi && !(Array.isArray(manualAssignments) && manualAssignments.length > 0));
+    }
+
+    function getPromptAiCharacterChoiceInstruction(li, manualAssignments = null) {
+        if (shouldPromptAiChooseCharacters(li, manualAssignments)) {
+            return "All analyzed character references are provided below as a reference library. Choose which character or characters are actually present from the latest roleplay message/scene, and use only those chosen characters in the image prompt. Do not include every reference character by default, and do not add absent characters just because their reference appears here.";
+        }
+        return "Use these stable appearance cues for who is present, then derive action, pose, expression, temporary state, setting, and composition from the chat scene.";
     }
 
     function getCurrentCharacterTextContext() {
@@ -2976,7 +3015,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     function getMatchedCharacterGuidance(li, charKey, manualAssignments = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
-        return getActiveCharacterAssignments(li, charKey, manualAssignments)
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments)
             .map(a => ({ character: a.character || "character", tags: getStableAssignmentTagBlock(a, li) }))
             .filter(a => a.tags);
     }
@@ -3040,6 +3079,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const manualAssignments = manualScene.assignments;
         const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments) : [];
         const guidedCharacters = characterGuidance.length > 0;
+        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, manualAssignments);
         const personaGuidance = buildPersonaImageGuidance(s, booruStd);
         const manualSceneInstruction = buildManualImageSceneInstruction(manualScene, s, li, booruStd);
 
@@ -3095,12 +3135,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             }
             if (guidedCharacters) {
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
-                extraParts.push(`Matched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat scene. Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
+                extraParts.push(`Character reference library. ${characterChoiceInstruction} Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
-                    extraParts.push(`Character appearance cues (Danbooru-style tags per role). Weave into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
+                    extraParts.push(`Character appearance cues (Danbooru-style tags per role). ${characterChoiceInstruction} Weave the chosen character cues into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
                 }
             }
             if (personaGuidance) {
@@ -3121,14 +3161,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (guidedCharacters) {
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 if (isNaturalLanguageImageStyle(s.promptStyle)) {
-                    extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Translate them into fluent English only: ${guide}`;
+                    extraStr += `\nCharacter reference library. ${characterChoiceInstruction} Translate chosen character cues into fluent English only: ${guide}`;
                 } else {
-                    extraStr += `\nMatched character references. Use these stable appearance cues for who is present, then derive action, pose, expression, state, setting, and composition from the chat. Keep Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
+                    extraStr += `\nCharacter reference library. ${characterChoiceInstruction} Keep chosen Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
                 }
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
                 const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
+                    extraStr += `\n${characterChoiceInstruction}`;
                     if (isNaturalLanguageImageStyle(s.promptStyle)) {
                         extraStr += `\nCharacter appearance shorthand (per role). Fold ONLY into flowing English prose—translate hair, eyes, figure, outfit, and any look-alike references; NEVER output as comma tags, underscores, or token lists: ${booruInstr}`;
                     } else {
@@ -3812,6 +3853,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const charKeyImg = getCharacterKey() || "default";
                 const allowStoredAppearanceGuidance = true;
                 const promptUsesCharacterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
+                const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(igLi);
 
                 const booruStableLead = buildBooruStandardTagLead(ig, igLi);
                 const personaGuidance = buildPersonaImageGuidance(ig, booruStd);
@@ -3846,7 +3888,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     const li = igLi;
                     {
                         const useStableCharacterGuidance = promptUsesCharacterGuidance;
-                        const activeAssignments = getActiveCharacterAssignments(li, charKeyImg);
+                        const activeAssignments = getPromptAiCharacterAssignments(li, charKeyImg);
 
                         if (activeAssignments.length > 0) {
                             let descStrings = [];
@@ -3863,7 +3905,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             });
 
                             if (useStableCharacterGuidance && booruStrings.length > 0) {
-                                liInstructions += "\nUse the matched character references below only as stable appearance guidance for who is present. Derive actions, poses, expressions, temporary state, setting, and composition from the chat scene.";
+                                liInstructions += `\n${characterChoiceInstruction} Derive actions, poses, expressions, temporary state, setting, and composition from the chat scene.`;
                             }
                             if (booruStrings.length > 0) {
                                 if (booruStd) {
@@ -4358,20 +4400,25 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
         const normalizedScene = normalizeManualImageScene(manualScene);
         const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
         const assignments = normalizedScene.assignments.length
             ? normalizedScene.assignments
             : getDeterministicSceneAssignments(s, sceneText);
+        const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments)
+            ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments)
+            : assignments;
+        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, normalizedScene.assignments);
         const characterTags = assignments
             .flatMap(a => getAssignmentTagParts(a, li))
             .filter(Boolean);
         const naturalDescriptionLines = li?.enabled && li.useCharDescriptions
-            ? assignments.map(a => {
+            ? promptReferenceAssignments.map(a => {
                 const desc = getAssignmentNaturalDescription(a);
                 return desc ? `${a.character || "character"}: ${desc}` : "";
             }).filter(Boolean)
             : [];
         const booruReferenceLines = li?.enabled && li.useDanbooruTags
-            ? assignments.map(a => {
+            ? promptReferenceAssignments.map(a => {
                 const tagBlock = getStableAssignmentTagBlock(a, li);
                 return tagBlock ? `${a.character || "character"}: ${tagBlock}` : "";
             }).filter(Boolean)
@@ -4402,6 +4449,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             aiText: [
                 "Create one finished image-generation prompt for the latest visible roleplay moment.",
                 "Infer the action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Do not use or invent a deterministic action classification.",
+                characterReferenceBlock ? characterChoiceInstruction : "",
                 "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
                 selectedActionInstruction,
                 `Roleplay scene:\n${String(sceneText || "").trim()}`,
