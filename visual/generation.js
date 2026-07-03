@@ -1866,6 +1866,32 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return Object.values(value).some(item => igWorkflowContainsPlaceholder(item, placeholder));
     }
 
+    function igBypassNanoTextNodesForStoredPrompt(workflow) {
+        if (!workflow || typeof workflow !== "object") return false;
+        const nanoNodeIds = new Set(Object.entries(workflow)
+            .filter(([, node]) => node?.class_type === "MeguminNanoGPTText")
+            .map(([nodeId]) => String(nodeId)));
+        if (!nanoNodeIds.size) return false;
+
+        const replaceLinks = (value) => {
+            if (Array.isArray(value)) {
+                if (value.length >= 2 && nanoNodeIds.has(String(value[0]))) return "%prompt%";
+                for (let i = 0; i < value.length; i++) value[i] = replaceLinks(value[i]);
+                return value;
+            }
+            if (!value || typeof value !== "object") return value;
+            for (const key of Object.keys(value)) value[key] = replaceLinks(value[key]);
+            return value;
+        };
+
+        for (const [nodeId, node] of Object.entries(workflow)) {
+            if (nanoNodeIds.has(String(nodeId))) continue;
+            if (node?.inputs && typeof node.inputs === "object") replaceLinks(node.inputs);
+        }
+        for (const nodeId of nanoNodeIds) delete workflow[nodeId];
+        return true;
+    }
+
     function igExtractComfyGeneratedPrompt(historyEntry, workflow) {
         const outputs = historyEntry?.outputs;
         if (!outputs || typeof outputs !== "object") return "";
@@ -3327,6 +3353,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } catch (e) { return toastr.error(`Could not load ${s.currentWorkflowName}`); }
 
         let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
+        if (opts?.preserveStoredPrompt) igBypassNanoTextNodesForStoredPrompt(workflow);
         const workflowHasAiText = igWorkflowContainsPlaceholder(workflow, "%ai_text%");
         if (opts?.requireAiTextWorkflow && !workflowHasAiText) {
             $("#kazuma_progress_overlay").hide();
