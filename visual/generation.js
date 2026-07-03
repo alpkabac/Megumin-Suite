@@ -858,6 +858,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         }
     }
 
+    function igCloneLoraSlotArray(value) {
+        return Array.isArray(value) ? value.slice(0, 4) : [false, false, false, false];
+    }
+
+    function igBuildWorkflowStateSnapshot(s) {
+        ensureImageGenLoraArrays(s);
+        return {
+            selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
+            imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
+            promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
+            structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
+            manualSceneSelector: s.manualSceneSelector,
+            selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt,
+            selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
+            selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3,
+            selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
+            loraSlotLocked: igCloneLoraSlotArray(s.loraSlotLocked),
+            loraSlotKeywordManaged: igCloneLoraSlotArray(s.loraSlotKeywordManaged)
+        };
+    }
+
+    function igNormalizeWorkflowStateSnapshot(workflowState) {
+        const out = { ...(workflowState || {}) };
+        if (Array.isArray(out.loraSlotLocked)) out.loraSlotLocked = igCloneLoraSlotArray(out.loraSlotLocked);
+        if (Array.isArray(out.loraSlotKeywordManaged)) out.loraSlotKeywordManaged = igCloneLoraSlotArray(out.loraSlotKeywordManaged);
+        return out;
+    }
+
     function setupImageGenCollapsibleSections(s) {
         const states = s.sectionOpenStates;
         $("[data-ig-collapse]").each(function() {
@@ -1495,23 +1523,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             const oldWorkflow = s.currentWorkflowName;
             if (oldWorkflow) {
                 if (!s.savedWorkflowStates) s.savedWorkflowStates = {};
-                s.savedWorkflowStates[oldWorkflow] = {
-                    selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
-                    imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-                    promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
-                    structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
-                    manualSceneSelector: s.manualSceneSelector
-                };
+                s.savedWorkflowStates[oldWorkflow] = igBuildWorkflowStateSnapshot(s);
             }
             let shouldRenderWorkflowState = false;
             if (s.savedWorkflowStates && s.savedWorkflowStates[newWorkflow]) {
-                const workflowState = { ...s.savedWorkflowStates[newWorkflow] };
-                [
-                    "selectedLora", "selectedLoraWt", "selectedLora2", "selectedLoraWt2",
-                    "selectedLora3", "selectedLoraWt3", "selectedLora4", "selectedLoraWt4",
-                    "loraSlotLocked", "loraSlotKeywordManaged"
-                ].forEach(key => { delete workflowState[key]; });
+                const workflowState = igNormalizeWorkflowStateSnapshot(s.savedWorkflowStates[newWorkflow]);
                 Object.assign(s, workflowState);
+                ensureImageGenLoraArrays(s);
                 toastr.success(`Restored settings for ${newWorkflow}`);
                 shouldRenderWorkflowState = true;
             } else { toastr.info(`New workflow context active`); }
@@ -2756,6 +2774,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             matched.push({ character: a.character, tags: tagBlock });
         }
         return matched;
+    }
+
+    function getAssignmentNaturalDescription(a) {
+        ensureStructuredCharacterAssignment(a);
+        const plain = String(a.plain_description || "").trim();
+        const booruDump = normalizeGeneratedTagField(a.booru_tags || "");
+        if (plain && (!booruDump || normalizeGeneratedTagField(plain) !== booruDump)) return plain;
+        return String(a.description || "").trim();
     }
 
     function getMatchedCharacterAssignments(li, charKey, manualAssignments = null) {
@@ -4252,17 +4278,38 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
         const normalizedScene = normalizeManualImageScene(manualScene);
+        const li = s.loraIntel;
         const assignments = normalizedScene.assignments.length
             ? normalizedScene.assignments
             : getDeterministicSceneAssignments(s, sceneText);
         const characterTags = assignments
-            .flatMap(a => getAssignmentTagParts(a, s.loraIntel))
+            .flatMap(a => getAssignmentTagParts(a, li))
             .filter(Boolean);
+        const naturalDescriptionLines = li?.enabled && li.useCharDescriptions
+            ? assignments.map(a => {
+                const desc = getAssignmentNaturalDescription(a);
+                return desc ? `${a.character || "character"}: ${desc}` : "";
+            }).filter(Boolean)
+            : [];
+        const booruReferenceLines = li?.enabled && li.useDanbooruTags
+            ? assignments.map(a => {
+                const tagBlock = getStableAssignmentTagBlock(a, li);
+                return tagBlock ? `${a.character || "character"}: ${tagBlock}` : "";
+            }).filter(Boolean)
+            : [];
+        const characterReferenceBlock = [
+            naturalDescriptionLines.length
+                ? `Natural-language character appearance references. Use these as stable identity/appearance guidance for who is present; do not treat them as scene action, pose, expression, nudity state, or camera direction:\n${naturalDescriptionLines.join("\n")}`
+                : "",
+            booruReferenceLines.length
+                ? `Booru-style character appearance cues. Preserve identity and translate visual shorthand into the final prompt style, especially for Krea/prose workflows; do not paste raw tags into prose unless the selected image style requires tags:\n${booruReferenceLines.join("\n")}`
+                : ""
+        ].filter(Boolean).join("\n\n");
         const selectedActionTags = normalizedScene.positions
             .map(position => getBatchPositionStaging(position.label, position.prompt))
             .filter(Boolean);
         const configuredTags = normalizeGeneratedTagField([
-            buildBooruStandardTagLead(s, s.loraIntel),
+            buildBooruStandardTagLead(s, li),
             s.promptExtra,
             ...characterTags,
             ...selectedActionTags
@@ -4279,6 +4326,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
                 selectedActionInstruction,
                 `Roleplay scene:\n${String(sceneText || "").trim()}`,
+                characterReferenceBlock,
                 configuredTags ? `Configured UI, character, and LoRA tags:\n${configuredTags}` : "",
                 "Return only the final image-generation prompt with no explanation."
             ].filter(Boolean).join("\n\n")
