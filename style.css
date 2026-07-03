@@ -1871,6 +1871,62 @@
         min-width: 0 !important;
     }
 
+    .li-character-analysis-panel {
+        padding: 14px !important;
+    }
+
+    .li-character-analysis-panel select.ps-modern-input {
+        width: 100% !important;
+    }
+
+    .li-analysis-feedback-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    #li_regen_feedback_btn,
+    #li_analyze_btn {
+        width: 100% !important;
+    }
+
+    .li-assignment-header {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        align-items: stretch !important;
+    }
+
+    .li-assignment-header > div {
+        display: none !important;
+    }
+
+    .li-assignment-header > span,
+    .li-assignment-header > button {
+        margin-left: 0 !important;
+    }
+
+    .li-assignment-header > button {
+        flex: 1 1 120px !important;
+    }
+
+    .li-natural-assignment-row {
+        padding: 12px !important;
+    }
+
+    .li-natural-assignment-row .li-assignment-row-top {
+        align-items: stretch !important;
+    }
+
+    .li-natural-assignment-row .ps-modern-input,
+    .li-natural-assignment-row .ps-modern-btn {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .li-natural-assignment-row textarea.li-edit-desc {
+        min-height: 140px !important;
+        font-size: 0.95rem !important;
+        line-height: 1.5 !important;
+    }
+
     /* Dev mode: editor top bar */
     div[style*="display: flex"][style*="gap: 10px"][style*="margin-bottom: 20px"] {
         flex-wrap: wrap !important;

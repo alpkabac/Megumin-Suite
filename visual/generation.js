@@ -180,8 +180,9 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
     const IMAGE_ADULT_PROSE_PRECISION_INSTRUCTION = "Adult prose precision: if the scene is explicit and all visible participants are adults, use direct natural-language visual description and concrete staging instead of euphemisms or tag dumps. Describe only the anatomy, contact, expression, fluids, body placement, camera angle, and visible action that are actually present in the chat or Extra field. Do not add an explicit act that is not present.";
+    const IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION = "Body-shape guidance for natural-language image prompts: use positive silhouette words instead of body-size negation. Unless a character card, chat, or user feedback explicitly defines a fuller build, adult female characters should be described with an attractive slender-curvy or slim hourglass figure: narrow waist, graceful neck and shoulders, slender arms, toned or softly fit stomach, proportionate soft hips and thighs, and elegant facial features. Treat mature as adult age or confidence, not body size; prefer adult woman or woman in her late 20s/30s over mature female. Do not output body-size negations or insult words.";
 
-    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
+    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. " + IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION + " Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
     const KREA2_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
     const KREA2_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
@@ -482,6 +483,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
         if (li.assignmentViewMode === undefined) li.assignmentViewMode = 'structured';
         if (li.lastCharacterAnalysisResponse === undefined) li.lastCharacterAnalysisResponse = "";
+        if (li.characterAnalysisFeedback === undefined) li.characterAnalysisFeedback = "";
         if (li.compiledPromptOverride === undefined) li.compiledPromptOverride = "";
         if (!li.tagFieldToggles) li.tagFieldToggles = {};
         const defaults = {};
@@ -608,7 +610,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             },
             assignmentMode: getCharacterAssignmentModeKey(li),
             assignments: JSON.parse(JSON.stringify(getModeCharacterAssignments(li, charKey))),
-            lastCharacterAnalysisResponse: li.lastCharacterAnalysisResponse || ""
+            lastCharacterAnalysisResponse: li.lastCharacterAnalysisResponse || "",
+            characterAnalysisFeedback: li.characterAnalysisFeedback || ""
         };
     }
 
@@ -636,6 +639,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         li.lastCharacterAnalysisResponse = typeof payload.lastCharacterAnalysisResponse === "string"
             ? payload.lastCharacterAnalysisResponse
+            : "";
+        li.characterAnalysisFeedback = typeof payload.characterAnalysisFeedback === "string"
+            ? payload.characterAnalysisFeedback
             : "";
         return { count: assignments.length, mode: payload.mode || "snapshot" };
     }
@@ -943,7 +949,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!s.sectionOpenStates || typeof s.sectionOpenStates !== "object" || Array.isArray(s.sectionOpenStates)) s.sectionOpenStates = {};
 
         // LoRA Intelligence state
-        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", compiledPromptOverride: "" };
+        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
         if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
         ensureLoraIntelDefaults(s.loraIntel);
@@ -1230,7 +1236,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 </div>
 
                 <!-- Character Analysis -->
-                <div data-ig-collapse="lora-intelligence" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div class="li-character-analysis-panel" data-ig-collapse="lora-intelligence" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7;"><i class="fa-solid fa-brain"></i> Character Analysis</div>
                         <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
@@ -1301,7 +1307,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                     </button>
                                 </div>
                             </div>
-                            <div id="li_assignment_table" style="min-height: 40px;">
+                            <div class="li-analysis-feedback-row" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin-bottom: 12px;">
+                                <label style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+                                    <span style="font-size: 0.68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Regeneration Feedback</span>
+                                    <textarea id="li_analysis_feedback" class="ps-modern-input" placeholder="Tell the AI what is wrong, e.g. Fix Megumin's eye color; keep everyone else. Or: redo all women as slim hourglass / slender-curvy with narrow waist and elegant face." style="min-height: 74px; resize: vertical; font-size: 0.8rem; line-height: 1.45; padding: 10px;">${psEscapeText(li.characterAnalysisFeedback || "")}</textarea>
+                                </label>
+                                <button id="li_regen_feedback_btn" class="ps-modern-btn secondary" title="Re-run character analysis using the feedback above" style="padding: 8px 12px; font-size: 0.72rem; min-height: 42px;">
+                                    <i class="fa-solid fa-rotate"></i> Regenerate With Feedback
+                                </button>
+                            </div>
+                            <div id="li_assignment_table" class="li-assignment-table" style="min-height: 40px;">
                                 ${liAssignments.length > 0 ? '' : '<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" to extract visual references.</div>'}
                             </div>
                         </div>
@@ -1650,17 +1665,22 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         igRefreshLastComfyApiPanel();
 
         // AI Character Assignment
-        $("#li_analyze_btn").on("click", async function() {
-            const btn = $(this);
+        async function runCharacterAnalysis(btn, feedback = "") {
             const chatText = getCleanedChatHistory();
             if (chatText.length < 50) return toastr.warning("Not enough chat history to analyze characters.");
 
-            btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...');
+            const busyHtml = feedback
+                ? '<i class="fa-solid fa-spinner fa-spin"></i> Regenerating...'
+                : '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...';
+
+            $("#li_analyze_btn, #li_regen_feedback_btn").prop("disabled", true);
+            btn.html(busyHtml);
 
             try {
                 if (li.useDanbooruTags) await loadDanbooruTags();
 
                 const characterTextContext = getCurrentCharacterTextContext();
+                const previousAssignments = JSON.stringify(getModeCharacterAssignments(li, charKey), null, 2);
 
                 activeLoraAssignRequest = {
                     chatText: chatText,
@@ -1669,7 +1689,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     useTags: li.useDanbooruTags,
                     ensureCharacterTag: li.ensureCharacterTag,
                     useDescriptions: li.useCharDescriptions,
-                    descStyle: li.descriptionStyle
+                    descStyle: li.descriptionStyle,
+                    feedback: feedback,
+                    previousAssignments: feedback ? previousAssignments : ""
                 };
 
                 let rawOutput;
@@ -1686,7 +1708,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 if (!rawOutput) {
                     toastr.warning("AI returned empty response. Try again.");
-                    btn.prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
                     return;
                 }
                 rawOutput = stripUtilityThinkingWrapper(rawOutput);
@@ -1724,7 +1745,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                         setModeCharacterAssignments(li, charKey, assignments);
                         saveProfileToMemory();
                         liRenderAssignmentTable(li, charKey, s);
-                        toastr.success(`Mapped ${assignments.length} characters!`);
+                        toastr.success(feedback ? `Regenerated ${assignments.length} characters with feedback.` : `Mapped ${assignments.length} characters!`);
                     } else {
                         toastr.warning("AI response couldn't be parsed. Try again.");
                         console.log("[Megumin Suite] Raw LoRA assignment output:", rawOutput);
@@ -1738,8 +1759,24 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 console.error(e);
             } finally {
                 activeLoraAssignRequest = null;
-                btn.prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
+                $("#li_analyze_btn").prop("disabled", false).html('<i class="fa-solid fa-bolt"></i> Analyze Characters');
+                $("#li_regen_feedback_btn").prop("disabled", false).html('<i class="fa-solid fa-rotate"></i> Regenerate With Feedback');
             }
+        }
+
+        $("#li_analysis_feedback").on("input", function() {
+            li.characterAnalysisFeedback = $(this).val();
+            saveProfileToMemory();
+        });
+        $("#li_analyze_btn").on("click", async function() {
+            await runCharacterAnalysis($(this));
+        });
+        $("#li_regen_feedback_btn").on("click", async function() {
+            const feedback = String($("#li_analysis_feedback").val() || "").trim();
+            if (!feedback) return toastr.warning("Add feedback first, then regenerate.");
+            li.characterAnalysisFeedback = feedback;
+            saveProfileToMemory();
+            await runCharacterAnalysis($(this), feedback);
         });
 
         // Populate assignment table if enabled
@@ -2140,7 +2177,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         headerHtml += `</div>`;
 
         const header = $(`
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
+            <div class="li-assignment-header" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(245,158,11,0.1); border-radius: 6px; margin-bottom: 6px;">
                 ${headerHtml}
                 <span style="font-size:0.62rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-left:10px;">${psEscapeText(getAssignmentModeLabel(li))}</span>
                 <button id="li_add_custom_assign" class="ps-modern-btn primary" style="padding: 2px 8px; font-size: 0.65rem; margin-left: 10px; background: var(--gold); color: #000;"><i class="fa-solid fa-plus"></i> Add</button>
@@ -2228,7 +2265,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             ${tagField('physical_tags', 'Body / Face', 'blonde hair, blue eyes')}
                             ${tagField('clothing_tags', 'Clothing', 'black jacket, dark jeans')}
                         </div>
-                        ${showDesc ? `<input class="ps-modern-input li-edit-desc" type="text" placeholder="Physical description..." value="${psEscapeAttr(a.description || '')}" style="font-size: 0.68rem; color: #3b82f6; padding: 6px;" />` : ''}
+                        ${showDesc ? `<textarea class="ps-modern-input li-edit-desc" placeholder="Physical description..." style="min-height: 84px; resize: vertical; font-size: 0.76rem; line-height: 1.45; color: #93c5fd; padding: 8px;">${psEscapeText(a.description || '')}</textarea>` : ''}
                     </div>
                 `);
 
@@ -2264,6 +2301,40 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     $(this).val(a[key]);
                     saveProfileToMemory();
                 });
+                row.find(".li-remove-assign").on("click", function() {
+                    assignments.splice(idx, 1);
+                    setModeCharacterAssignments(li, charKey, assignments);
+                    saveProfileToMemory();
+                    liRenderAssignmentTable(li, charKey, s);
+                });
+                table.append(row);
+                return;
+            }
+
+            if (showDesc) {
+                const row = $(`
+                    <div class="li-assignment-row li-natural-assignment-row" style="display: flex; flex-direction: column; gap: 10px; padding: 10px; background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px;">
+                        <div class="li-assignment-row-top" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <input class="ps-modern-input li-edit-char" type="text" placeholder="Character" value="${psEscapeAttr(a.character || '')}" style="flex: 1; min-width: 130px; font-size: 0.82rem; font-weight: 700; padding: 8px;" />
+                            ${showMatchKw ? `<input class="ps-modern-input li-edit-match" type="text" placeholder="Match keywords" value="${psEscapeAttr(a.match_keywords || '')}" style="flex: 1.3; min-width: 150px; font-size: 0.76rem; color: var(--text-muted); padding: 8px;" />` : ''}
+                            ${showLoras ? `<input class="ps-modern-input li-edit-lora" type="text" placeholder="LoRA file" value="${psEscapeAttr(a.lora || '')}" style="flex: 1.2; min-width: 150px; font-size: 0.76rem; color: #a855f7; padding: 8px;" />` : ''}
+                            <button type="button" class="ps-modern-btn secondary li-always-include ${a.alwaysInclude ? 'active' : ''}" title="Always include this character even when match keywords are absent from recent chat" style="padding: 6px 9px; font-size: 0.68rem; color: ${a.alwaysInclude ? '#10b981' : 'var(--text-muted)'}; border-color: ${a.alwaysInclude ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-thumbtack"></i> Always</button>
+                            <button type="button" class="ps-modern-btn secondary li-never-include ${a.neverInclude ? 'active' : ''}" title="Never include this character in prompts, LoRAs, or manual tag insertion" style="padding: 6px 9px; font-size: 0.68rem; color: ${a.neverInclude ? '#ef4444' : 'var(--text-muted)'}; border-color: ${a.neverInclude ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'};"><i class="fa-solid fa-ban"></i> Never</button>
+                            <button class="ps-modern-btn secondary li-remove-assign" data-idx="${idx}" title="Remove character" style="padding: 6px 9px; font-size: 0.68rem; color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <label style="display: flex; flex-direction: column; gap: 5px;">
+                            <span style="font-size: 0.64rem; font-weight: 800; color: #3b82f6; text-transform: uppercase;">Natural Description</span>
+                            <textarea class="ps-modern-input li-edit-desc" placeholder="Stable physical description for Krea-style prompts..." style="min-height: 96px; resize: vertical; font-size: 0.82rem; line-height: 1.45; color: #93c5fd; padding: 10px;">${psEscapeText(a.description || '')}</textarea>
+                        </label>
+                    </div>
+                `);
+
+                row.find(".li-edit-char").on("input", function() { a.character = $(this).val(); saveProfileToMemory(); });
+                if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
+                if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
+                row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+                row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
+                row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-remove-assign").on("click", function() {
                     assignments.splice(idx, 1);
                     setModeCharacterAssignments(li, charKey, assignments);
@@ -2982,6 +3053,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             }
         } else if (s.promptStyle === "sdxl") {
             styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
+            styleStr += ` ${IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION}`;
             if (booruStableLeadPrepend) {
                 styleStr += " Do NOT prepend or repeat the user's fixed leading-tags field; it is inserted automatically after your output when LoRA Intelligence Booru Tags mode is on.";
             }
@@ -2991,6 +3063,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 styleStr += " Do NOT output a leading comma-separated tag block; only the user's fixed \"leading tags\" field is prepended automatically after this step.";
             }
             styleStr += " If Extra Details lists scene cues and/or character-appearance Danbooru-style tags, merge them into your prose (translate into natural descriptions; do not paste them as a tag dump). Output prose for the scene only.";
+            styleStr += ` ${IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION}`;
         } else {
             styleStr = "Use a comma-separated list of detailed keywords and visual descriptors.";
         }
@@ -3748,10 +3821,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     : (ig.promptStyle === "krea2"
                         ? `Inside the <img prompt=\"\"> value: ${KREA2_PROMPT_INSTRUCTION}`
                         : (ig.promptStyle === "sdxl"
-                            ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description."
+                            ? `Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description. ${IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION}`
                             : "Use keywords."));
                 if (booruStd) {
-                    styleStr = "Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example \"1girl, blue eyes, huge breasts\" → \"a woman with blue eyes and huge breasts.\" Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list).";
+                    styleStr = `Inside the image prompt, write ONLY flowing natural-language (full sentences, not booru tag lists). Turn shorthand into prose—for example "1girl, blue eyes, huge breasts" → "a woman with blue eyes and huge breasts." Describe actions and poses clearly. Do NOT repeat the opening tag block listed below; only the mandatory leading-tag prefix is supplied separately—your part is prose only. If Extra lists scene cues or character-appearance Danbooru tags below, weave them into that prose (translate to natural description; do not duplicate as a raw tag list). ${IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION}`;
                 } else if (isNaturalLanguageImageStyle(ig.promptStyle) && booruStableLead) {
                     styleStr += " Do NOT repeat the comma-separated mandatory leading-tag prefix listed below; your attribute value is prose only, after that prefix is applied by the pipeline.";
                 }
@@ -3895,9 +3968,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const style = activeLoraAssignRequest.descStyle === 'natural'
                     ? "natural language for Krea-style prompts (one compact reusable sentence with adult age bracket if known, face, hair, eyes, body type, skin, species traits, stable clothing/accessories, and visual identity cues)"
                     : "danbooru tags (e.g. 'tall, blonde hair')";
-                modeInstructions += `You MUST provide a stable physical appearance description for each character in ${style}. Do not include the current sex act, pose, facial expression, temporary nudity, fluids, location, camera, or scene action in this reusable character description. `;
+                modeInstructions += `You MUST provide a stable physical appearance description for each character in ${style}. For adult female characters, unless the character card, chat, or user feedback explicitly defines a fuller build, describe the body with positive slim-curvy wording such as slender-curvy, slim hourglass figure, narrow waist, graceful neck and shoulders, slender arms, toned or softly fit stomach, proportionate soft hips and thighs, and elegant facial features. Treat mature as adult age or confidence only, not body size; prefer adult woman or woman in her late 20s/30s over mature female. Do not include the current sex act, pose, facial expression, temporary nudity, fluids, location, camera, or scene action in this reusable character description. `;
             }
             jsonFormat += `}`;
+
+            const feedback = String(activeLoraAssignRequest.feedback || "").trim();
+            const previousAssignments = String(activeLoraAssignRequest.previousAssignments || "").trim();
+            const feedbackSection = feedback
+                ? `\n\n<regeneration_feedback>\n${feedback}\n</regeneration_feedback>\n\n<previous_character_metadata_json>\n${previousAssignments || "[]"}\n</previous_character_metadata_json>\n\nFeedback rules:\n- Treat the feedback as corrections to the previous character metadata.\n- If the feedback names one character, revise that character while preserving unrelated characters unless the chat clearly contradicts them.\n- If the feedback says all/everyone/redo, regenerate the whole array using the feedback as the priority correction.\n- Still return the full corrected JSON array for all important characters, not only the changed character.`
+                : "";
 
             const cardContextParts = [];
             if (activeLoraAssignRequest.cardDescription) {
@@ -3914,7 +3993,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             });
             messages.push({
                 "role": "user",
-                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context only to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present.\n- Do not include temporary actions, pose, expression, state, setting, or composition in character metadata.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
+                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}${feedbackSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context only to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present.\n- Do not include temporary actions, pose, expression, state, setting, or composition in character metadata.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
             });
         if (!disablePrefill) {
             messages.push({
