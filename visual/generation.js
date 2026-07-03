@@ -180,47 +180,43 @@ export function createVisualGeneration(api) {
 
     const IMAGE_ADULT_TAG_PRECISION_INSTRUCTION = "Adult tag precision: if the scene is explicit and all visible participants are adults, use direct visual tags and concrete staging instead of euphemisms. Use exact terms when they match the scene: naked, nude, topless, exposed nipples, erection, hetero, sex, vaginal, anal, oral, fellatio, cunnilingus, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, flushed face, heavy breathing, trembling, saliva, sweat, cum, ejaculation, facial, cum inside. Do not add an explicit act that is not present in the chat or Extra field.";
 
-    const Z_IMAGE_PROMPT_INSTRUCTION = "Z-Image LoRA format: output one compact, concrete natural-language description, usually one dense paragraph. You may open with a short medium or camera phrase such as 'Photograph of', 'Digital illustration of', or 'Perspective: bird's-eye view'. Then describe visible subjects one by one, keeping each subject's placement, pose, expression, state, and action attached to that subject. State exact spatial relationships and visible contact points. Finish with the setting, background details, lighting, lens or focus when relevant. Let the prompt model choose coherent appearance and clothing details when the current scene does not specify them. Do not import character booru tags or stored appearance descriptions. When exact LoRA activation keywords are supplied, reproduce each keyword exactly once without translating or expanding it into an appearance tag list. Prose is the default. Only when extra precision would materially help—especially for a complex explicit scene—you may finish with one short comma-separated suffix containing scene-specific act, position, penetration/contact, point-of-view, or camera cues. Do not force a suffix, do not repeat the prose, and never use it for character appearance tags, clothing tags, quality scores, or generic Danbooru filler. Prefer observable facts over mood and do not use underscore tokens or shorthand such as 1girl. Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
+    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
-    const Z_IMAGE_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
-    const Z_IMAGE_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
-    const Z_IMAGE_SPELLED_UNDER_18_AGE_RE = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen)[ -]years?[ -]old\b/i;
+    const KREA2_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
+    const KREA2_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
+    const KREA2_SPELLED_UNDER_18_AGE_RE = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen)[ -]years?[ -]old\b/i;
 
-    function findZImageForbiddenMinorTerm(prompt) {
+    function findKrea2ForbiddenMinorTerm(prompt) {
         const normalized = String(prompt || "").replace(/[_-]+/g, " ");
-        const forbiddenMatch = normalized.match(Z_IMAGE_FORBIDDEN_MINOR_RE);
+        const forbiddenMatch = normalized.match(KREA2_FORBIDDEN_MINOR_RE);
         if (forbiddenMatch) return forbiddenMatch[0];
-        const ageMatch = normalized.match(Z_IMAGE_UNDER_18_AGE_RE);
+        const ageMatch = normalized.match(KREA2_UNDER_18_AGE_RE);
         if (ageMatch) return ageMatch[0];
-        const spelledAgeMatch = normalized.match(Z_IMAGE_SPELLED_UNDER_18_AGE_RE);
+        const spelledAgeMatch = normalized.match(KREA2_SPELLED_UNDER_18_AGE_RE);
         return spelledAgeMatch ? spelledAgeMatch[0] : "";
     }
 
-    function blockForbiddenZImagePrompt(prompt) {
-        const forbidden = findZImageForbiddenMinorTerm(prompt);
+    function blockForbiddenKrea2Prompt(prompt) {
+        const forbidden = findKrea2ForbiddenMinorTerm(prompt);
         if (!forbidden) return false;
         $("#kazuma_progress_overlay").hide();
-        toastr.error(`Z-Image prompt blocked: forbidden minor-related wording detected (${forbidden}).`);
-        console.warn("[Megumin Suite] Z-Image minor guard blocked generated input:", forbidden);
+        toastr.error(`Krea 2 prompt blocked: forbidden minor-related wording detected (${forbidden}).`);
+        console.warn("[Megumin Suite] Krea 2 minor guard blocked generated input:", forbidden);
         return true;
     }
 
-    const Z_IMAGE_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and choose unspecified visual details yourself.
+    const KREA2_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and character analysis.
 
-Photograph of two adult women in an outdoor hot tub. The woman sitting on the stone edge is nude, with her legs apart and her hair in a high ponytail. The second woman kneels in the clear, bubbling water between her legs. Their expressions, exact interaction, spatial arrangement, grassy surroundings, paved road, and bright natural sunlight are described directly and unambiguously.
+An explicit natural-light anime illustration of two adults in a modern bedroom. The adult woman on the bed is described with her analyzed face, hair, body type, clothing or nudity state, pose, expression, and visible arousal. The adult man is placed separately with his body position and visible anatomy described clearly. Their exact contact, penetration or oral/manual action, fluids if present, and body placement are named directly. The rumpled sheets, background furniture, warm window light, shallow depth of field, and polished high-resolution finish complete the prompt.
 
-A natural-light indoor photograph of an adult woman kneeling in front of an adult man. Her gaze, posture, hand placement, expression, their exact interaction, and the visible anatomical details are described concretely. A window and furniture remain softly blurred in the background while the subjects stay sharply defined.
+A polished erotic character portrait of one adult woman. Describe her stable analyzed appearance in prose: age bracket as adult, face, eyes, hair, body shape, skin, clothing or nudity state, expression, gaze, pose, hands, and the immediate setting. If the scene is explicit, state the exposed anatomy, arousal cues, fluids, or contact visible in the current moment. Finish with camera distance, lighting, texture, and color mood.
 
-Perspective: bird's-eye view, slight fisheye distortion, moderately wide-angle lens. A digital anime-style illustration of two adults on a crimson velvet couch. Describe the woman's pose and expression, the man's position behind her, their exact body contact and interaction, then the warm golden light and deep shadows shaping the scene.
+First-person POV from across rumpled sheets. The foreground includes only the player's visible hands or body parts when the scene requires interaction, never the player's full face. The adult character facing the camera is described from the selected character analysis, with clear posture, expression, nudity/clothing state, exact adult action, visible contact points, and the bedroom lighting and lens focus.
 
-Soft focus, gentle glow. A richly colored boudoir scene involving one adult woman and two adult men on a velvet bed. Establish each person's placement and action separately, keep faces or bodies obscured only where the scene requires it, and finish with the dark furnishings and crystal lamp in the dim background.
-
-Deep focus, low-angle shot. A cool blue, neon-accented scene involving an adult woman and an adult man. Describe their gaze, posture, exact interaction, visible physical details, and tension in complete sentences, followed by the blue illumination and sharp focus.
-
-For a spatially complex explicit scene only, an optional final cue suffix may look like: POV, [specific position], [specific act], [contact or penetration direction], looking over shoulder. Omit this line when the prose already makes the image unambiguous.`;
+For a spatially complex explicit scene, keep the prompt in prose but include a final clarifying sentence for the exact act, position, camera angle, and contact direction. Do not switch into a raw comma-separated tag list.`;
 
     function isNaturalLanguageImageStyle(style) {
-        return style === "sdxl" || style === "zimage";
+        return style === "sdxl" || style === "krea2";
     }
 
     function buildImagePromptStructureRules(s, booruStd = false) {
@@ -244,14 +240,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const style = s?.promptStyle || "standard";
         const perspective = s?.promptPerspective || "scene";
         const proseMode = isNaturalLanguageImageStyle(style) || booruStd;
-        if (style === "zimage" && perspective === "pov") {
-            return Z_IMAGE_PROMPT_EXAMPLES;
+        if (style === "krea2" && perspective === "pov") {
+            return KREA2_PROMPT_EXAMPLES;
         }
-        if (style === "zimage" && perspective === "character") {
-            return Z_IMAGE_PROMPT_EXAMPLES;
+        if (style === "krea2" && perspective === "character") {
+            return KREA2_PROMPT_EXAMPLES;
         }
-        if (style === "zimage") {
-            return Z_IMAGE_PROMPT_EXAMPLES;
+        if (style === "krea2") {
+            return KREA2_PROMPT_EXAMPLES;
         }
         if (proseMode && perspective === "pov") {
             return "Example shape: A masterpiece in first-person point of view. The camera looks across rumpled sheets in the foreground toward two adult characters. On the left, [character A appearance, clothing/nudity state, expression, and action]. On the right, [character B appearance, clothing/nudity state, expression, and action]. The bedroom background, warm low lighting, and visible contact points match the current scene.";
@@ -908,6 +904,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (s.selectedScheduler === undefined) s.selectedScheduler = "simple";
         if (s.manualSceneSelector === undefined) s.manualSceneSelector = false;
         if (s.manualPromptSource === undefined) s.manualPromptSource = "comfy_llm";
+        if (s.promptStyle === "zimage") s.promptStyle = "krea2";
         if (!s.sectionOpenStates || typeof s.sectionOpenStates !== "object" || Array.isArray(s.sectionOpenStates)) s.sectionOpenStates = {};
 
         // LoRA Intelligence state
@@ -1075,7 +1072,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                                     <option value="standard" ${s.promptStyle === 'standard' ? 'selected' : ''}>Standard (Descriptive)</option>
                                     <option value="illustrious" ${s.promptStyle === 'illustrious' ? 'selected' : ''}>Illustrious/Pony (Tags)</option>
                                     <option value="sdxl" ${s.promptStyle === 'sdxl' ? 'selected' : ''}>SDXL (Natural Prose)</option>
-                                    <option value="zimage" ${s.promptStyle === 'zimage' ? 'selected' : ''}>Z-Image LoRA (Natural Language)</option>
+                                    <option value="krea2" ${s.promptStyle === 'krea2' ? 'selected' : ''}>Krea 2 (Natural Prose)</option>
                                 </select>
                             </div>
                             <div style="flex: 1;">
@@ -1594,7 +1591,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     const sourceNote = payload.sourceCharacterKey && payload.sourceCharacterKey !== charKey
                         ? ` It was exported from "${payload.sourceCharacterKey}" and will restore into the current character.`
                         : "";
-                    if (!window.confirm(`Replace the current character-analysis assignments, active LoRA keyword list, and mode settings with this snapshot?${sourceNote}`)) return;
+                    if (!window.confirm(`Replace the current character-analysis assignments and mode settings with this snapshot?${sourceNote}`)) return;
                     const restored = applyCharacterAnalysisSnapshot(li, charKey, payload);
                     saveProfileToMemory();
                     renderImageGen(c);
@@ -2050,7 +2047,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const showLoras = li.ensureLoras;
         const showDesc = li.useCharDescriptions;
         const showBooru = li.useDanbooruTags;
-        const showMatchKw = showLoras || showBooru;
+        const showMatchKw = showLoras || showBooru || showDesc;
 
         let gridCols = "1fr ";
         if (showMatchKw) gridCols += "1.5fr ";
@@ -2438,7 +2435,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             const names = normalized.assignments.map(a => a.character || "character").join(", ");
             lines.push(`Manual scene cast override: include exactly these analyzed character(s) from the selector when deciding who is present: ${names}. Ignore match-keyword absence for these characters for this generation. Do not add other analyzed characters just because their match keywords appear elsewhere.`);
 
-            const allowStoredAppearanceGuidance = s?.promptStyle !== "zimage";
+            const allowStoredAppearanceGuidance = true;
             const booruLines = allowStoredAppearanceGuidance && li?.useDanbooruTags
                 ? normalized.assignments.map(a => {
                     const tagBlock = getStableAssignmentTagBlock(a, li);
@@ -2783,7 +2780,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         const userName = getUserDisplayName();
         const persona = getUserPersonaText();
-        const personaLine = s?.promptStyle !== "zimage" && persona ? ` Persona appearance: ${persona}` : "";
+        const personaLine = persona ? ` Persona appearance: ${persona}` : "";
         if (s?.promptPerspective === "pov") {
             return `The player character (${userName}) is present as the camera/viewpoint. Do not omit them: show visible first-person body cues when appropriate, such as hands, arms, torso, lap, clothing, shadow, reflection, or interaction contact.${personaLine}`;
         }
@@ -2892,7 +2889,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
         const booruStd = isBooruStandardImageMode(s, li);
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
-        const allowStoredAppearanceGuidance = s.promptStyle !== "zimage";
+        const allowStoredAppearanceGuidance = true;
         const manualAssignments = manualScene.assignments;
         const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments) : [];
         const guidedCharacters = characterGuidance.length > 0;
@@ -2902,10 +2899,10 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         let styleStr;
         if (s.promptStyle === "illustrious") {
             styleStr = "Use Danbooru-style tags separated by commas.";
-        } else if (s.promptStyle === "zimage") {
-            styleStr = Z_IMAGE_PROMPT_INSTRUCTION;
+        } else if (s.promptStyle === "krea2") {
+            styleStr = KREA2_PROMPT_INSTRUCTION;
             if (booruStableLeadPrepend) {
-                styleStr += " Do not repeat the user's fixed leading-tags field; the app adds it after the generated description.";
+                styleStr += " Do not repeat the user's fixed leading-tags field; the app applies those tags separately from your generated prose.";
             }
         } else if (s.promptStyle === "sdxl") {
             styleStr = "SDXL — output ONLY fluent English prose (one to several short paragraphs). Describe the subject, body, clothing, pose, expression, environment, lighting, and camera feel in full sentences. STRICTLY FORBIDDEN: comma-separated tag lists, Danbooru-style tokens with underscores, shorthand like \"1girl\" or \"solo\", or planning/meta text. If Extra Details contain shorthand or tag-like cues, translate every cue into natural language (e.g. a look-alike tag becomes a short phrase, never the raw token).";
@@ -2966,7 +2963,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (manualSceneInstruction) {
                 extraParts.push(manualSceneInstruction);
             }
-            if (s.includePromptExamples || s.promptStyle === "zimage") {
+            if (s.includePromptExamples || s.promptStyle === "krea2") {
                 extraParts.push(`Template example:\n${buildImagePromptExamples(s, booruStd)}`);
             }
             if (extraParts.length > 0) extraStr = extraParts.join("\n\n");
@@ -2999,12 +2996,12 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (manualSceneInstruction) {
                 extraStr = appendImagePromptInstruction(extraStr, manualSceneInstruction);
             }
-            if (s.includePromptExamples || s.promptStyle === "zimage") {
+            if (s.includePromptExamples || s.promptStyle === "krea2") {
                 extraStr = appendImagePromptInstruction(extraStr, `Template example: ${buildImagePromptExamples(s, booruStd)}`);
             }
         }
 
-        activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr, isZImage: s.promptStyle === "zimage" };
+        activeImageGenRequest = { chatText: lastMessages, styleStr: styleStr, perspStr: perspStr, extraStr: extraStr, isKrea2: s.promptStyle === "krea2" };
 
         let rawOutput;
         try {
@@ -3013,8 +3010,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             activeImageGenRequest = null;
         }
         let finalPrompt = stripUtilityThinkingWrapper(rawOutput);
-        if (s.promptStyle === "zimage" && findZImageForbiddenMinorTerm(finalPrompt)) {
-            throw new Error("Z-Image prompt blocked: generated input contained forbidden minor-related wording.");
+        if (s.promptStyle === "krea2" && findKrea2ForbiddenMinorTerm(finalPrompt)) {
+            throw new Error("Krea 2 prompt blocked: generated input contained forbidden minor-related wording.");
         }
         if (s.promptStyle === "illustrious") {
             finalPrompt = stripPreambleBeforeBooruTags(finalPrompt);
@@ -3248,7 +3245,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         if (ensureRunpodSettings(s).enabled && ensureRunpodDropdownValues(s)) saveProfileToMemory();
         igSyncImageGenLoraFromDom(s);
         let raw = stripUtilityThinkingWrapper(String(positivePrompt ?? ""));
-        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(raw)) return;
+        if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(raw)) return;
         let finalPrompt;
         if (opts && opts.preserveStoredPrompt) {
             finalPrompt = raw.trim();
@@ -3265,7 +3262,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 finalPrompt = ensureImageLeadPrefix(finalPrompt);
             }
         }
-        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
+        if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
         const aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
@@ -3314,7 +3311,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             finalPrompt = liveText.trim();
             if (!finalPrompt) return toastr.warning("Prompt cannot be empty.");
-            if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
+            if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
 
             showKazumaProgress("Preparing to Render..."); // Bring progress bar back
         }
@@ -3444,7 +3441,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
         finalPrompt = ensureSelectedVrtlIdentityPromptForLoras(finalPrompt, [l1, l2, l3, l4]);
-        if (s.promptStyle === "zimage" && blockForbiddenZImagePrompt(finalPrompt)) return;
+        if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
 
         const comfyRepl = {
             "%prompt%": finalPrompt,
@@ -3656,7 +3653,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 const igLi = ig.loraIntel;
                 const booruStd = isBooruStandardImageMode(ig, igLi);
                 const charKeyImg = getCharacterKey() || "default";
-                const allowStoredAppearanceGuidance = ig.promptStyle !== "zimage";
+                const allowStoredAppearanceGuidance = true;
                 const promptUsesCharacterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(ig, igLi) && getMatchedCharacterGuidance(igLi, charKeyImg).length > 0;
 
                 const booruStableLead = buildBooruStandardTagLead(ig, igLi);
@@ -3664,8 +3661,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
                 let styleStr = ig.promptStyle === "illustrious"
                     ? "Use Danbooru-style tags. Focus on anime."
-                    : (ig.promptStyle === "zimage"
-                        ? `Inside the <img prompt=\"\"> value: ${Z_IMAGE_PROMPT_INSTRUCTION}`
+                    : (ig.promptStyle === "krea2"
+                        ? `Inside the <img prompt=\"\"> value: ${KREA2_PROMPT_INSTRUCTION}`
                         : (ig.promptStyle === "sdxl"
                             ? "Inside the <img prompt=\"\"> value: SDXL natural prose ONLY—fluent English in full sentences. FORBIDDEN: comma-separated tag dumps, Danbooru underscores, 1girl-style shorthand, lists of keywords. Translate any listed cues into description."
                             : "Use keywords."));
@@ -3749,7 +3746,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                     : "";
 
                 const adultPrecisionLine = ig.adultTagPrecision ? `\n${IMAGE_ADULT_TAG_PRECISION_INSTRUCTION}` : "";
-                const examplesLine = ig.includePromptExamples || ig.promptStyle === "zimage" ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
+                const examplesLine = ig.includePromptExamples || ig.promptStyle === "krea2" ? `\nTemplate example: ${buildImagePromptExamples(ig, booruStd)}` : "";
 
                 dict["[[img1]]"] = `[IMAGE GENERATION]\n${conditionalText}Style: ${styleStr}\nPerspective: ${perspStr}${extraLine}${tagLeadLine}${liInstructions}${adultPrecisionLine}${examplesLine}`;
                 dict["[[img2]]"] = `<img prompt="prompt">`;
@@ -3764,21 +3761,21 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function handlePromptInjection(messages, disablePrefill) {
-        // --- INJECT VIDEO GEN PROMPT ---
+        // --- INJECT IMAGE GEN PROMPT ---
         if (activeImageGenRequest) {
-            const zImageOutputContract = activeImageGenRequest.isZImage
-                ? " Z-IMAGE OUTPUT CONTRACT: Return exactly one finished image prompt and nothing else. Start directly with the image description. Do not analyze the chat, enumerate details, explain decisions, plan, draft, refine, repeat, or add text before or after the prompt."
+            const kreaOutputContract = activeImageGenRequest.isKrea2
+                ? " KREA 2 OUTPUT CONTRACT: Return exactly one finished natural-language image prompt and nothing else. Start directly with the image description. Do not analyze the chat, enumerate details, explain decisions, plan, draft, refine, repeat, or add text before or after the prompt."
                 : "";
             messages.length = 0;
             messages.push({
                 "role": "system",
-                "content": `You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. ${IMAGE_SCENE_FIDELITY_INSTRUCTION} STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. "I need to", "I'll craft"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text.${zImageOutputContract}`
+                "content": `You are an expert AI image prompt engineer. Read the scene and output exactly ONE image prompt. Obey Style Constraint and Camera Perspective. ${IMAGE_SCENE_FIDELITY_INSTRUCTION} STRICTLY FORBIDDEN: apologies, preambles, plans, meta commentary (e.g. "I need to", "I'll craft"), reasoning, bullet lists, <thinking> or <think> blocks, XML, markdown, or chat references. Your entire reply must be nothing except the raw prompt text.${kreaOutputContract}`
             });
             messages.push({
                 "role": "user",
-                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nScene Fidelity Requirement: ${IMAGE_SCENE_FIDELITY_INSTRUCTION}\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.${zImageOutputContract}`
+                "content": `Write an image generation prompt for the latest scene in this chat history.\n\n<chat>\n${activeImageGenRequest.chatText}\n</chat>\n\nScene Fidelity Requirement: ${IMAGE_SCENE_FIDELITY_INSTRUCTION}\nStyle Constraint: ${activeImageGenRequest.styleStr}\nCamera Perspective: ${activeImageGenRequest.perspStr}\nExtra Details: ${activeImageGenRequest.extraStr}\n\nOutput ONLY the raw prompt text. No other words before or after.${kreaOutputContract}`
             });
-        if (!disablePrefill && !activeImageGenRequest.isZImage) {
+        if (!disablePrefill && !activeImageGenRequest.isKrea2) {
             messages.push({
                 "role": "assistant",
                 "content": "Understood.\n"
@@ -3795,10 +3792,11 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
 
             let modeInstructions = "";
             let jsonFormat = `  {"character": "Name"`;
-            const needsMatchKeywords = activeLoraAssignRequest.useTags;
+            const needsMatchKeywords = activeLoraAssignRequest.useTags || activeLoraAssignRequest.useDescriptions;
 
             if (needsMatchKeywords) {
                 jsonFormat += `, "match_keywords": "Name, Nickname, Title"`;
+                modeInstructions += "Use 'match_keywords' to list name variations, aliases, titles, and common references for keyword detection. ";
             }
             if (activeLoraAssignRequest.useTags) {
                 jsonFormat += `, "character_tag": "known_character_tag_or_empty", "series_tag": "series_tag_or_empty", "physical_tags": "hair/eyes/body tags", "clothing_tags": "outfit/accessory tags", "plain_description": "natural language visual description"`;
@@ -3806,13 +3804,14 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 if (activeLoraAssignRequest.ensureCharacterTag) {
                     booruInstr += "ADDITIONALLY: For EACH character, character_tag MUST contain a famous anime/game character tag from Danbooru that best matches their physical appearance (e.g. 'megumin_(konosuba)', 'asuka_langley_soryu', 'saber_(fate)'). Pick the closest visual match based on hair color, eye color, and body type. If no close match exists, pick ANY well-known character tag that roughly fits. ";
                 }
-                booruInstr += "Use 'match_keywords' to list name variations for keyword detection. ";
                 modeInstructions += booruInstr;
             }
             if (activeLoraAssignRequest.useDescriptions) {
                 jsonFormat += `, "description": "physical description here..."`;
-                let style = activeLoraAssignRequest.descStyle === 'natural' ? "natural language (e.g. 'a tall woman with blonde hair')" : "danbooru tags (e.g. 'tall, blonde hair')";
-                modeInstructions += `You MUST provide a physical appearance description for each character in ${style}. `;
+                const style = activeLoraAssignRequest.descStyle === 'natural'
+                    ? "natural language for Krea-style prompts (one compact reusable sentence with adult age bracket if known, face, hair, eyes, body type, skin, species traits, stable clothing/accessories, and visual identity cues)"
+                    : "danbooru tags (e.g. 'tall, blonde hair')";
+                modeInstructions += `You MUST provide a stable physical appearance description for each character in ${style}. Do not include the current sex act, pose, facial expression, temporary nudity, fluids, location, camera, or scene action in this reusable character description. `;
             }
             jsonFormat += `}`;
 
@@ -3950,7 +3949,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     function shouldAutoGenerateScene(text, automation) {
-        if (findZImageForbiddenMinorTerm(text)) return false;
+        if (findKrea2ForbiddenMinorTerm(text)) return false;
         const explicit = isExplicitSceneText(text);
         const mode = automation.autoTriggerMode || "explicit";
         const triggerMatch = mode === "both" || (mode === "explicit" && explicit) || (mode === "normal" && !explicit);
@@ -4310,7 +4309,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             assignment?.plain_description,
             assignment?.description
         ].filter(Boolean).join(" ");
-        return !!findZImageForbiddenMinorTerm(text);
+        return !!findKrea2ForbiddenMinorTerm(text);
     }
 
     function getBatchPositionStaging(positionName, positionPrompt) {
@@ -4503,7 +4502,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         }
         const sceneText = getSceneSnapshotForMessage(message);
         const latestSceneText = getLatestVisualSceneText(message);
-        if (!sceneText || findZImageForbiddenMinorTerm(sceneText)) {
+        if (!sceneText || findKrea2ForbiddenMinorTerm(sceneText)) {
             if (automation.smartEnabled) setQwenStatus("Skipped · empty or age-safety guard");
             return;
         }
