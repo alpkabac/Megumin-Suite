@@ -3904,7 +3904,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                 }
                             });
 
-                            if (useStableCharacterGuidance && booruStrings.length > 0) {
+                            if ((useStableCharacterGuidance || shouldPromptAiChooseCharacters(li)) && booruStrings.length > 0) {
                                 liInstructions += `\n${characterChoiceInstruction} Derive actions, poses, expressions, temporary state, setting, and composition from the chat scene.`;
                             }
                             if (booruStrings.length > 0) {
