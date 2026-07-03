@@ -1480,21 +1480,25 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
                     promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt,
                     structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
-                    manualSceneSelector: s.manualSceneSelector,
-                    selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt, selectedLora2: s.selectedLora2, selectedLoraWt2: s.selectedLoraWt2,
-                    selectedLora3: s.selectedLora3, selectedLoraWt3: s.selectedLoraWt3, selectedLora4: s.selectedLora4, selectedLoraWt4: s.selectedLoraWt4,
-                    loraSlotLocked: [...(s.loraSlotLocked || [false, false, false, false])],
-                    loraSlotKeywordManaged: [...(s.loraSlotKeywordManaged || [false, false, false, false])]
+                    manualSceneSelector: s.manualSceneSelector
                 };
             }
+            let shouldRenderWorkflowState = false;
             if (s.savedWorkflowStates && s.savedWorkflowStates[newWorkflow]) {
-                Object.assign(s, s.savedWorkflowStates[newWorkflow]);
+                const workflowState = { ...s.savedWorkflowStates[newWorkflow] };
+                [
+                    "selectedLora", "selectedLoraWt", "selectedLora2", "selectedLoraWt2",
+                    "selectedLora3", "selectedLoraWt3", "selectedLora4", "selectedLoraWt4",
+                    "loraSlotLocked", "loraSlotKeywordManaged"
+                ].forEach(key => { delete workflowState[key]; });
+                Object.assign(s, workflowState);
                 toastr.success(`Restored settings for ${newWorkflow}`);
-                renderImageGen(c); // Re-render to update UI with restored values
+                shouldRenderWorkflowState = true;
             } else { toastr.info(`New workflow context active`); }
 
             s.currentWorkflowName = newWorkflow;
             saveProfileToMemory();
+            if (shouldRenderWorkflowState) renderImageGen(c); // Re-render to update UI with restored values
         });
 
         if (s.enabled) {
@@ -3607,7 +3611,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (!$sel.length) continue;
             const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
             const wtKey = i === 1 ? "selectedLoraWt" : `selectedLoraWt${i}`;
+            const options = $sel.find("option");
+            const currentValue = s[key];
+            const firstOptionText = String(options.first().text() || "").trim().toLowerCase();
+            const dropdownIsUnloaded = options.length === 0 || (options.length === 1 && firstOptionText.includes("loading"));
             const val = $sel.val();
+            if (dropdownIsUnloaded && currentValue) continue;
+            if ((val === undefined || val === null) && currentValue) continue;
+            if (val === "" && currentValue && options.length <= 1) continue;
             if (val !== undefined && val !== null) s[key] = val;
             const $wt = $(`#ig_lorawt_${i}`);
             if ($wt.length) {
