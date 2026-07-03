@@ -2581,6 +2581,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
         const s = getLocalProfile()?.imageGen;
         if (!s || !s.enabled) return;
 
+        const clickedChat = getContext().chat || [];
+        const clickedMessage = [...clickedChat].reverse().find(m => !m.is_system) || null;
+        const clickedOrigin = clickedMessage ? getBackgroundOrigin(clickedMessage) : null;
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
         let manualScene = null;
@@ -2609,9 +2612,8 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
                 promptText = gen ? gen.prompt : "";
                 skipLeadPrefix = !!(gen && gen.skipLeadPrefix);
             } else {
-                const lastMessage = (getContext().chat || []).filter(m => !m.is_system).slice(-1)[0];
-                const sceneText = getSceneSnapshotForMessage(lastMessage);
-                const latestSceneText = getLatestVisualSceneText(lastMessage);
+                const sceneText = getSceneSnapshotForMessage(clickedMessage);
+                const latestSceneText = getLatestVisualSceneText(clickedMessage);
                 const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
                 const selectedPositions = normalizeManualImageScene(manualScene).positions;
                 if (source === "comfy_llm") {
@@ -2636,7 +2638,7 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
             if (match) promptText = match[1];
 
             toastr.info(isRunpodReady(getLocalProfile().imageGen) ? "Sending to RunPod..." : "Sending to ComfyUI...", "Megumin Suite");
-            await igGenerateWithComfy(promptText, null, {
+            await igGenerateWithComfy(promptText, source === "comfy_llm" && clickedOrigin ? { origin: clickedOrigin } : null, {
                 manualScene,
                 aiText: aiText || promptText,
                 requireAiTextWorkflow: source === "comfy_llm",
@@ -3063,6 +3065,9 @@ For a spatially complex explicit scene only, an optional final cue suffix may lo
     }
 
     async function igAttachGeneratedImage(base64Clean, finalPrompt, target, format = "png") {
+        if (target?.origin && !target.message) {
+            target = { ...target, ...(resolveBackgroundOrigin(target.origin) || {}) };
+        }
         const charName = getContext().characters[getContext().characterId]?.name || "User";
         const cleanBase64 = String(base64Clean || "").includes(",") ? String(base64Clean).split(",").pop() : String(base64Clean || "");
         const savedPath = await saveBase64AsFile(cleanBase64, charName, `${charName}_${humanizedDateTime()}`, format);
