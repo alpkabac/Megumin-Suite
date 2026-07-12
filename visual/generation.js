@@ -845,26 +845,30 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return "";
     }
 
+    function getVerifiedBooruCharacterTag(tagString) {
+        if (!tagString) return "";
+        if (!danbooruTagsMap || danbooruTagsMap.size === 0) {
+            return normalizeGeneratedTagField(tagString).split(',').map(t => t.trim()).filter(Boolean)[0] || "";
+        }
+        const verified = findDanbooruTagByCategory(tagString, "4");
+        return verified ? normalizeGeneratedTagField(verified) : "";
+    }
+
     function ensureBooruCharacterTag(a) {
         ensureStructuredCharacterAssignment(a);
-        const rawCharacterTag = normalizeGeneratedTagField(a.character_tag);
+        const rawCharacterTag = getVerifiedBooruCharacterTag(a.character_tag);
         if ((!danbooruTagsMap || danbooruTagsMap.size === 0) && rawCharacterTag) {
-            a.character_tag = rawCharacterTag.split(',').map(t => t.trim()).filter(Boolean)[0] || rawCharacterTag;
+            a.character_tag = rawCharacterTag;
             return true;
         }
-        const existing = findDanbooruTagByCategory(a.character_tag, "4");
+        const existing = getVerifiedBooruCharacterTag(a.character_tag);
         const candidate = existing
-            || findDanbooruTagByCategory(a.booru_tags, "4")
-            || findDanbooruTagByCategory([a.series_tag, a.physical_tags, a.clothing_tags].filter(Boolean).join(', '), "4");
+            || findDanbooruTagByCategory(a.booru_tags, "4");
         if (candidate) {
             a.character_tag = normalizeGeneratedTagField(candidate);
             return true;
         }
-        const fallback = String(a.character || "").trim();
-        if (fallback) {
-            a.character_tag = normalizeGeneratedTagField(fallback.toLowerCase().replace(/\s+/g, "_"));
-            return false;
-        }
+        a.character_tag = "";
         return false;
     }
 
@@ -1800,7 +1804,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                     const repairedTags = danbooruTagsMap && danbooruTagsMap.size > 0 ? repairBooruTags(a[key]) : a[key];
                                     a[key] = normalizeGeneratedTagField(repairedTags);
                                 });
-                                if (li.ensureCharacterTag && !ensureBooruCharacterTag(a)) {
+                                const hasVerifiedCharacterTag = ensureBooruCharacterTag(a);
+                                if (li.ensureCharacterTag && !hasVerifiedCharacterTag) {
                                     ensuredCharacterTagFallbacks += 1;
                                 }
                                 if (!li.useCharDescriptions) {
@@ -1816,7 +1821,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                         liRenderAssignmentTable(li, charKey, s);
                         toastr.success(feedback ? `Regenerated ${assignments.length} characters with feedback.` : `Mapped ${assignments.length} characters!`);
                         if (ensuredCharacterTagFallbacks > 0) {
-                            toastr.warning(`Ensure Character Tag fallback used character names for ${ensuredCharacterTagFallbacks} character(s).`);
+                            toastr.warning(`Ensure Character Tag found no verified Danbooru character tag for ${ensuredCharacterTagFallbacks} character(s); left those character tags empty.`);
                         }
                     } else {
                         toastr.warning("AI response couldn't be parsed. Try again.");
@@ -3040,8 +3045,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     function getPlainAssignmentText(a) {
+        ensureStructuredCharacterAssignment(a);
+        const characterTag = getVerifiedBooruCharacterTag(a.character_tag);
         const stableStructured = [
-            a.character_tag,
+            characterTag,
             a.series_tag,
             a.physical_tags,
             a.clothing_tags
@@ -3062,8 +3069,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const globalToggles = li?.tagFieldToggles || {};
         const rowToggles = a?.tagFieldToggles || {};
         const enabled = (key) => globalToggles[key] !== false && rowToggles[key] !== false;
+        const characterTag = getVerifiedBooruCharacterTag(a.character_tag);
         return normalizeGeneratedTagField([
-            enabled("characterTag") ? a.character_tag : "",
+            enabled("characterTag") ? characterTag : "",
             enabled("seriesTag") ? a.series_tag : "",
             enabled("physicalTags") ? a.physical_tags : "",
             enabled("clothingTags") ? a.clothing_tags : ""
@@ -3085,8 +3093,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const globalToggles = li?.tagFieldToggles || {};
         const rowToggles = a?.tagFieldToggles || {};
         const enabled = (key) => globalToggles[key] !== false && rowToggles[key] !== false;
+        const characterTag = getVerifiedBooruCharacterTag(a.character_tag);
         return [
-            enabled("characterTag") ? a.character_tag : "",
+            enabled("characterTag") ? characterTag : "",
             enabled("seriesTag") ? a.series_tag : "",
             enabled("physicalTags") ? a.physical_tags : "",
             enabled("clothingTags") ? a.clothing_tags : ""
@@ -4138,10 +4147,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 modeInstructions += "Use 'match_keywords' to list name variations, aliases, titles, and common references for keyword detection. ";
             }
             if (activeLoraAssignRequest.useTags) {
-                jsonFormat += `, "character_tag": "${activeLoraAssignRequest.ensureCharacterTag ? "mandatory_danbooru_character_tag" : "danbooru_character_tag_or_empty"}", "series_tag": "danbooru_series_tag_or_empty", "physical_tags": "comma-separated Danbooru body/face/hair/eye tags", "clothing_tags": "comma-separated Danbooru outfit/accessory tags"`;
+                jsonFormat += `, "character_tag": "${activeLoraAssignRequest.ensureCharacterTag ? "verified_danbooru_character_tag_or_empty" : "danbooru_character_tag_or_empty"}", "series_tag": "danbooru_series_tag_or_empty", "physical_tags": "comma-separated Danbooru body/face/hair/eye tags", "clothing_tags": "comma-separated Danbooru outfit/accessory tags"`;
                 let booruInstr = "You MUST provide Danbooru-style tag fields for each character. TAG FIELDS MUST CONTAIN ONLY comma-separated Danbooru tags: lowercase, underscores for multi-word tags, no full sentences, no prose descriptions, no 'with/and/wearing' phrases, no markdown, and no explanations. Put stable look-alike identity tags in character_tag, series/franchise tags in series_tag, body/face/hair/eyes/build in physical_tags, and stable outfit/accessory details in clothing_tags. Example physical_tags: long_hair, black_hair, red_eyes, pale_skin, slim, medium_breasts. Example clothing_tags: witch_hat, cape, black_dress, boots. ";
                 if (activeLoraAssignRequest.ensureCharacterTag) {
-                    booruInstr += "ADDITIONALLY: For EACH character, character_tag is mandatory and MUST be a single Danbooru character tag that best matches their physical appearance, such as megumin_(konosuba), asuka_langley_soryu, or saber_(fate). Pick the closest visual match based on hair color, eye color, clothing silhouette, and body type. If no close match exists, pick a well-known character tag with a roughly similar visual design; never leave character_tag empty. ";
+                    booruInstr += "ADDITIONALLY: For EACH character, try to provide a single real Danbooru character tag in character_tag only when there is a clearly plausible visual match, such as megumin_(konosuba), asuka_langley_soryu, or saber_(fate). Pick based on hair color, eye color, clothing silhouette, and body type. If no believable Danbooru character look-alike exists, leave character_tag empty; do not invent a tag from the roleplay name and do not choose an unrelated famous character. ";
                 } else {
                     booruInstr += "If no good Danbooru character look-alike exists and Ensure Character Tag is off, character_tag may be empty, but every other tag field must still be tag-only. ";
                 }
