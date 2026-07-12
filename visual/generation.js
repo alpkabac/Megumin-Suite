@@ -41,6 +41,8 @@ export function createVisualGeneration(api) {
     let backgroundImageWorkerActive = false;
     let backgroundActiveJob = null;
     let danbooruTagsMap = null;
+    let danbooruCharacterSuggestions = null;
+    let danbooruCharacterSuggestionsPromise = null;
     let civitaiKeywordCache = {};
 
     const NSFW_POSITION_PRESETS = [
@@ -324,6 +326,99 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             console.error('[Megumin Suite] Failed to load tags.csv:', e);
             return new Map();
         }
+    }
+
+    function parseDanbooruCsvLine(line) {
+        const fields = [];
+        let current = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i += 1;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (ch === "," && !inQuotes) {
+                fields.push(current);
+                current = "";
+            } else {
+                current += ch;
+            }
+        }
+        fields.push(current);
+        return fields;
+    }
+
+    async function loadDanbooruCharacterSuggestions() {
+        if (danbooruCharacterSuggestions) return danbooruCharacterSuggestions;
+        if (danbooruCharacterSuggestionsPromise) return danbooruCharacterSuggestionsPromise;
+
+        danbooruCharacterSuggestionsPromise = (async () => {
+            try {
+                const res = await fetch(`${extensionFolderPath}/danbooru_character.csv`);
+                const text = await res.text();
+                const rows = [];
+                const lines = text.split(/\r?\n/);
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (!line) continue;
+                    const cols = parseDanbooruCsvLine(line);
+                    const character = String(cols[0] || "").trim();
+                    if (!character) continue;
+                    const copyright = String(cols[1] || "").trim();
+                    const trigger = String(cols[2] || "").trim();
+                    const coreTags = String(cols[3] || "").trim();
+                    const count = parseInt(cols[4], 10) || 0;
+                    const searchText = [character, copyright, trigger]
+                        .filter(Boolean)
+                        .join(" ")
+                        .toLowerCase()
+                        .replace(/[_()]+/g, " ")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                    rows.push({ character, copyright, trigger, coreTags, count, searchText });
+                }
+                danbooruCharacterSuggestions = rows;
+                console.log(`[Megumin Suite] Loaded ${rows.length} Danbooru character suggestions.`);
+                return rows;
+            } catch (e) {
+                console.error('[Megumin Suite] Failed to load danbooru_character.csv:', e);
+                danbooruCharacterSuggestions = [];
+                return danbooruCharacterSuggestions;
+            }
+        })();
+
+        return danbooruCharacterSuggestionsPromise;
+    }
+
+    function findDanbooruCharacterSuggestions(query, limit = 8) {
+        const rows = danbooruCharacterSuggestions || [];
+        const q = String(query || "").trim().toLowerCase();
+        if (q.length < 2 || rows.length === 0) return [];
+        const tagQuery = q.replace(/\s+/g, "_");
+        const textQuery = q.replace(/[_()]+/g, " ").replace(/\s+/g, " ").trim();
+        const results = [];
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            let score = -1;
+            if (row.character === tagQuery) score = 0;
+            else if (row.character.startsWith(tagQuery)) score = 1;
+            else if (row.searchText.startsWith(textQuery)) score = 2;
+            else if (row.character.includes(tagQuery)) score = 3;
+            else if (row.searchText.includes(textQuery)) score = 4;
+            if (score < 0) continue;
+            results.push({ row, score, index: i });
+            if (results.length >= 60) break;
+        }
+
+        return results
+            .sort((a, b) => a.score - b.score || b.row.count - a.row.count || a.index - b.index)
+            .slice(0, limit)
+            .map(r => r.row);
     }
 
     const BANNED_PROMPT_WORDS = ['loli', 'teenage', 'teenager', 'child', 'underage', 'minor'];
@@ -2283,12 +2378,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     const enabled = a.tagFieldToggles?.[key] !== false;
                     return `<button type="button" class="ps-modern-btn secondary li-row-field-toggle ${enabled ? 'active' : ''}" data-field="${key}" title="Include ${label} for this character" style="padding: 4px 7px; font-size: 0.62rem; min-width: auto; border-color: ${enabled ? 'rgba(16,185,129,0.45)' : 'var(--border-color)'}; color: ${enabled ? '#10b981' : 'var(--text-muted)'};">${label}</button>`;
                 };
-                const tagField = (key, label, placeholder) => `
-                    <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
-                        <span style="font-size: 0.62rem; font-weight: 800; color: #10b981; text-transform: uppercase;">${label}</span>
-                        <input class="ps-modern-input li-edit-tag-field" data-key="${key}" type="text" placeholder="${psEscapeAttr(placeholder)}" value="${psEscapeAttr(a[key] || '')}" style="font-size: 0.68rem; color: #10b981; padding: 6px; min-width: 0;" />
-                    </label>
-                `;
+                const tagField = (key, label, placeholder) => {
+                    const isCharacterTag = key === "character_tag";
+                    return `
+                        <label style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+                            <span style="font-size: 0.62rem; font-weight: 800; color: #10b981; text-transform: uppercase;">${label}</span>
+                            <input class="ps-modern-input li-edit-tag-field ${isCharacterTag ? 'li-edit-character-tag-field' : ''}" data-key="${key}" type="text" placeholder="${psEscapeAttr(placeholder)}" value="${psEscapeAttr(a[key] || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" style="font-size: 0.78rem; color: #10b981; padding: 9px; min-width: 0;" />
+                            ${isCharacterTag ? '<div class="li-character-tag-suggestions" style="display:none; max-height: 286px; overflow-y: auto; -webkit-overflow-scrolling: touch; border: 1px solid rgba(16,185,129,0.25); border-radius: 8px; background: rgba(6,20,16,0.98); box-shadow: 0 10px 24px rgba(0,0,0,0.32); padding: 5px; gap: 5px;"></div>' : ''}
+                        </label>
+                    `;
+                };
 
                 if (li.assignmentViewMode === 'plain') {
                     const plainValue = a.plain_description || getAssignmentTagBlock(a, li) || a.description || "";
@@ -2350,6 +2449,61 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 if (showMatchKw) row.find(".li-edit-match").on("input", function() { a.match_keywords = $(this).val(); saveProfileToMemory(); });
                 if (showLoras) row.find(".li-edit-lora").on("input", function() { a.lora = $(this).val(); saveProfileToMemory(); });
                 if (showDesc) row.find(".li-edit-desc").on("input", function() { a.description = $(this).val(); saveProfileToMemory(); });
+                const syncStructuredBooruTags = () => {
+                    a.booru_tags = [
+                        a.character_tag,
+                        a.series_tag,
+                        a.physical_tags,
+                        a.clothing_tags
+                    ].filter(Boolean).join(', ');
+                };
+                const suggestionBox = row.find(".li-character-tag-suggestions");
+                let suggestionToken = 0;
+                const hideCharacterSuggestions = () => suggestionBox.hide().empty();
+                const renderCharacterSuggestionStatus = (message) => {
+                    suggestionBox
+                        .html(`<div style="padding: 11px 10px; min-height: 44px; display: flex; align-items: center; color: var(--text-muted); font-size: 0.78rem;">${psEscapeText(message)}</div>`)
+                        .css("display", "flex")
+                        .css("flex-direction", "column");
+                };
+                const updateCharacterSuggestions = async ($input) => {
+                    const token = ++suggestionToken;
+                    const query = String($input.val() || a.character || "").trim();
+                    if (query.length < 2) {
+                        hideCharacterSuggestions();
+                        return;
+                    }
+                    renderCharacterSuggestionStatus("Loading character tags...");
+                    await loadDanbooruCharacterSuggestions();
+                    if (token !== suggestionToken) return;
+                    const suggestions = findDanbooruCharacterSuggestions(query, 8);
+                    suggestionBox.data("suggestions", suggestions);
+                    if (suggestions.length === 0) {
+                        renderCharacterSuggestionStatus("No character tag matches.");
+                        return;
+                    }
+                    suggestionBox
+                        .html(suggestions.map((item, suggestionIdx) => `
+                            <button type="button" class="li-character-tag-suggestion" data-suggestion-idx="${suggestionIdx}" style="width: 100%; min-height: 46px; border: 1px solid rgba(16,185,129,0.24); background: rgba(16,185,129,0.08); color: var(--text-main); border-radius: 7px; padding: 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 2px; touch-action: manipulation;">
+                                <span style="font-size: 0.82rem; font-weight: 800; color: #10b981; overflow-wrap: anywhere;">${psEscapeText(item.character)}</span>
+                                <span style="font-size: 0.7rem; color: var(--text-muted); overflow-wrap: anywhere;">${psEscapeText([item.copyright, item.count ? `${item.count.toLocaleString()} posts` : ""].filter(Boolean).join(" - "))}</span>
+                                ${item.coreTags ? `<span style="font-size: 0.66rem; color: #86efac; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${psEscapeText(item.coreTags)}</span>` : ""}
+                            </button>
+                        `).join(""))
+                        .css("display", "flex")
+                        .css("flex-direction", "column");
+                };
+                const applyCharacterSuggestion = (suggestion) => {
+                    if (!suggestion) return;
+                    a.character_tag = suggestion.character;
+                    if (!a.series_tag && suggestion.copyright) a.series_tag = suggestion.copyright;
+                    syncStructuredBooruTags();
+                    normalizeStructuredCharacterAssignment(a);
+                    row.find('.li-edit-tag-field[data-key="character_tag"]').val(a.character_tag || "");
+                    row.find('.li-edit-tag-field[data-key="series_tag"]').val(a.series_tag || "");
+                    saveProfileToMemory();
+                    hideCharacterSuggestions();
+                };
                 row.find(".li-always-include").on("click", function() { a.alwaysInclude = !a.alwaysInclude; if (a.alwaysInclude) a.neverInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-never-include").on("click", function() { a.neverInclude = !a.neverInclude; if (a.neverInclude) a.alwaysInclude = false; saveProfileToMemory(); liRenderAssignmentTable(li, charKey, s); });
                 row.find(".li-row-field-toggle").on("click", function() {
@@ -2360,14 +2514,23 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     liRenderAssignmentTable(li, charKey, s);
                 });
                 row.find(".li-edit-tag-field").on("input", function() {
-                    a[$(this).attr("data-key")] = $(this).val();
-                    a.booru_tags = [
-                        a.character_tag,
-                        a.series_tag,
-                        a.physical_tags,
-                        a.clothing_tags
-                    ].filter(Boolean).join(', ');
+                    const key = $(this).attr("data-key");
+                    a[key] = $(this).val();
+                    syncStructuredBooruTags();
                     saveProfileToMemory();
+                    if (key === "character_tag") updateCharacterSuggestions($(this));
+                });
+                row.find(".li-edit-character-tag-field").on("focus", function() {
+                    updateCharacterSuggestions($(this));
+                });
+                row.find(".li-edit-character-tag-field").on("blur", function() {
+                    setTimeout(hideCharacterSuggestions, 180);
+                });
+                suggestionBox.on("mousedown touchstart", ".li-character-tag-suggestion", function(e) {
+                    e.preventDefault();
+                    const suggestions = suggestionBox.data("suggestions") || [];
+                    const suggestionIdx = parseInt($(this).attr("data-suggestion-idx"), 10);
+                    applyCharacterSuggestion(suggestions[suggestionIdx]);
                 });
                 row.find(".li-edit-tag-field").on("blur", function() {
                     const key = $(this).attr("data-key");
