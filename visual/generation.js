@@ -440,10 +440,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     function ensureStructuredCharacterAssignment(a) {
         if (!a || typeof a !== 'object') return a;
-        if (a.character_tag === undefined) a.character_tag = "";
-        if (a.series_tag === undefined) a.series_tag = "";
-        if (a.physical_tags === undefined) a.physical_tags = a.booru_tags || "";
-        if (a.clothing_tags === undefined) a.clothing_tags = "";
+        if (a.character === undefined && a.name !== undefined) a.character = a.name;
+        if (a.match_keywords === undefined && a.aliases !== undefined) {
+            a.match_keywords = Array.isArray(a.aliases) ? a.aliases.join(", ") : a.aliases;
+        }
+        if (a.booru_tags === undefined) a.booru_tags = a.danbooru_tags || a.tags || "";
+        if (a.character_tag === undefined) a.character_tag = a.danbooru_character_tag || a.identity_tag || "";
+        if (a.series_tag === undefined) a.series_tag = a.danbooru_series_tag || a.franchise_tag || "";
+        if (a.physical_tags === undefined) a.physical_tags = a.body_tags || a.appearance_tags || a.booru_tags || "";
+        if (a.clothing_tags === undefined) a.clothing_tags = a.outfit_tags || a.clothes_tags || "";
         if (a.plain_description === undefined) a.plain_description = "";
         if (a.alwaysInclude === undefined) a.alwaysInclude = false;
         if (a.neverInclude === undefined) a.neverInclude = false;
@@ -1728,7 +1733,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         // AI Character Assignment
         async function runCharacterAnalysis(btn, feedback = "") {
             const chatText = getCleanedChatHistory();
-            if (chatText.length < 50) return toastr.warning("Not enough chat history to analyze characters.");
+            const characterTextContext = getCurrentCharacterTextContext();
+            const analysisTextLength = [
+                chatText,
+                characterTextContext.description,
+                characterTextContext.firstMessage
+            ].join("\n").trim().length;
+            if (analysisTextLength < 50) return toastr.warning("Not enough chat or character card context to analyze characters.");
 
             const busyHtml = feedback
                 ? '<i class="fa-solid fa-spinner fa-spin"></i> Regenerating...'
@@ -1740,7 +1751,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             try {
                 if (li.useDanbooruTags) await loadDanbooruTags();
 
-                const characterTextContext = getCurrentCharacterTextContext();
                 const previousAssignments = JSON.stringify(getModeCharacterAssignments(li, charKey), null, 2);
 
                 activeLoraAssignRequest = {
@@ -1778,18 +1788,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 // Parse the AI response
                 try {
-                    let jsonText = rawOutput;
-                    let jsonMatch = jsonText.match(/\[[\s\S]*\]/);
-                    if (!jsonMatch) {
-                        const trimmed = jsonText.trim();
-                        if (trimmed.startsWith('{') || trimmed.startsWith('"')) {
-                            jsonText = '[' + trimmed;
-                            if (!jsonText.trim().endsWith(']')) jsonText = jsonText.trim() + ']';
-                            jsonMatch = jsonText.match(/\[[\s\S]*\]/);
-                        }
-                    }
-                    if (jsonMatch) {
-                        const assignments = JSON.parse(jsonMatch[0]);
+                    const assignments = parseCharacterAssignmentsResponse(rawOutput);
+                    if (assignments.length > 0) {
                         let ensuredCharacterTagFallbacks = 0;
 
                         if (li.useDanbooruTags) {
@@ -3804,6 +3804,89 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return s.trim();
     }
 
+    function stripJsonCodeFences(text) {
+        return String(text || "")
+            .replace(/```(?:json|javascript|js)?/gi, "")
+            .replace(/```/g, "")
+            .trim();
+    }
+
+    function normalizeParsedCharacterAssignments(parsed) {
+        if (Array.isArray(parsed)) return parsed;
+        if (!parsed || typeof parsed !== "object") return [];
+        const wrapped = parsed.assignments
+            || parsed.characters
+            || parsed.character_assignments
+            || parsed.characterAssignments
+            || parsed.results;
+        if (Array.isArray(wrapped)) return wrapped;
+        if (parsed.character || parsed.name) return [parsed];
+        return [];
+    }
+
+    function getBalancedJsonSegment(text, openChar, closeChar) {
+        const source = String(text || "");
+        const start = source.indexOf(openChar);
+        if (start < 0) return "";
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let i = start; i < source.length; i++) {
+            const ch = source[i];
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (ch === "\\") {
+                    escaped = true;
+                } else if (ch === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (ch === '"') {
+                inString = true;
+            } else if (ch === openChar) {
+                depth += 1;
+            } else if (ch === closeChar) {
+                depth -= 1;
+                if (depth === 0) return source.slice(start, i + 1);
+            }
+        }
+        return "";
+    }
+
+    function parseCharacterAssignmentsResponse(rawOutput) {
+        const text = stripJsonCodeFences(stripUtilityThinkingWrapper(rawOutput));
+        const candidates = [
+            text,
+            getBalancedJsonSegment(text, "[", "]"),
+            getBalancedJsonSegment(text, "{", "}")
+        ].filter(Boolean);
+
+        for (const candidate of candidates) {
+            try {
+                const assignments = normalizeParsedCharacterAssignments(JSON.parse(candidate));
+                if (assignments.length > 0) return assignments;
+            } catch (e) {
+                // Try the next common response shape.
+            }
+        }
+
+        const trimmed = text.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith('"')) {
+            try {
+                const assignments = normalizeParsedCharacterAssignments(JSON.parse(`[${trimmed.replace(/,\s*$/, "")}]`));
+                if (assignments.length > 0) return assignments;
+            } catch (e) {
+                // Fall through to the caller's parse warning.
+            }
+        }
+
+        return [];
+    }
+
     /** Illustrious / Danbooru: drop plain-English planning before the first booru-style subject leader. */
     function stripPreambleBeforeBooruTags(text) {
         const t = String(text || "").trim();
@@ -4094,7 +4177,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             });
             messages.push({
                 "role": "user",
-                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}${feedbackSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context only to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present.\n- Do not include temporary actions, pose, expression, state, setting, or composition in character metadata.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
+                "content": `Analyze this conversation and extract visual metadata for the important characters.\n\n<chat>\n${activeLoraAssignRequest.chatText}\n</chat>${cardContextSection}${feedbackSection}\n\nReturn a JSON array with this exact format:\n[\n${jsonFormat}\n]\n\nRules:\n- Use the character card context to improve names, aliases, first-message identity cues, match_keywords, and stable visual traits.\n- Prefer the actual chat for who is present when the chat has enough scene content.\n- If the chat is empty or sparse, the character card description and first message are sufficient context for the initial character metadata.\n- Do not include temporary actions, pose, expression, state, setting, or composition in character metadata.\n- Do not invent extra currently-present characters only because they are mentioned in the card context.\n- Output ONLY the JSON array, no explanation`
             });
         if (!disablePrefill) {
             messages.push({
