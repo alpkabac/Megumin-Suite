@@ -28,7 +28,7 @@ export function createVisualGeneration(api) {
     } = api;
 
     const getLocalProfile = api.getLocalProfile;
-    const SHOW_RUNPOD_IMAGE_BACKEND = false;
+    const SHOW_RUNPOD_IMAGE_BACKEND = true;
     const PS_BAD_STUFF_REGEX = globalThis.PS_BAD_STUFF_REGEX instanceof RegExp
         ? globalThis.PS_BAD_STUFF_REGEX
         : /$a/;
@@ -781,12 +781,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         pollIntervalMs: 1000,
         timeoutMs: 600000
     };
-    const RUNPOD_IMAGE_MODELS = ["ri-mix-illustrious-anima.safetensors", "anima-base-v1.0.safetensors"];
+    const RUNPOD_IMAGE_MODELS = ["anima-turbo-v1.0.safetensors"];
     const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
     const RUNPOD_IMAGE_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta", "linear_quadratic"];
-    const RUNPOD_IMAGE_LORAS = ["anima_turbo.safetensors"];
+    const RUNPOD_IMAGE_LORAS = [];
     const RUNPOD_IMAGE_MODEL_ALIASES = {
-        "rimixillustriousanima_rimixanima.safetensors": "ri-mix-illustrious-anima.safetensors"
+        "rimixillustriousanima_rimixanima.safetensors": "anima-turbo-v1.0.safetensors",
+        "ri-mix-illustrious-anima.safetensors": "anima-turbo-v1.0.safetensors",
+        "anima-base-v1.0.safetensors": "anima-turbo-v1.0.safetensors"
     };
 
     function normalizeRunpodModelFilename(modelName) {
@@ -857,7 +859,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             s.selectedModel = normalizedModel;
             changed = true;
         }
-        if (!s.selectedModel && RUNPOD_IMAGE_MODELS[0]) {
+        if (!RUNPOD_IMAGE_MODELS.includes(s.selectedModel) && RUNPOD_IMAGE_MODELS[0]) {
             s.selectedModel = RUNPOD_IMAGE_MODELS[0];
             changed = true;
         }
@@ -869,6 +871,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             s.selectedScheduler = RUNPOD_IMAGE_SCHEDULERS[0];
             changed = true;
         }
+        for (let i = 1; i <= 4; i++) {
+            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+            if (s[key]) {
+                s[key] = "";
+                changed = true;
+            }
+        }
         return changed;
     }
 
@@ -878,8 +887,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
         ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
         for (let i = 1; i <= 4; i++) {
-            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
-            ensureSelectHasOptions($(`#ig_lora_${i}`), RUNPOD_IMAGE_LORAS, s[key], "-- No LoRA --");
+            ensureSelectHasOptions($(`#ig_lora_${i}`), RUNPOD_IMAGE_LORAS, "", "-- No LoRA --");
         }
     }
 
@@ -1172,7 +1180,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     <div class="ps-toggle-card ${runpod.enabled ? 'active' : ''}" id="ig_runpod_card" style="padding: 12px 18px; margin-bottom: 15px;">
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight:600; font-size:0.85rem;">Render with RunPod</span>
-                            <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Sends the same prepared workflow to your RunPod endpoint instead of local ComfyUI. Endpoint and API key are saved in local extension settings.</div>
+                            <div style="margin-top:2px; font-size: 0.7rem; color: var(--text-muted);">Sends the prepared ComfyUI API workflow to your RunPod endpoint. Endpoint and API key are saved in local extension settings.</div>
                         </div>
                         <div class="ps-switch"></div>
                     </div>
@@ -2093,7 +2101,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     /** Last POST body sent to ComfyUI `/prompt` (session memory; refreshed on each generation). */
     let igLastComfyApiRequest = null;
 
-    /** Replace Megumin %placeholders% in workflow node inputs (strings only). Recurses into plain objects so nested widgets (e.g. rgthree Power Lora Loader `lora_N: { lora, strength }`) are patched; arrays are left as-is (Comfy links). */
+    /** Replace Megumin %placeholders% in workflow node inputs (strings only). Recurses into nested widget objects; arrays are left as-is because they are Comfy links. */
     function igSubstituteComfyPlaceholderDeep(val, repl, seedPlaceholderState) {
         if (typeof val === "string" && Object.prototype.hasOwnProperty.call(repl, val)) {
             if (val === "%seed%" && seedPlaceholderState) seedPlaceholderState.injected = true;
@@ -3555,41 +3563,26 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     function igRunpodCandidateToImage(candidate) {
-        if (!candidate) return null;
-        if (typeof candidate === "string") {
-            const trimmed = candidate.trim();
-            if (!trimmed) return null;
-            if (/^https?:\/\//i.test(trimmed)) return { url: trimmed };
-            if (/^data:image\//i.test(trimmed)) return { dataUrl: trimmed, format: igGetDataUrlFormat(trimmed) || "png" };
-            return { dataUrl: `data:image/png;base64,${trimmed}`, format: "png" };
+        if (!candidate || typeof candidate !== "object") return null;
+        const data = String(candidate.data || "").trim();
+        if (!data) return null;
+        if (candidate.type === "s3_url") {
+            return /^https?:\/\//i.test(data) ? { url: data } : null;
         }
-        if (typeof candidate === "object") {
-            if (candidate.data) return igRunpodCandidateToImage(candidate.data);
-            if (candidate.base64) return igRunpodCandidateToImage(candidate.base64);
-            if (candidate.image) return igRunpodCandidateToImage(candidate.image);
-            if (candidate.url) return { url: candidate.url };
+        if (candidate.type === "base64") {
+            return {
+                dataUrl: /^data:image\//i.test(data) ? data : `data:image/png;base64,${data}`,
+                format: "png"
+            };
         }
         return null;
     }
 
     function igFindRunpodImageCandidate(statusData) {
-        const output = statusData?.output ?? statusData;
-        const firstOutput = Array.isArray(output) ? output[0] : null;
-        const candidates = [
-            output,
-            firstOutput,
-            output?.images?.[0],
-            output?.image,
-            output?.result?.images?.[0],
-            output?.result?.image,
-            output?.output?.images?.[0],
-            output?.output?.image
-        ];
-        for (const candidate of candidates) {
-            const found = igRunpodCandidateToImage(candidate);
-            if (found) return found;
-        }
-        return null;
+        // worker-comfyui 5.x returns generated images at output.images[].
+        const images = statusData?.output?.images;
+        if (!Array.isArray(images)) return null;
+        return images.map(igRunpodCandidateToImage).find(Boolean) || null;
     }
 
     async function igResolveRunpodImageDataUrl(statusData) {
@@ -3604,7 +3597,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return { dataUrl, format: igGetDataUrlFormat(dataUrl) || "png" };
     }
 
-    async function igGenerateWithRunpod(workflow, finalPrompt, target, s) {
+    async function igGenerateWithRunpod(workflow, target, s) {
         const runpod = ensureRunpodSettings(s);
         if (!runpod.endpointId || !runpod.apiKey) {
             throw new Error("RunPod endpoint ID and API key are required.");
@@ -3618,7 +3611,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${runpod.apiKey}`
             },
-            body: JSON.stringify({ input: { workflow, prompt: finalPrompt } })
+            body: JSON.stringify({ input: { workflow } })
         });
         if (!submitRes.ok) {
             const text = await submitRes.text().catch(() => "");
@@ -3903,7 +3896,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         if (isRunpodReady(s)) {
             try {
-                await igGenerateWithRunpod(workflow, finalPrompt, target, s);
+                await igGenerateWithRunpod(workflow, target, s);
                 if (!background) $("#kazuma_progress_overlay").hide();
             } catch (e) {
                 if (!background) $("#kazuma_progress_overlay").hide();

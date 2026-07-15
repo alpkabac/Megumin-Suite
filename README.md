@@ -26,6 +26,22 @@ Copy that directory into `ComfyUI/custom_nodes/` and restart ComfyUI. Add **Megu
 
 For safer key storage, set `NANOGPT_API_KEY` before starting ComfyUI instead of saving the key in workflow JSON.
 
+## RunPod Serverless (Anima Turbo)
+
+The included Docker build creates a `runpod/worker-comfyui` image with the repository-local `ComfyUI-Megumin-NanoGPT` node and Anima Turbo. The Qwen text encoder and VAE remain in the image because Anima Turbo needs them; no RI-MIX checkpoint or LoRAs are included.
+
+Build the image through the `docker-image.yml` workflow, deploy the resulting GHCR image as a RunPod Serverless endpoint, then enable **Render with RunPod** in Megumin Suite and enter the endpoint ID and API key. Select `anima_nanogpt.json` as the workflow.
+
+Set `NANOGPT_API_KEY` in the RunPod endpoint's environment variables. The bundled workflow intentionally leaves the node's `api_key` blank so it uses that environment variable instead of storing the key in the workflow sent by SillyTavern.
+
+Megumin submits the worker's required request body:
+
+```json
+{ "input": { "workflow": { "...": "ComfyUI API workflow" } } }
+```
+
+It reads completed images from `output.images[]`, accepting the worker's `base64` and `s3_url` output types.
+
 # beta 17/05/26
 * added full mamory manager change from Cohee/jina-embeddings-v2-base-en to Xenova/all-MiniLM-L6-v2 if you going to use Semantic Embeddings. i recommend only using the keywords its faster and do 90% like Semantic Embeddings.
 * added NPC bank.

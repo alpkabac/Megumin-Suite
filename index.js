@@ -154,7 +154,7 @@ function initProfile() {
             generatorBackend: "direct",
             comfyUrl: "http://127.0.0.1:8188",
             currentWorkflowName: "",
-            selectedModel: "ri-mix-illustrious-anima.safetensors",
+            selectedModel: "anima-turbo-v1.0.safetensors",
             selectedLora: "", selectedLora2: "", selectedLora3: "", selectedLora4: "",
             selectedLoraWt: 1.0, selectedLoraWt2: 1.0, selectedLoraWt3: 1.0, selectedLoraWt4: 1.0,
             imgWidth: 1024, imgHeight: 1024,
