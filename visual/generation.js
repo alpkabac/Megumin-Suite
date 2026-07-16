@@ -3597,7 +3597,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return { dataUrl, format: igGetDataUrlFormat(dataUrl) || "png" };
     }
 
-    async function igGenerateWithRunpod(workflow, target, s) {
+    async function igGenerateWithRunpod(workflow, finalPrompt, target, s) {
         const runpod = ensureRunpodSettings(s);
         if (!runpod.endpointId || !runpod.apiKey) {
             throw new Error("RunPod endpoint ID and API key are required.");
@@ -3896,7 +3896,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         if (isRunpodReady(s)) {
             try {
-                await igGenerateWithRunpod(workflow, target, s);
+                await igGenerateWithRunpod(workflow, finalPrompt, target, s);
                 if (!background) $("#kazuma_progress_overlay").hide();
             } catch (e) {
                 if (!background) $("#kazuma_progress_overlay").hide();
