@@ -578,6 +578,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         li.ensureLoras = false;
         if (li.useDanbooruTags === undefined) li.useDanbooruTags = true;
         if (li.useCharDescriptions === undefined) li.useCharDescriptions = false;
+        // The old "both" mode mixed raw Booru tags into a Krea-oriented
+        // description workflow. Migrate it once to the dedicated prose +
+        // runtime-LoRA mode, while retaining the old assignment store for export.
+        if (li.naturalLoraMode === undefined) {
+            li.naturalLoraMode = !!(li.useDanbooruTags && li.useCharDescriptions);
+        }
+        if (li.naturalLoraMode) {
+            li.useDanbooruTags = false;
+            li.useCharDescriptions = true;
+        }
         if (li.ensureCharacterTag === undefined) li.ensureCharacterTag = false;
         li.descriptionStyle = 'natural';
         if (li.promptAssemblyMode === undefined) li.promptAssemblyMode = 'structured';
@@ -650,12 +660,17 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureLoraIntelDefaults(li);
         const store = getModeCharacterAssignmentStore(li, modeKey);
         if (!Array.isArray(store[charKey])) {
+            const effectiveModeKey = modeKey || getCharacterAssignmentModeKey(li);
             const anyModeAlreadyHasCharacter = Object.values(li.characterAssignmentsByMode || {})
                 .some(modeStore => Array.isArray(modeStore?.[charKey]));
+            const legacyMixedAssignments = effectiveModeKey === "description" && li.naturalLoraMode
+                && Array.isArray(li.characterAssignmentsByMode?.both?.[charKey])
+                ? JSON.parse(JSON.stringify(li.characterAssignmentsByMode.both[charKey]))
+                : null;
             const legacy = !anyModeAlreadyHasCharacter && Array.isArray(li.characterAssignments?.[charKey])
                 ? JSON.parse(JSON.stringify(li.characterAssignments[charKey]))
                 : [];
-            store[charKey] = legacy;
+            store[charKey] = legacyMixedAssignments || legacy;
         }
         store[charKey].forEach(ensureStructuredCharacterAssignment);
         if (!li.characterAssignments || typeof li.characterAssignments !== "object") li.characterAssignments = {};
@@ -679,7 +694,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     function getAssignmentModeLabel(li) {
         const key = getCharacterAssignmentModeKey(li);
         if (key === "booru") return "Booru Tags";
-        if (key === "description") return "Natural";
+        if (key === "description") return li.naturalLoraMode ? "Natural + Krea Runtime LoRA" : "Natural";
         if (key === "both") return "Booru + Natural";
         return "Shared";
     }
@@ -704,6 +719,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 useDanbooruTags: !!li.useDanbooruTags,
                 ensureCharacterTag: !!li.ensureCharacterTag,
                 useCharDescriptions: !!li.useCharDescriptions,
+                naturalLoraMode: !!li.naturalLoraMode,
                 descriptionStyle: li.descriptionStyle,
                 promptAssemblyMode: li.promptAssemblyMode,
                 assignmentViewMode: li.assignmentViewMode,
@@ -725,7 +741,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureLoraIntelDefaults(li);
 
         const settings = payload.settings && typeof payload.settings === "object" ? payload.settings : {};
-        ["ensureLoras", "useDanbooruTags", "ensureCharacterTag", "useCharDescriptions", "sendAllCharactersToPromptAi"].forEach(key => {
+        ["ensureLoras", "useDanbooruTags", "ensureCharacterTag", "useCharDescriptions", "naturalLoraMode", "sendAllCharactersToPromptAi"].forEach(key => {
             if (typeof settings[key] === "boolean") li[key] = settings[key];
         });
         ["descriptionStyle", "promptAssemblyMode", "assignmentViewMode"].forEach(key => {
@@ -779,16 +795,30 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         endpointId: "",
         apiKey: "",
         pollIntervalMs: 1000,
-        timeoutMs: 600000
+        timeoutMs: 600000,
+        defaultKreaLoraApplied: false
     };
-    const RUNPOD_IMAGE_MODELS = ["anima-turbo-v1.0.safetensors"];
+    const RUNPOD_ANIMA_MODEL = "anima-turbo-v1.0.safetensors";
+    const RUNPOD_KREA_MODEL = "krea2_turbo_fp8_scaled.safetensors";
+    const RUNPOD_IMAGE_MODELS = [RUNPOD_ANIMA_MODEL, RUNPOD_KREA_MODEL];
     const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
     const RUNPOD_IMAGE_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta", "linear_quadratic"];
-    const RUNPOD_IMAGE_LORAS = [];
+    // This is baked into Dockerfile.krea2-runpod. Remote browser selections are
+    // represented as hf:// references and are intentionally kept in the profile.
+    const MEGUMIN_DEFAULT_KREA_LORA = "megumin-default-civitai-3027612.safetensors";
+    const RUNPOD_IMAGE_LORAS = [MEGUMIN_DEFAULT_KREA_LORA];
+    const KREA_BAKED_LORA_MANIFEST_URL = `${extensionFolderPath}/data/krea2_baked_loras.json`;
+    const MALCOLMREY_BROWSER_INDEX_URL = "https://huggingface.co/spaces/malcolmrey/browser/resolve/main/data-filenames.json";
+    const MALCOLMREY_KREA_REPOSITORY = "malcolmrey/krea2";
+    let malcolmreyKreaLoraCache = null;
+    let malcolmreyKreaLoraLoad = null;
+    let bakedKreaLoraCache = null;
+    let bakedKreaLoraLoad = null;
     const RUNPOD_IMAGE_MODEL_ALIASES = {
         "rimixillustriousanima_rimixanima.safetensors": "anima-turbo-v1.0.safetensors",
         "ri-mix-illustrious-anima.safetensors": "anima-turbo-v1.0.safetensors",
-        "anima-base-v1.0.safetensors": "anima-turbo-v1.0.safetensors"
+        "anima-base-v1.0.safetensors": "anima-turbo-v1.0.safetensors",
+        "krea2_turbo_fp8.safetensors": "krea2_turbo_fp8_scaled.safetensors"
     };
 
     function normalizeRunpodModelFilename(modelName) {
@@ -871,23 +901,26 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             s.selectedScheduler = RUNPOD_IMAGE_SCHEDULERS[0];
             changed = true;
         }
-        for (let i = 1; i <= 4; i++) {
-            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
-            if (s[key]) {
-                s[key] = "";
+        // Do not clear these slots. They are explicit user choices and may be
+        // hf:// runtime references which a normal ComfyUI filename scan cannot see.
+        if (s.selectedModel === RUNPOD_KREA_MODEL && !s.runpod.defaultKreaLoraApplied) {
+            if (!s.selectedLora) {
+                s.selectedLora = MEGUMIN_DEFAULT_KREA_LORA;
                 changed = true;
             }
+            s.runpod.defaultKreaLoraApplied = true;
+            changed = true;
         }
         return changed;
     }
 
-    function populateRunpodImageLists(s) {
+    function populateRunpodImageLists(s, bakedLoras = []) {
         ensureRunpodDropdownValues(s);
         ensureSelectHasOptions($("#ig_model"), RUNPOD_IMAGE_MODELS, s.selectedModel, "-- Select Model --");
         ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
         ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
         for (let i = 1; i <= 4; i++) {
-            ensureSelectHasOptions($(`#ig_lora_${i}`), RUNPOD_IMAGE_LORAS, "", "-- No LoRA --");
+            ensureSelectHasOptions($(`#ig_lora_${i}`), [...RUNPOD_IMAGE_LORAS, ...bakedLoras], s[i === 1 ? "selectedLora" : `selectedLora${i}`], "-- No LoRA --");
         }
     }
 
@@ -1375,7 +1408,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 <!-- LoRA Lab -->
                 <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+                        <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
+                        <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'inline-flex' : 'none'}; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
+                    </div>
+                    <div id="ig_krea_lora_hint" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'block' : 'none'}; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Finder selections are explicit, saved per profile, downloaded by the RunPod worker only when needed, and never changed by character keyword analysis.</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         ${[1,2,3,4].map(i => `
                             <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; border-left: 3px solid #a855f7;">
@@ -1410,12 +1447,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             <div style="display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;">
                                 <div style="flex:1; min-width:220px;">
                                     <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px;">Character Analysis Mode</div>
-                                    <div style="font-size:0.65rem; color:var(--text-muted);">Booru is best for tag models. Natural writes per-character prose for models like Krea 2. Both keeps both fields available.</div>
+                                    <div style="font-size:0.65rem; color:var(--text-muted);">Booru is for tag models. Natural writes per-character prose. Natural + Krea Runtime LoRA keeps selected Krea identities explicit and does not infer or swap LoRAs from chat keywords.</div>
                                 </div>
                                 <select id="li_analysis_mode" class="ps-modern-input" style="width: 230px; padding: 8px; font-size: 0.75rem;">
                                     <option value="booru" ${li.useDanbooruTags && !li.useCharDescriptions ? 'selected' : ''}>Booru Tags</option>
-                                    <option value="natural" ${!li.useDanbooruTags && li.useCharDescriptions ? 'selected' : ''}>Natural Language</option>
-                                    <option value="both" ${li.useDanbooruTags && li.useCharDescriptions ? 'selected' : ''}>Booru + Natural</option>
+                                    <option value="natural" ${!li.useDanbooruTags && li.useCharDescriptions && !li.naturalLoraMode ? 'selected' : ''}>Natural Language</option>
+                                    <option value="natural_lora" ${li.naturalLoraMode ? 'selected' : ''}>Natural Language + Krea Runtime LoRA</option>
                                 </select>
                                 <div id="li_ensure_char_tag_wrap" style="display: ${li.useDanbooruTags ? 'flex' : 'none'}; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); border-radius: 6px; cursor: pointer;" class="${li.ensureCharacterTag ? 'active' : ''}">
                                     <div style="width: 16px; height: 16px; border-radius: 4px; border: 2px solid ${li.ensureCharacterTag ? '#f59e0b' : '#52525b'}; background: ${li.ensureCharacterTag ? '#f59e0b' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -1613,8 +1650,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             $(this).toggleClass("active", rp.enabled);
             if (rp.enabled) $("#ig_runpod_settings").slideDown(200);
             else $("#ig_runpod_settings").slideUp(200);
-            if (rp.enabled) populateRunpodImageLists(s);
-            else igFetchComfyLists();
+            if (rp.enabled) {
+                populateRunpodImageLists(s);
+                igFetchComfyLists();
+            } else igFetchComfyLists();
         });
         $("#ig_runpod_endpoint").on("input", (e) => {
             const value = $(e.target).val().trim();
@@ -1677,6 +1716,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 s[key] = $(e.target).val();
                 ensureImageGenLoraArrays(s);
                 s.loraSlotKeywordManaged[i - 1] = false;
+                if (s.selectedModel === RUNPOD_KREA_MODEL) ensureRunpodSettings(s).defaultKreaLoraApplied = true;
                 saveProfileToMemory();
             });
             $(`#ig_lorawt_${i}`).on("input", function() { let v = parseFloat(this.value); s[wtKey] = v; $(`#ig_lorawt_lbl_${i}`).text(v); saveProfileToMemory(); });
@@ -1689,9 +1729,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         }
 
         // Models & Samplers
-        $("#ig_model").on("change", (e) => { s.selectedModel = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_model").on("change", (e) => {
+            s.selectedModel = $(e.target).val();
+            if (ensureRunpodSettings(s).enabled) ensureRunpodDropdownValues(s);
+            saveProfileToMemory();
+            renderImageGen(c);
+        });
         $("#ig_sampler").on("change", (e) => { s.selectedSampler = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_scheduler").on("change", (e) => { s.selectedScheduler = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_krea_lora_browser_btn").on("click", () => showMalcolmreyKreaLoraFinder(s));
 
         // Buttons
         $("#ig_test_btn").on("click", igTestConnection);
@@ -1733,8 +1779,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         $("#li_analysis_mode").on("change", function() {
             const mode = $(this).val() || "booru";
             li.ensureLoras = false;
-            li.useDanbooruTags = mode === "booru" || mode === "both";
-            li.useCharDescriptions = mode === "natural" || mode === "both";
+            li.naturalLoraMode = mode === "natural_lora";
+            li.useDanbooruTags = mode === "booru";
+            li.useCharDescriptions = mode === "natural" || mode === "natural_lora";
             li.descriptionStyle = "natural";
             saveProfileToMemory();
             renderImageGen(c);
@@ -1995,6 +2042,202 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     // -------------------------------------------------------------
     // STAGE 8 HELPER FUNCTIONS
     // -------------------------------------------------------------
+    const MALCOLMREY_KREA_FILENAME_RE = /^krea2_[a-z0-9_().-]+\.safetensors$/i;
+
+    function prettyKreaLoraName(filename) {
+        return String(filename || "")
+            .replace(/^krea2_/i, "")
+            .replace(/_v\d+(?:_onetrainer)?\.safetensors$/i, "")
+            .replace(/_onetrainer\.safetensors$/i, "")
+            .replace(/\.safetensors$/i, "")
+            .replace(/[_-]+/g, " ")
+            .replace(/\b\w/g, letter => letter.toUpperCase());
+    }
+
+    // Malcolmrey's index has a confirmed shape: { filenames: { "<characterkey>": { krea2: [...], lora: [...], ... } } }.
+    // Read that exact shape first so name lookup is deterministic, and only fall
+    // back to a generic recursive scan (matching just the krea2_*.safetensors
+    // pattern) if Hugging Face ever changes the wrapper so the Finder still
+    // degrades gracefully instead of silently returning zero results.
+    function collectMalcolmreyKreaEntries(json) {
+        const entries = [];
+        const seenFilenames = new Set();
+        const addEntry = (charKey, filename) => {
+            const name = String(filename || "").trim();
+            if (!MALCOLMREY_KREA_FILENAME_RE.test(name) || seenFilenames.has(name)) return;
+            seenFilenames.add(name);
+            entries.push({ charKey: String(charKey || "").trim(), filename: name });
+        };
+
+        const root = json && typeof json === "object" ? json : {};
+        const table = root.filenames && typeof root.filenames === "object" && !Array.isArray(root.filenames)
+            ? root.filenames
+            : null;
+        if (table) {
+            Object.entries(table).forEach(([charKey, record]) => {
+                const krea2List = record && typeof record === "object" && Array.isArray(record.krea2) ? record.krea2 : null;
+                if (krea2List) krea2List.forEach(filename => addEntry(charKey, filename));
+            });
+        }
+
+        if (entries.length === 0) {
+            const seen = new WeakSet();
+            const walk = (value) => {
+                if (typeof value === "string") return addEntry("", value);
+                if (!value || typeof value !== "object" || seen.has(value)) return;
+                seen.add(value);
+                (Array.isArray(value) ? value : Object.values(value)).forEach(walk);
+            };
+            walk(root);
+        }
+        return entries;
+    }
+
+    function prettyKreaCharacterLabel(charKey, filename) {
+        const base = String(charKey || "").trim();
+        let label = base ? base.replace(/\b\w/g, letter => letter.toUpperCase()) : prettyKreaLoraName(filename);
+        const variant = String(filename || "").match(/_v(\d+)(_onetrainer)?\.safetensors$/i);
+        if (variant) label = `${label} (v${variant[1]}${variant[2] ? " OneTrainer" : ""})`;
+        return label;
+    }
+
+    async function loadBakedKreaLoras() {
+        if (bakedKreaLoraCache) return bakedKreaLoraCache;
+        if (bakedKreaLoraLoad) return bakedKreaLoraLoad;
+        bakedKreaLoraLoad = fetch(KREA_BAKED_LORA_MANIFEST_URL, { cache: "no-cache" })
+            .then(async response => {
+                if (!response.ok) throw new Error(`Baked Krea LoRA manifest request failed (${response.status}).`);
+                const manifest = await response.json();
+                if (!Array.isArray(manifest)) throw new Error("Baked Krea LoRA manifest must be an array.");
+                bakedKreaLoraCache = manifest.map(item => {
+                    const filename = String(item?.filename || "").trim();
+                    if (!/^[^\\/]+\.safetensors$/i.test(filename)) return null;
+                    return {
+                        filename,
+                        label: String(item?.label || prettyKreaLoraName(filename)).trim(),
+                        reference: filename,
+                        source: "Baked"
+                    };
+                }).filter(Boolean);
+                return bakedKreaLoraCache;
+            })
+            .finally(() => { bakedKreaLoraLoad = null; });
+        return bakedKreaLoraLoad;
+    }
+
+    async function loadMalcolmreyKreaLoras() {
+        if (malcolmreyKreaLoraLoad) return malcolmreyKreaLoraLoad;
+        // Revalidate every time Finder opens: Malcolmrey's index changes often.
+        malcolmreyKreaLoraLoad = fetch(MALCOLMREY_BROWSER_INDEX_URL, { cache: "no-cache" })
+            .then(async response => {
+                if (!response.ok) throw new Error(`Malcolmrey index request failed (${response.status}).`);
+                const json = await response.json();
+                const entries = collectMalcolmreyKreaEntries(json)
+                    .sort((a, b) => a.filename.localeCompare(b.filename));
+                if (!entries.length) throw new Error("The Malcolmrey index did not contain any Krea 2 LoRA filenames.");
+                malcolmreyKreaLoraCache = entries.map(({ charKey, filename }) => ({
+                    filename,
+                    label: prettyKreaCharacterLabel(charKey, filename),
+                    reference: `hf://${MALCOLMREY_KREA_REPOSITORY}/${filename}`,
+                    source: "Runtime"
+                }));
+                return malcolmreyKreaLoraCache;
+            })
+            .finally(() => { malcolmreyKreaLoraLoad = null; });
+        return malcolmreyKreaLoraLoad;
+    }
+
+    function setExplicitRuntimeLoraSlot(s, slot, reference) {
+        const index = Math.max(1, Math.min(4, parseInt(slot, 10) || 1));
+        const key = index === 1 ? "selectedLora" : `selectedLora${index}`;
+        s[key] = reference;
+        ensureImageGenLoraArrays(s);
+        s.loraSlotKeywordManaged[index - 1] = false;
+        const $select = $(`#ig_lora_${index}`);
+        if ($select.length && !$select.find(`option[value="${String(reference).replace(/"/g, "\\\"")}"]`).length) {
+            $select.append($("<option></option>").attr("value", reference).text(`Runtime: ${reference.replace(/^hf:\/\/[^/]+\//, "")}`));
+        }
+        $select.val(reference);
+        saveProfileToMemory();
+    }
+
+    function appendKreaRuntimeLoraTriggerInstruction(prompt, loras) {
+        // Every Krea LoRA slot needs the "a woman" trigger conveyed to the LLM,
+        // regardless of whether the LoRA is the baked default/manifest entry
+        // (a plain filename) or a Malcolmrey Finder pick (an hf:// reference).
+        const selected = (Array.isArray(loras) ? loras : [])
+            .map(value => String(value || "").trim())
+            .filter(value => value && value.toLowerCase() !== "none");
+        if (!selected.length) return String(prompt || "");
+        const identities = selected.map(reference => prettyKreaLoraName(reference.split("/").pop())).join(", ");
+        const countWord = selected.length === 1 ? "one selected identity" : `${selected.length} selected identities`;
+        const instruction = `Krea character LoRA instruction: ${countWord} (${identities}). Use the exact trigger phrase "a woman" for every selected LoRA identity. Describe each as a distinct adult woman with a separate spatial label and do not merge their faces, hair, or clothing.`;
+        const current = String(prompt || "").trim();
+        return current ? `${current}\n${instruction}` : instruction;
+    }
+
+    async function showMalcolmreyKreaLoraFinder(s) {
+        if (!ensureRunpodSettings(s).enabled || s.selectedModel !== RUNPOD_KREA_MODEL) {
+            return toastr.warning("Enable RunPod and select the Krea 2 model before choosing a runtime LoRA.");
+        }
+        const $overlay = $(`
+            <div class="ig-krea-lora-overlay" style="position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:18px; box-sizing:border-box; background:rgba(0,0,0,.72); font-family:'Inter',sans-serif;">
+                <style>
+                    @media (max-width: 600px) {
+                        .ig-krea-lora-overlay { padding:0 !important; align-items:stretch !important; }
+                        .ig-krea-lora-dialog { width:100% !important; max-height:100% !important; border-radius:0 !important; }
+                        .ig-krea-lora-toolbar { flex-wrap:wrap !important; padding:10px 12px !important; }
+                        .ig-krea-lora-search { flex-basis:100% !important; min-height:42px !important; font-size:16px !important; }
+                        .ig-krea-lora-slot { width:100% !important; min-height:40px !important; }
+                        .ig-krea-lora-result { padding:12px 2px !important; align-items:flex-start !important; }
+                        .ig-krea-lora-file { display:none !important; }
+                    }
+                </style>
+                <div class="ig-krea-lora-dialog" style="width:min(760px,100%); max-height:min(760px,calc(100vh - 36px)); display:flex; flex-direction:column; overflow:hidden; background:#18181b; border:1px solid var(--border-color); border-radius:14px; box-shadow:0 18px 60px rgba(0,0,0,.65);">
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--border-color);">
+                        <div><div style="font-weight:900; color:var(--gold);"><i class="fa-solid fa-wand-magic-sparkles"></i> Krea 2 LoRA Finder</div><div style="margin-top:4px; font-size:.68rem; color:var(--text-muted);">Names come from Malcolmrey's browser index. The worker fetches the exact Hugging Face file on first use and caches it while warm.</div></div>
+                        <button type="button" class="ps-modern-btn secondary ig-krea-lora-close" style="padding:5px 9px;"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="ig-krea-lora-toolbar" style="display:flex; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border-color);"><input class="ps-modern-input ig-krea-lora-search" type="search" inputmode="search" autocomplete="off" placeholder="Search a name…" style="flex:1; padding:8px;" /><select class="ps-modern-input ig-krea-lora-slot" style="width:110px; padding:8px;"><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4">Slot 4</option></select></div>
+                    <div class="ig-krea-lora-status" style="padding:24px; color:var(--text-muted); text-align:center;">Loading Malcolmrey's index…</div>
+                    <div class="ig-krea-lora-results" style="display:none; overflow:auto; padding:10px 18px 18px;"></div>
+                </div>
+            </div>
+        `);
+        $("body").append($overlay);
+        const close = () => $overlay.remove();
+        $overlay.on("click", ".ig-krea-lora-close", close);
+        $overlay.on("click", function(event) { if (event.target === this) close(); });
+        try {
+            const [baked, runtime] = await Promise.all([
+                loadBakedKreaLoras().catch(error => { console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error); return []; }),
+                loadMalcolmreyKreaLoras().catch(error => { console.warn("[Megumin Suite] Could not load Malcolmrey Krea LoRA index:", error); return []; })
+            ]);
+            const items = [...baked, ...runtime];
+            if (!items.length) throw new Error("Could not load the baked LoRA manifest or Malcolmrey's Krea index.");
+            const $status = $overlay.find(".ig-krea-lora-status");
+            const $results = $overlay.find(".ig-krea-lora-results");
+            const render = () => {
+                const query = String($overlay.find(".ig-krea-lora-search").val() || "").trim().toLowerCase();
+                const matches = items.filter(item => !query || item.filename.toLowerCase().includes(query) || item.label.toLowerCase().includes(query)).slice(0, 120);
+                $status.text(`${matches.length}${matches.length === 120 ? "+" : ""} matching LoRAs${query ? "" : " — type to narrow the list"}.`);
+                $results.html(matches.map(item => `<button type="button" class="ig-krea-lora-pick ig-krea-lora-result" data-reference="${psEscapeAttr(item.reference)}" style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; text-align:left; padding:9px 4px; border:0; border-bottom:1px solid rgba(255,255,255,.07); background:transparent; color:var(--text-main); cursor:pointer;"><span style="font-weight:750;">${psEscapeText(item.label)} <small style="color:${item.source === 'Baked' ? '#10b981' : '#c084fc'}; font-weight:700;">${psEscapeText(item.source || 'Runtime')}</small></span><code class="ig-krea-lora-file" style="font-size:.64rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${psEscapeText(item.filename)}</code></button>`).join("") || '<div style="padding:20px; text-align:center; color:var(--text-muted);">No matching Krea 2 LoRA.</div>');
+            };
+            $status.css("padding", "10px 18px");
+            $results.show();
+            render();
+            $overlay.find(".ig-krea-lora-search").on("input", render).trigger("focus");
+            $overlay.on("click", ".ig-krea-lora-pick", function() {
+                const slot = $overlay.find(".ig-krea-lora-slot").val();
+                setExplicitRuntimeLoraSlot(s, slot, String($(this).attr("data-reference") || ""));
+                toastr.success(`Krea LoRA saved in slot ${slot}.`);
+                close();
+            });
+        } catch (error) {
+            $overlay.find(".ig-krea-lora-status").html(`<span style="color:#ef4444;">${psEscapeText(error.message || "Could not load the Malcolmrey index.")}</span>`);
+        }
+    }
+
     let meguminComfyLoraCache = null;
     let meguminComfyLoraCacheUrl = "";
 
@@ -2020,7 +2263,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     async function ensureMeguminComfyLoraList(s) {
-        if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) return RUNPOD_IMAGE_LORAS;
+        if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
+            // Reuse the cache igFetchComfyLists already populated (it includes the
+            // baked-manifest names); only fetch here if that hasn't run yet, so a
+            // baked/manifest LoRA still canonicalizes correctly during generation.
+            if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === "runpod") return meguminComfyLoraCache;
+            const baked = await loadBakedKreaLoras().catch(() => []);
+            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...baked.map(item => item.reference)];
+            meguminComfyLoraCacheUrl = "runpod";
+            return meguminComfyLoraCache;
+        }
         const url = (s && s.comfyUrl) ? String(s.comfyUrl).trim() : "";
         if (!url) return [];
         if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === url) return meguminComfyLoraCache;
@@ -2040,8 +2292,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const s = getLocalProfile().imageGen;
         if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
             if (ensureRunpodDropdownValues(s)) saveProfileToMemory();
-            populateRunpodImageLists(s);
-            meguminComfyLoraCache = RUNPOD_IMAGE_LORAS;
+            const baked = await loadBakedKreaLoras().catch(error => {
+                console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error);
+                return [];
+            });
+            const bakedNames = baked.map(item => item.reference);
+            populateRunpodImageLists(s, bakedNames);
+            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...bakedNames];
             meguminComfyLoraCacheUrl = "runpod";
             return;
         }
@@ -3675,7 +3932,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             }
         }
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
-        const aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
+        let aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
 
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt && !background) {
@@ -3853,6 +4110,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
+        if (s.promptStyle === "krea2") {
+            const triggerInstruction = appendKreaRuntimeLoraTriggerInstruction("", [l1, l2, l3, l4]);
+            if (triggerInstruction) {
+                finalPrompt = `${finalPrompt}\n${triggerInstruction}`.trim();
+                aiText = `${aiText}\n${triggerInstruction}`.trim();
+            }
+        }
         finalPrompt = ensureSelectedVrtlIdentityPromptForLoras(finalPrompt, [l1, l2, l3, l4]);
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
 
@@ -4756,6 +5020,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             aiText: [
                 "Create one finished image-generation prompt for the latest visible roleplay moment.",
                 "Infer the action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Do not use or invent a deterministic action classification.",
+                s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
+                isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
                 characterReferenceBlock ? characterChoiceInstruction : "",
                 "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
                 selectedActionInstruction,
@@ -4768,6 +5034,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     function buildBackgroundAiText(job) {
+        const s = getLocalProfile()?.imageGen;
         const source = String(job?.sceneText || "").trim();
         const required = String(job?.directPrompt || "").trim();
         const position = String(job?.metadata?.position || "").trim();
@@ -4775,6 +5042,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return [
             "Create one finished image-generation prompt from the following source.",
             "Hard constraints: preserve exact character identities and LoRA triggers, participant counts, the detected adult action/position, and explicit anatomy/contact when present.",
+            s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
+            isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
             "The fallback visual prompt is guidance, not a list of mandatory tags. Treat location, clothing, lighting, expression, atmosphere, and camera terms as soft scene evidence. Keep only details supported by the latest scene, reconcile contradictions, and discard stale context.",
             "Return only the final prompt with no explanation.",
             sceneType ? `Scene type: ${sceneType}` : "",

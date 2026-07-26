@@ -42,6 +42,32 @@ Megumin submits the worker's required request body:
 
 It reads completed images from `output.images[]`, accepting the worker's `base64` and `s3_url` output types.
 
+## RunPod Serverless (Krea 2 with runtime LoRAs)
+
+`Dockerfile.krea2-runpod` and `.github/workflows/krea2-runpod-image.yml` build a separate Krea 2 image. It includes the Krea Turbo FP8 diffusion model, Qwen3-VL FP8 text encoder, Qwen VAE, Megumin's NanoGPT node, and the requested default Civitai LoRA (`megumin-default-civitai-3027612.safetensors`). The Krea core weights are large (the diffusion model is 13.1 GB and the FP8 text encoder is 5.24 GB), so use a GPU and disk configuration with enough headroom for the image and runtime cache.
+
+To bake additional LoRAs into every worker, add entries to [data/krea2_baked_loras.json](data/krea2_baked_loras.json), then run the Krea image workflow again. This JSON array is the single source of truth for Docker and the Finder's **Baked** entries:
+
+```json
+[
+  {
+    "filename": "my-character.safetensors",
+    "label": "My character",
+    "url": "https://civitai.red/api/download/models/123?fileId=456"
+  }
+]
+```
+
+`filename` must be a unique `.safetensors` basename. A baked entry is downloaded at image-build time, shown in the Finder after the extension is refreshed, and selected by its local filename. It is different from a Malcolmrey **Runtime** entry, which is fetched from Hugging Face only when a worker needs it.
+
+1. Run **Build and Push Krea 2 RunPod Image**, then deploy `ghcr.io/<owner>/krea2-runpod:latest` as a new RunPod Serverless endpoint.
+2. Import [krea2_runpod_runtime_lora.json](krea2_runpod_runtime_lora.json) into SillyTavern's Comfy workflows and select it. Set Image Style to **Krea 2 (Natural Prose)** and select `krea2_turbo_fp8_scaled.safetensors` in the RunPod model field.
+3. In **LoRA Lab**, choose **Krea LoRA Finder**. It reads and revalidates Malcolmrey's public browser index each time it opens, and saves the selected `hf://malcolmrey/krea2/<filename>` reference in the exact slot you choose. The selection is profile-owned, persistent, and never overwritten by chat keyword matching or a panel refresh. The Finder also shows the entries from the baked-LoRA array above.
+
+On a cold RunPod worker, the workflow's `Megumin Runtime LoRA Stack` downloads a selected LoRA from the allowlisted `malcolmrey/krea2` Hugging Face repository before loading it. The file is cached for the life of that worker; a new cold worker will download it again. The node rejects arbitrary repositories, path traversal, non-`.safetensors` files, and files above 1 GB. To intentionally use a different trusted repository, set `MEGUMIN_RUNTIME_LORA_REPOS` on the endpoint and update the extension constant in the same change.
+
+The **Natural Language + Krea Runtime LoRA** analysis mode replaces the previous mixed Booru + Natural choice. It keeps Booru and natural modes available independently, migrates old mixed assignments into the natural store, and tells the Krea prompt step to use the repository's required `a woman` trigger once for every explicitly selected runtime identity.
+
 # beta 17/05/26
 * added full mamory manager change from Cohee/jina-embeddings-v2-base-en to Xenova/all-MiniLM-L6-v2 if you going to use Semantic Embeddings. i recommend only using the keywords its faster and do 90% like Semantic Embeddings.
 * added NPC bank.

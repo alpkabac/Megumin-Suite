@@ -89,7 +89,7 @@
       "temperature": 0.2,
       "max_tokens": 500,
       "timeout_seconds": 120,
-      "fallback_on_error": true
+      "fallback_on_error": false
     },
     "class_type": "MeguminNanoGPTText",
     "_meta": { "title": "Megumin NanoGPT Text" }
