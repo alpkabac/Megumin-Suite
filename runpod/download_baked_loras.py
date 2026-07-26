@@ -23,8 +23,8 @@ for item in manifest:
         raise ValueError(f"Invalid baked LoRA filename: {filename!r}")
     if not url.startswith(("https://", "http://")):
         raise ValueError(f"Invalid baked LoRA URL for {filename!r}")
-    host = urlparse(url).hostname or ""
-    if host.endswith("civitai.com") or host.endswith("civitai.red"):
+    host = (urlparse(url).hostname or "").lower()
+    if host in {"civitai.com", "civitai.red"} or host.endswith((".civitai.com", ".civitai.red")):
         if not civitai_token:
             raise ValueError(
                 "CIVITAI_API_TOKEN is required to download baked Civitai LoRAs "
