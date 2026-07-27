@@ -864,6 +864,83 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return !!(runpod.enabled && runpod.endpointId && runpod.apiKey);
     }
 
+    // -------------------------------------------------------------
+    // NANOGPT PROMPT WRITER (client-side)
+    // -------------------------------------------------------------
+    // The image prompt is generated HERE, in the browser, before any render
+    // job is submitted. This is deliberate:
+    //  1. worker-comfyui only returns images from RunPod jobs -- text node
+    //     outputs are dropped, so a prompt generated inside the workflow can
+    //     never be shown to the user. Generating it client-side means the
+    //     user always sees (and can edit) the exact prompt that renders.
+    //  2. An LLM call inside the workflow burns billed GPU seconds while the
+    //     worker idles. Client-side costs zero GPU time.
+    //  3. Failures become visible immediately instead of silently rendering
+    //     a junk fallback after a full GPU cold start.
+    // The in-workflow MeguminNanoGPTText node remains as a fallback path when
+    // the direct call is unavailable (no key, CORS, network error).
+    const NANOGPT_PROMPT_ENDPOINT = "https://nano-gpt.com/api/v1/chat/completions";
+    const NANOGPT_DEFAULT_PROMPT_MODEL = "zai-org/glm-5";
+    const NANOGPT_DEFAULT_PROMPT_TEMPERATURE = 0.2;
+
+    function getNanoGptGlobalSettings() {
+        if (!extension_settings[extensionName]) extension_settings[extensionName] = {};
+        if (!extension_settings[extensionName].nanogpt || typeof extension_settings[extensionName].nanogpt !== "object") {
+            extension_settings[extensionName].nanogpt = { apiKey: "", model: NANOGPT_DEFAULT_PROMPT_MODEL, temperature: NANOGPT_DEFAULT_PROMPT_TEMPERATURE };
+        }
+        const nano = extension_settings[extensionName].nanogpt;
+        nano.apiKey = String(nano.apiKey || "").trim();
+        nano.model = String(nano.model || "").trim() || NANOGPT_DEFAULT_PROMPT_MODEL;
+        const temp = parseFloat(nano.temperature);
+        nano.temperature = Number.isFinite(temp) ? Math.max(0, Math.min(2, temp)) : NANOGPT_DEFAULT_PROMPT_TEMPERATURE;
+        return nano;
+    }
+
+    /**
+     * Direct browser call to NanoGPT. Returns the generated prompt string, or
+     * null when unavailable/failed (caller decides the fallback). Never throws.
+     */
+    async function callNanoGptPromptWriter(systemPrompt, userText) {
+        const nano = getNanoGptGlobalSettings();
+        if (!nano.apiKey) return null;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
+        try {
+            const response = await fetch(NANOGPT_PROMPT_ENDPOINT, {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                    "Authorization": `Bearer ${nano.apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: nano.model,
+                    temperature: nano.temperature,
+                    max_tokens: 500,
+                    stream: false,
+                    messages: [
+                        { role: "system", content: String(systemPrompt || "").trim() },
+                        { role: "user", content: String(userText || "").trim() }
+                    ]
+                })
+            });
+            if (!response.ok) {
+                const body = await response.text().catch(() => "");
+                console.warn(`[Megumin Suite] NanoGPT prompt writer HTTP ${response.status}:`, body.slice(0, 300));
+                return null;
+            }
+            const data = await response.json();
+            const raw = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? "";
+            const text = stripUtilityThinkingWrapper(raw);
+            return text && text.trim() ? text.trim() : null;
+        } catch (e) {
+            console.warn("[Megumin Suite] NanoGPT prompt writer call failed:", e?.message || e);
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     function ensureSelectHasOptions($select, options, currentValue, emptyLabel = null) {
         $select.empty();
         if (emptyLabel !== null) $select.append($("<option></option>").attr("value", "").text(emptyLabel));
@@ -1186,6 +1263,26 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             <option value="direct" ${s.generatorBackend === 'direct' ? 'selected' : ''}>Current ST Connection</option>
                             <option value="preset" ${s.generatorBackend === 'preset' ? 'selected' : ''}>Megumin Image Preset</option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- NanoGPT prompt writer (client-side) -->
+                <div data-ig-collapse="nanogpt-writer" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-feather-pointed"></i> NanoGPT Prompt Writer</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Writes the final image prompt in your browser before the render job is sent, so you can always see and edit the exact prompt that renders. Used by the ComfyUI NanoGPT quick-image mode and background jobs. Without a key here, prompt writing falls back to the NanoGPT node inside the ComfyUI workflow (invisible on RunPod).</div>
+                    <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.55fr); gap: 12px;">
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">NanoGPT API Key</div>
+                            <input type="password" id="ig_nanogpt_key" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().apiKey)}" placeholder="nano-gpt.com API key" autocomplete="off" style="padding: 8px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Model</div>
+                            <input type="text" id="ig_nanogpt_model" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().model)}" placeholder="${psEscapeAttr(NANOGPT_DEFAULT_PROMPT_MODEL)}" autocomplete="off" style="padding: 8px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;" title="0 = deterministic, 2 = wild. Low values keep the prompt faithful to the scene.">Temp</div>
+                            <input type="number" id="ig_nanogpt_temp" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().temperature)}" min="0" max="2" step="0.05" style="padding: 8px; font-size: 0.8rem; text-align: center;" />
+                        </div>
                     </div>
                 </div>
 
@@ -1684,6 +1781,19 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         $("#ig_runpod_timeout").on("input", (e) => {
             const rp = ensureRunpodSettings(s);
             rp.timeoutMs = Math.max(30000, parseInt($(e.target).val(), 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
+            saveProfileToMemory();
+        });
+        $("#ig_nanogpt_key").on("input", (e) => {
+            getNanoGptGlobalSettings().apiKey = String($(e.target).val() || "").trim();
+            saveProfileToMemory();
+        });
+        $("#ig_nanogpt_model").on("input", (e) => {
+            getNanoGptGlobalSettings().model = String($(e.target).val() || "").trim() || NANOGPT_DEFAULT_PROMPT_MODEL;
+            saveProfileToMemory();
+        });
+        $("#ig_nanogpt_temp").on("input", (e) => {
+            const value = parseFloat($(e.target).val());
+            getNanoGptGlobalSettings().temperature = Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : NANOGPT_DEFAULT_PROMPT_TEMPERATURE;
             saveProfileToMemory();
         });
         $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); renderImageGen(c); });
@@ -2412,19 +2522,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         saveProfileToMemory();
     }
 
-    function appendKreaRuntimeLoraTriggerInstruction(prompt, loras) {
-        // Every Krea LoRA slot needs the "a woman" trigger conveyed to the LLM,
-        // regardless of whether the LoRA is the baked default/manifest entry
-        // (a plain filename) or a Malcolmrey Finder pick (an hf:// reference).
+    function buildKreaLoraTriggerSuffix(loras) {
+        // Krea character LoRAs are keyed to the plain, generic phrase "a woman"
+        // rather than a unique per-identity token. This returns ONLY that
+        // literal phrase, repeated once per selected LoRA slot -- no identity
+        // names, no Civitai/HF labels, no meta-instruction sentences.
+        //
+        // We deliberately do NOT build a verbose "instruction" paragraph
+        // (e.g. "Use the exact trigger phrase X for identity Y") and hand it
+        // to the NanoGPT rewrite LLM anymore. Faster/cheaper chat models are
+        // prone to treating instruction-shaped text as content to preserve
+        // "exactly" and echo it back verbatim (including nonsense like raw
+        // Civitai IDs) instead of transforming it -- which is exactly what
+        // was polluting the final render prompt. A plain repeated trigger
+        // word is safe to literally exist inside an SD/Krea prompt either
+        // way, so we inject it deterministically in code instead of asking
+        // an LLM to understand and comply with a rule about it.
         const selected = (Array.isArray(loras) ? loras : [])
             .map(value => String(value || "").trim())
             .filter(value => value && value.toLowerCase() !== "none");
-        if (!selected.length) return String(prompt || "");
-        const identities = selected.map(reference => prettyKreaLoraName(reference.split("/").pop())).join(", ");
-        const countWord = selected.length === 1 ? "one selected identity" : `${selected.length} selected identities`;
-        const instruction = `Krea character LoRA instruction: ${countWord} (${identities}). Use the exact trigger phrase "a woman" for every selected LoRA identity. Describe each as a distinct adult woman with a separate spatial label and do not merge their faces, hair, or clothing.`;
+        if (!selected.length) return "";
+        return selected.map(() => "a woman").join(", ");
+    }
+
+    function appendKreaRuntimeLoraTriggerInstruction(prompt, loras) {
+        const suffix = buildKreaLoraTriggerSuffix(loras);
+        if (!suffix) return String(prompt || "");
         const current = String(prompt || "").trim();
-        return current ? `${current}\n${instruction}` : instruction;
+        return current ? `${current}, ${suffix}` : suffix;
     }
 
     function syncKreaLoraFinderUi(s) {
@@ -3534,6 +3659,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             let promptText = "";
             let skipLeadPrefix = false;
             let aiText = "";
+            let nanoSystemPrompt = "";
             if (source === "sillytavern") {
                 let gen;
                 if (s.generatorBackend === "direct") {
@@ -3558,6 +3684,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     });
                     promptText = nanoContext.fallbackPrompt;
                     aiText = nanoContext.aiText;
+                    nanoSystemPrompt = nanoContext.systemPrompt;
                 } else {
                     const position = selectedPositions[0] || detectPositionPresetFromScene(latestSceneText);
                     promptText = buildDeterministicBackgroundPrompt(s, latestSceneText, {
@@ -3576,6 +3703,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             await igGenerateWithComfy(promptText, source === "comfy_llm" && clickedOrigin ? { origin: clickedOrigin } : null, {
                 manualScene,
                 aiText: aiText || promptText,
+                nanoSystemPrompt,
                 requireAiTextWorkflow: source === "comfy_llm",
                 skipLeadPrefix: source === "comfy_llm" ? true : skipLeadPrefix
             });
@@ -4228,16 +4356,40 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
         let aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
 
+        // --- CLIENT-SIDE PROMPT WRITER ---
+        // Generate the render prompt in the browser BEFORE any GPU job exists:
+        // the user sees/edits the real prompt, failures are loud and cheap,
+        // and no billed GPU seconds are spent waiting on a chat API. The
+        // in-workflow NanoGPT node stays as the fallback when this is
+        // unavailable (no key / network / CORS).
+        const nanoSystemPrompt = String(opts?.nanoSystemPrompt || "").trim() || buildNanoImageSystemPrompt(s);
+        const wantsNanoPrompt = !!opts?.requireAiTextWorkflow
+            || (background && !!String(opts?.aiText || "").trim() && String(opts?.aiText || "").trim() !== finalPrompt);
+        let nanoPromptClientSide = false;
+        if (wantsNanoPrompt) {
+            if (!background) showKazumaProgress("Writing Image Prompt...");
+            const generated = await callNanoGptPromptWriter(nanoSystemPrompt, aiText);
+            if (generated) {
+                if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(generated)) return;
+                finalPrompt = sanitizePromptTags(generated);
+                nanoPromptClientSide = true;
+            } else if (getNanoGptGlobalSettings().apiKey) {
+                toastr.warning("NanoGPT direct call failed. Falling back to the in-workflow NanoGPT node (prompt will not be previewable).", "Megumin Suite");
+            } else if (!background) {
+                toastr.info("Set your NanoGPT API key in Image Generation settings to write and preview the prompt before rendering.", "Megumin Suite", { timeOut: 6000 });
+            }
+        }
+
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt && !background) {
             $("#kazuma_progress_overlay").hide(); // Hide the progress bar temporarily
 
-            const isWorkflowAiPrompt = !!opts?.requireAiTextWorkflow;
+            const isWorkflowAiPrompt = !!opts?.requireAiTextWorkflow && !nanoPromptClientSide;
             const $content = isWorkflowAiPrompt
                 ? $(`
                     <div style="display:flex; flex-direction:column; gap:10px; font-family:'Inter',sans-serif;">
                         <div style="font-size:.82rem; color:var(--text-main); font-weight:700;">NanoGPT will generate the final prompt inside ComfyUI after you send this workflow.</div>
-                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the scene-native <code>%ai_text%</code> source. <code>%prompt%</code> contains only configured UI/character/LoRA guidance as an API-error fallback.</div>
+                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the scene-native <code>%ai_text%</code> source. <code>%prompt%</code> holds a deterministic scene prompt used only if the NanoGPT call fails. Tip: set a NanoGPT API key in Image Generation settings to write the prompt in your browser instead — then you can see and edit the exact final prompt here before rendering.</div>
                         <textarea class="ps-modern-input ig-ai-source-preview" readonly style="height:180px; resize:vertical; font-family:monospace; font-size:.75rem; padding:10px;">${psEscapeText(aiText)}</textarea>
                         <details>
                             <summary style="cursor:pointer; font-size:.7rem; color:var(--text-muted);">Show configured-tag fallback</summary>
@@ -4286,9 +4438,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } catch (e) { return toastr.error(`Could not load ${s.currentWorkflowName}`); }
 
         let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
-        if (opts?.preserveStoredPrompt) igBypassNanoTextNodesForStoredPrompt(workflow);
+        // When the prompt was already written client-side, remove the
+        // in-workflow NanoGPT node entirely: the worker must not re-run (and
+        // possibly rewrite) the prompt the user just saw/approved, and
+        // skipping it saves billed GPU seconds.
+        if (opts?.preserveStoredPrompt || nanoPromptClientSide) igBypassNanoTextNodesForStoredPrompt(workflow);
         const workflowHasAiText = igWorkflowContainsPlaceholder(workflow, "%ai_text%");
-        if (opts?.requireAiTextWorkflow && !workflowHasAiText) {
+        if (opts?.requireAiTextWorkflow && !nanoPromptClientSide && !workflowHasAiText) {
             $("#kazuma_progress_overlay").hide();
             throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json or add %ai_text% to the NanoGPT node.`);
         }
@@ -4404,19 +4560,37 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
+        let kreaIdentitySuffix = "";
         if (s.promptStyle === "krea2") {
-            const triggerInstruction = appendKreaRuntimeLoraTriggerInstruction("", [l1, l2, l3, l4]);
-            if (triggerInstruction) {
-                finalPrompt = `${finalPrompt}\n${triggerInstruction}`.trim();
-                aiText = `${aiText}\n${triggerInstruction}`.trim();
+            kreaIdentitySuffix = buildKreaLoraTriggerSuffix([l1, l2, l3, l4]);
+            // The LoRA trigger words ("a woman" per selected identity) are
+            // injected deterministically, never via LLM compliance, by
+            // exactly one owner:
+            //  - If the workflow still contains a MeguminNanoGPTText node,
+            //    that node appends %krea_identity_suffix% in Python to
+            //    whatever text it returns (LLM output or fallback_text).
+            //  - Otherwise (client-side prompt, stored prompt, or plain
+            //    workflows) they are appended to finalPrompt right here.
+            // aiText (the LLM's input) never carries trigger bookkeeping, so
+            // a weak model can't echo instruction-shaped text into the
+            // render prompt.
+            const workflowHasNanoNode = Object.values(workflow || {}).some(node => node?.class_type === "MeguminNanoGPTText");
+            if (kreaIdentitySuffix && !workflowHasNanoNode) {
+                finalPrompt = appendKreaRuntimeLoraTriggerInstruction(finalPrompt, [l1, l2, l3, l4]);
             }
         }
         finalPrompt = ensureSelectedVrtlIdentityPromptForLoras(finalPrompt, [l1, l2, l3, l4]);
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
 
+        const nanoSettings = getNanoGptGlobalSettings();
         const comfyRepl = {
             "%prompt%": finalPrompt,
             "%ai_text%": aiText,
+            "%krea_identity_suffix%": kreaIdentitySuffix,
+            "%nanogpt_api_key%": nanoSettings.apiKey,
+            "%nanogpt_model%": nanoSettings.model,
+            "%nanogpt_temperature%": nanoSettings.temperature,
+            "%nanogpt_system%": nanoSystemPrompt,
             "%negative_prompt%": s.customNegative || "",
             "%seed%": finalSeed,
             "%sampler%": s.selectedSampler || "euler",
@@ -5262,6 +5436,63 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return true;
     }
 
+    // Concrete style references for the prompt-writer LLM. Two registers on
+    // purpose: an explicit example (so adult scenes get direct anatomical
+    // prose instead of euphemism) and a non-sexual example (so normal scenes
+    // stay normal instead of drifting explicit). Both model the exact target
+    // shape: one paragraph, per-person sentences with spatial anchors, "a
+    // woman ..." subject construction (which doubles as the Krea LoRA
+    // trigger phrase), setting/lighting/camera close.
+    const KREA2_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the shape and directness, never the people, bodies, setting, or act):
+An explicit digital anime illustration in warm lamplight, eye-level medium shot on a rumpled bed. A woman with long crimson hair and red eyes kneels on the left on all fours, fully nude with small bare breasts, back arched, face flushed and mouth open in a moan as she grips the white sheets. A woman with wavy blonde hair and green eyes kneels close behind her on the right, nude with large breasts pressed against the first woman's back, one hand between her thighs with fingers visibly penetrating her, the other hand cupping her breast. Sweat glistens on both bodies. Dim bedside lamp, rumpled sheets, shallow depth of field, warm skin-toned palette, polished high-detail finish.
+
+STYLE EXAMPLE (normal register -- copy the shape, never the people, clothing, or setting):
+A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye level. A woman with short black hair and amber eyes sits on the left of a small wooden table in an oversized beige sweater, laughing with a coffee cup raised halfway. A woman with a silver ponytail and blue eyes sits across from her on the right in a fitted denim jacket, leaning forward mid-story with animated hands. Warm window light, a blurred pastry counter in the background, soft bokeh, gentle golden palette.`;
+
+    /**
+     * Single source of truth for the prompt-writer LLM's instructions.
+     * Instructions live ONLY here (the system message); the user message is
+     * pure scene data. Mixing instructions into the user message is what made
+     * small models echo instruction text verbatim into rendered prompts.
+     */
+    function buildNanoImageSystemPrompt(s) {
+        const parts = [];
+        if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
+            parts.push(
+                "You convert roleplay scene data into one finished natural-language image-generation prompt.",
+                "Write one dense paragraph of fluent, concrete English prose describing only what is visible in the latest moment of the SCENE section. The most recent message matters most.",
+                "Cover, in order: medium/style and camera framing; each visible adult subject with face, hair, body, clothing or nudity state, placement, pose, expression, and current action; then setting, lighting, and color mood.",
+                "The CHARACTERS section is appearance reference only -- it tells you what each named person looks like. Never treat it as evidence of action, pose, nudity, or camera. Translate any tag shorthand in it into prose.",
+                "If more than one person is visible, give each their own sentence with a clear spatial anchor (left, right, foreground, behind, kneeling, standing) and keep each person's features inside their own sentence so identities never merge.",
+                "Prefer introducing each female subject as 'a woman with ...' before using her name or pronouns.",
+                "Every depicted person must be an unmistakable adult.",
+                "Never use Danbooru tags, underscores, 1girl-style shorthand, quality-token lists, or comma-separated tag dumps."
+            );
+        } else {
+            parts.push(
+                "You convert roleplay scene data into one finished image-generation prompt as a comma-separated list of lowercase tags (spaces instead of underscores).",
+                "Depict only the latest visible moment of the SCENE section; the most recent message matters most.",
+                "The CHARACTERS section is appearance reference only; never treat it as evidence of action, pose, nudity, or camera.",
+                "Group each character's appearance tags together with a spatial tag so identities never merge. Every depicted person must be an unmistakable adult."
+            );
+        }
+        if (s?.adultTagPrecision) parts.push(getAdultPrecisionInstruction(s));
+        if (isNaturalLanguageImageStyle(s?.promptStyle)) parts.push(IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION);
+        parts.push(
+            "Match the scene's explicitness exactly: if the scene is sexually explicit, name the act, position, contact points, anatomy, and fluids directly with plain adult words -- never euphemize, soften, or omit what is happening. If the scene is not sexual, write a fully non-sexual prompt and do not add nudity, arousal, or innuendo that is not in the scene.",
+            "If a SELECTED ACTION section exists, it is the action to depict, overriding the scene text.",
+            "If an EXTRA GUIDANCE section exists, weave those visual cues in where they fit.",
+            "Output contract: respond with the finished image prompt only. No preamble, quotes, labels, meta-commentary, explanations, file names, or IDs."
+        );
+        const rules = parts.filter(Boolean).join(" ");
+        // Concrete few-shot shape references matter more than rules for
+        // small prompt-writer models; include them for prose styles.
+        if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
+            return `${rules}\n\n${KREA2_WRITER_STYLE_EXAMPLES}`;
+        }
+        return rules;
+    }
+
     function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
         const normalizedScene = normalizeManualImageScene(manualScene);
         const li = s.loraIntel;
@@ -5272,10 +5503,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments)
             ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments)
             : assignments;
-        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, normalizedScene.assignments);
-        const characterTags = assignments
-            .flatMap(a => getAssignmentTagParts(a, li))
-            .filter(Boolean);
         const naturalDescriptionLines = li?.enabled && li.useCharDescriptions
             ? promptReferenceAssignments.map(a => {
                 const desc = getAssignmentNaturalDescription(a);
@@ -5288,62 +5515,50 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 return tagBlock ? `${a.character || "character"}: ${tagBlock}` : "";
             }).filter(Boolean)
             : [];
-        const characterReferenceBlock = [
-            naturalDescriptionLines.length
-                ? `Natural-language character appearance references. Use these as stable identity/appearance guidance for who is present; do not treat them as scene action, pose, expression, nudity state, or camera direction:\n${naturalDescriptionLines.join("\n")}`
-                : "",
-            booruReferenceLines.length
-                ? `Booru-style character appearance cues. Preserve identity and translate visual shorthand into the final prompt style, especially for Krea/prose workflows; do not paste raw tags into prose unless the selected image style requires tags:\n${booruReferenceLines.join("\n")}`
-                : ""
-        ].filter(Boolean).join("\n\n");
+        const characterLines = naturalDescriptionLines.length ? naturalDescriptionLines : booruReferenceLines;
         const selectedActionTags = normalizedScene.positions
             .map(position => getBatchPositionStaging(position.label, position.prompt))
             .filter(Boolean);
-        const configuredTags = normalizeGeneratedTagField([
+        const extraGuidance = normalizeGeneratedTagField([
             buildBooruStandardTagLead(s, li),
-            s.promptExtra,
-            ...characterTags,
-            ...selectedActionTags
+            s.promptExtra
         ].filter(Boolean).join(", "));
-        const selectedActionInstruction = selectedActionTags.length
-            ? `Explicit user-selected action override:\n${selectedActionTags.join(", ")}`
-            : "";
 
+        // Deterministic fallback: a real scene-derived prompt (characters,
+        // detected action, scene tags) that renders something sensible even
+        // when every LLM path fails. Never instruction text.
+        const fallbackPosition = normalizedScene.positions[0] || detectPositionPresetFromScene(sceneText);
+        const fallbackPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+            assignments: assignments.length ? assignments : null,
+            position: fallbackPosition,
+            sceneType: (fallbackPosition || isExplicitSceneText(sceneText)) ? "explicit" : "normal"
+        }) || "a detailed cinematic illustration of the current roleplay scene";
+
+        // User message = pure data with named sections. All instructions live
+        // in the system prompt (buildNanoImageSystemPrompt).
         return {
-            fallbackPrompt: configuredTags || "roleplay scene image",
+            systemPrompt: buildNanoImageSystemPrompt(s),
+            fallbackPrompt,
             aiText: [
-                "Create one finished image-generation prompt for the latest visible roleplay moment.",
-                "Infer the action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Do not use or invent a deterministic action classification.",
-                s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
-                isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
-                characterReferenceBlock ? characterChoiceInstruction : "",
-                "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
-                selectedActionInstruction,
-                `Roleplay scene:\n${String(sceneText || "").trim()}`,
-                characterReferenceBlock,
-                configuredTags ? `Configured UI, character, and LoRA tags:\n${configuredTags}` : "",
-                "Return only the final image-generation prompt with no explanation."
+                characterLines.length ? `CHARACTERS (appearance reference only):\n${characterLines.join("\n")}` : "",
+                selectedActionTags.length ? `SELECTED ACTION:\n${selectedActionTags.join(", ")}` : "",
+                extraGuidance ? `EXTRA GUIDANCE:\n${extraGuidance}` : "",
+                `SCENE (latest roleplay messages, newest last):\n${String(sceneText || "").trim()}`
             ].filter(Boolean).join("\n\n")
         };
     }
 
     function buildBackgroundAiText(job) {
-        const s = getLocalProfile()?.imageGen;
+        // Pure data sections only; instructions live in buildNanoImageSystemPrompt.
         const source = String(job?.sceneText || "").trim();
         const required = String(job?.directPrompt || "").trim();
         const position = String(job?.metadata?.position || "").trim();
         const sceneType = String(job?.metadata?.sceneType || "").trim();
         return [
-            "Create one finished image-generation prompt from the following source.",
-            "Hard constraints: preserve exact character identities and LoRA triggers, participant counts, the detected adult action/position, and explicit anatomy/contact when present.",
-            s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
-            isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
-            "The fallback visual prompt is guidance, not a list of mandatory tags. Treat location, clothing, lighting, expression, atmosphere, and camera terms as soft scene evidence. Keep only details supported by the latest scene, reconcile contradictions, and discard stale context.",
-            "Return only the final prompt with no explanation.",
-            sceneType ? `Scene type: ${sceneType}` : "",
-            position ? `Required position/action: ${position}` : "",
-            source ? `Roleplay scene:\n${source}` : "",
-            required ? `Deterministic fallback and visual cues:\n${required}` : "",
+            sceneType ? `SCENE TYPE:\n${sceneType}` : "",
+            position ? `SELECTED ACTION:\n${position}` : "",
+            required ? `EXTRA GUIDANCE:\n${required}` : "",
+            source ? `SCENE (latest roleplay messages, newest last):\n${source}` : "",
         ].filter(Boolean).join("\n\n");
     }
 

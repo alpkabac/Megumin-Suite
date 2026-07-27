@@ -146,11 +146,11 @@
     "inputs": {
       "ai_text": "%ai_text%",
       "fallback_text": "%prompt%",
-      "model": "zai-org/glm-5",
-      "api_key": "no-no-no",
+      "model": "%nanogpt_model%",
+      "api_key": "%nanogpt_api_key%",
       "endpoint": "https://nano-gpt.com/api/v1/chat/completions",
-      "system_prompt": "Convert the supplied Megumin image source into one finished Krea 2 natural-language image prompt. Write fluent, concrete prose rather than tag soup. Preserve configured character identities, LoRA triggers, and stable appearance guidance, but infer the visible action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition from the current roleplay scene unless Megumin supplies an explicit selected-action override. For adult explicit scenes, use direct visual NSFW language for the actual visible act and contact. Output only the final prompt.",
-      "temperature": 0.2,
+      "system_prompt": "%nanogpt_system%",
+      "temperature": "%nanogpt_temperature%",
       "max_tokens": 500,
       "timeout_seconds": 120,
       "fallback_on_error": true

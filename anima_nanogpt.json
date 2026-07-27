@@ -82,11 +82,11 @@
     "inputs": {
       "ai_text": "%ai_text%",
       "fallback_text": "%prompt%",
-      "model": "zai-org/glm-5",
-      "api_key": "",
+      "model": "%nanogpt_model%",
+      "api_key": "%nanogpt_api_key%",
       "endpoint": "https://nano-gpt.com/api/v1/chat/completions",
-      "system_prompt": "Convert the supplied roleplay scene into one finished image-generation prompt. Infer the visible action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Preserve configured character identities, but do not treat appearance or style tags as evidence for the action. Only an explicitly labeled user-selected action override may replace the scene action. Output only the final prompt.",
-      "temperature": 0.2,
+      "system_prompt": "%nanogpt_system%",
+      "temperature": "%nanogpt_temperature%",
       "max_tokens": 500,
       "timeout_seconds": 120,
       "fallback_on_error": false
