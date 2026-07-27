@@ -23,9 +23,9 @@
     "_meta": { "title": "VAE Loader" }
   },
   "5": {
-    "inputs": { "images": ["3", 0] },
-    "class_type": "PreviewImage",
-    "_meta": { "title": "Preview Image" }
+    "inputs": { "filename_prefix": "ComfyUI", "images": ["3", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
   },
   "6": {
     "inputs": { "text": ["26", 0], "clip": ["22", 1] },

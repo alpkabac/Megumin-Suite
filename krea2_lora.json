@@ -66,14 +66,15 @@
   },
   "5": {
     "inputs": {
+      "filename_prefix": "ComfyUI",
       "images": [
         "3",
         0
       ]
     },
-    "class_type": "PreviewImage",
+    "class_type": "SaveImage",
     "_meta": {
-      "title": "Preview Image"
+      "title": "Save Image"
     }
   },
   "6": {
