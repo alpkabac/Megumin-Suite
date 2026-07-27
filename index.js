@@ -42,6 +42,7 @@ const visualGeneration = createVisualGeneration({
 
 const {
     renderImageGen,
+    renderKreaLoraGallery,
     toggleQuickGenButton,
     igManualGenerate,
     getCleanedChatHistory,
@@ -345,6 +346,17 @@ function saveProfileToMemory() {
     }
 }
 
+// Mobile browsers frequently suspend background tabs almost immediately, which can drop a
+// pending debounced settings save (e.g. right after dragging a LoRA weight slider then
+// switching apps). Force an immediate flush whenever the tab is about to be hidden/closed.
+["visibilitychange", "pagehide"].forEach(evt => {
+    document.addEventListener(evt, () => {
+        if (document.visibilityState === "hidden" || evt === "pagehide") {
+            try { saveSettingsDebounced.flush ? saveSettingsDebounced.flush() : saveSettingsDebounced(); } catch (e) { /* no-op */ }
+        }
+    });
+});
+
 // NEW: Function to calculate and update the token UI with a Hover Breakdown
 function updateLiveTokenCount() {
     const counterBadge = $("#ps_live_token_count");
@@ -487,6 +499,7 @@ const tabsUI = [
     { title: "Story Planner", sub: "Generate and track future plot developments.", icon: "fa-map", render: renderStoryPlanner },
     { title: "Dynamic Ban List", sub: "Scan and ban repetitive AI phrases.", icon: "fa-ban", render: renderBanList },
     { title: "Image Generation", sub: "Wire up ComfyUI to auto-generate scene images during roleplay.", icon: "fa-image", render: renderImageGen },
+    { title: "LoRA Gallery", sub: "Browse Krea 2 LoRAs and assign them to a slot or a character.", icon: "fa-images", render: renderKreaLoraGallery },
     { title: "NPCs Bank", sub: "Automatically extract and track significant NPCs in the story.", icon: "fa-address-book", render: renderNpcBank },
     { title: "Memory Core", sub: "Advanced 3-Tier Context & History Management.", icon: "fa-memory", render: renderMemoryCore }
 ];

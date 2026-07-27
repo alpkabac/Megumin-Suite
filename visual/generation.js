@@ -1410,9 +1410,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div data-ig-collapse-header style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
                         <div class="ps-rule-title" style="margin-bottom:0; flex:1; min-width:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
-                        <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:inline-flex; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
                     </div>
-                    <div id="ig_krea_lora_hint" style="display:block; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Use this button to pick Malcolmrey / baked Krea LoRAs into slots 1–4. Needs <b>Render with RunPod</b> on and model <code>krea2_turbo_fp8_scaled.safetensors</code>. Selections are per profile and not overwritten by character keyword analysis.</div>
+                    <div style="display:block; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Pick LoRAs from the <b>LoRA Gallery</b> tab and assign them to a slot below, or to a character in Character Analysis.</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         ${[1,2,3,4].map(i => `
                             <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; border-left: 3px solid #a855f7;">
@@ -1730,6 +1729,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 saveProfileToMemory();
             });
             $(`#ig_lorawt_${i}`).on("input", function() { let v = parseFloat(this.value); s[wtKey] = v; $(`#ig_lorawt_lbl_${i}`).text(v); saveProfileToMemory(); });
+            $(`#ig_lorawt_${i}`).on("change", function() { saveProfileToMemory(); });
             $(`#ig_lora_lock_${i}`).on("click", function() {
                 ensureImageGenLoraArrays(s);
                 s.loraSlotLocked[i - 1] = !s.loraSlotLocked[i - 1];
@@ -1748,8 +1748,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         });
         $("#ig_sampler").on("change", (e) => { s.selectedSampler = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_scheduler").on("change", (e) => { s.selectedScheduler = $(e.target).val(); saveProfileToMemory(); });
-        $("#ig_krea_lora_browser_btn").on("click", () => showMalcolmreyKreaLoraFinder(s));
-        syncKreaLoraFinderUi(s);
 
         // Buttons
         $("#ig_test_btn").on("click", igTestConnection);
@@ -2172,6 +2170,232 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             })
             .finally(() => { malcolmreyKreaLoraLoad = null; });
         return malcolmreyKreaLoraLoad;
+    }
+
+    // -------------------------------------------------------------
+    // KREA LORA GALLERY — data loading + local caching
+    // -------------------------------------------------------------
+    const MALCOLMREY_THUMBNAIL_INDEX_URL = "https://huggingface.co/spaces/malcolmrey/browser/resolve/main/data-thumbnails.json";
+    const MALCOLMREY_THUMBNAIL_BASE_URL = "https://huggingface.co/datasets/malcolmrey/samples/resolve/main/thumbnails/";
+    const KREA_GALLERY_CACHE_KEY = "megumin_krea_gallery_cache_v1";
+    const KREA_GALLERY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+    let kreaGalleryEntriesCache = null; // in-memory, cleared on full page reload
+    let kreaGalleryEntriesLoad = null;  // in-flight promise, avoids duplicate fetches
+
+    function kreaGalleryThumbnailUrl(charKey) {
+        return `${MALCOLMREY_THUMBNAIL_BASE_URL}${encodeURIComponent(charKey)}.jpg`;
+    }
+
+    function readKreaGalleryLocalCache() {
+        try {
+            const raw = localStorage.getItem(KREA_GALLERY_CACHE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.ts !== "number") return null;
+            if (Date.now() - parsed.ts > KREA_GALLERY_CACHE_TTL_MS) return null;
+            return parsed.entries;
+        } catch (e) { return null; }
+    }
+
+    function writeKreaGalleryLocalCache(entries) {
+        try {
+            localStorage.setItem(KREA_GALLERY_CACHE_KEY, JSON.stringify({ ts: Date.now(), entries }));
+        } catch (e) { /* localStorage full or unavailable — non-fatal, just skip caching */ }
+    }
+
+    // Returns [{ filename, label, reference, source: "Runtime"|"Baked", thumbUrl: string|null }]
+    async function loadKreaGalleryEntries(opts = {}) {
+        const forceRefresh = !!opts.forceRefresh;
+        if (!forceRefresh && kreaGalleryEntriesCache) return kreaGalleryEntriesCache;
+        if (!forceRefresh) {
+            const cached = readKreaGalleryLocalCache();
+            if (cached) { kreaGalleryEntriesCache = cached; return cached; }
+        }
+        if (kreaGalleryEntriesLoad) return kreaGalleryEntriesLoad;
+
+        kreaGalleryEntriesLoad = (async () => {
+            const [filenamesRes, thumbsRes, bakedList] = await Promise.all([
+                fetch(MALCOLMREY_BROWSER_INDEX_URL, { cache: forceRefresh ? "no-cache" : "default" }),
+                fetch(MALCOLMREY_THUMBNAIL_INDEX_URL, { cache: forceRefresh ? "no-cache" : "default" }).catch(() => null),
+                loadBakedKreaLoras().catch(() => []),
+            ]);
+            if (!filenamesRes.ok) throw new Error(`Malcolmrey index request failed (${filenamesRes.status}).`);
+            const filenamesJson = await filenamesRes.json();
+            let thumbnailSet = {};
+            if (thumbsRes && thumbsRes.ok) {
+                try { thumbnailSet = await thumbsRes.json(); } catch (e) { thumbnailSet = {}; }
+            }
+
+            const rawEntries = collectMalcolmreyKreaEntries(filenamesJson)
+                .sort((a, b) => a.filename.localeCompare(b.filename));
+            if (!rawEntries.length) throw new Error("The Malcolmrey index did not contain any Krea 2 LoRA filenames.");
+
+            const runtimeEntries = rawEntries.map(({ charKey, filename }) => ({
+                filename,
+                label: prettyKreaCharacterLabel(charKey, filename),
+                reference: `hf://${MALCOLMREY_KREA_REPOSITORY}/${filename}`,
+                source: "Runtime",
+                thumbUrl: thumbnailSet[charKey] ? kreaGalleryThumbnailUrl(charKey) : null,
+            }));
+
+            const bakedEntries = (Array.isArray(bakedList) ? bakedList : []).map(item => ({
+                filename: item.filename,
+                label: item.label || prettyKreaLoraName(item.filename),
+                reference: item.reference,
+                source: "Baked",
+                thumbUrl: null,
+            }));
+
+            const combined = [...bakedEntries, ...runtimeEntries];
+            kreaGalleryEntriesCache = combined;
+            writeKreaGalleryLocalCache(combined);
+            return combined;
+        })().finally(() => { kreaGalleryEntriesLoad = null; });
+
+        return kreaGalleryEntriesLoad;
+    }
+
+    async function openKreaGalleryAssignPopup(s, li, charKey, reference, label) {
+        const rows = getModeCharacterAssignments(li, charKey);
+        const slotLabels = [1, 2, 3, 4].map(i => {
+            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+            const current = s[key] ? String(s[key]).split("/").pop() : "(empty)";
+            return `<button type="button" class="ps-modern-btn secondary kg-assign-slot" data-slot="${i}" style="width:100%; text-align:left; padding:10px; margin-bottom:6px; font-size:0.78rem;">Slot ${i} — <span style="color:var(--text-muted);">${psEscapeText(current)}</span></button>`;
+        }).join("");
+        const charRows = rows.length
+            ? rows.map((a, idx) => `<button type="button" class="ps-modern-btn secondary kg-assign-char" data-idx="${idx}" style="width:100%; text-align:left; padding:10px; margin-bottom:6px; font-size:0.78rem;">${psEscapeText(a.character || `Character ${idx + 1}`)} — <span style="color:var(--text-muted);">${psEscapeText(a.lora || "(no LoRA set)")}</span></button>`).join("")
+            : `<div style="font-size:0.75rem; color:var(--text-muted); padding:6px 0;">No analyzed characters yet for this chat. Use Character Analysis first, or assign to a slot above.</div>`;
+
+        const $content = $(`
+            <div style="max-height:70vh; overflow-y:auto;">
+                <div style="font-size:0.85rem; font-weight:700; margin-bottom:10px; word-break:break-word;">${psEscapeText(label)}</div>
+                <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px;">Assign to Slot</div>
+                ${slotLabels}
+                <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); margin:14px 0 6px;">Assign to Character</div>
+                ${charRows}
+            </div>
+        `);
+
+        const popup = new Popup($content, POPUP_TYPE.TEXT, "", { okButton: "Close", wide: true });
+
+        $content.find(".kg-assign-slot").on("click", function() {
+            const slot = parseInt($(this).data("slot"), 10);
+            setExplicitRuntimeLoraSlot(s, slot, reference);
+            toastr.success(`Assigned to Slot ${slot}.`, "Megumin Suite");
+            try {
+                if (typeof popup.completeAffirmative === "function") popup.completeAffirmative();
+                else if (typeof popup.hide === "function") popup.hide();
+            } catch (e) { /* popup still has Close button */ }
+        });
+        $content.find(".kg-assign-char").on("click", function() {
+            const idx = parseInt($(this).data("idx"), 10);
+            if (rows[idx]) {
+                rows[idx].lora = reference;
+                saveProfileToMemory();
+                toastr.success(`Assigned to ${rows[idx].character || "character"}.`, "Megumin Suite");
+            }
+            try {
+                if (typeof popup.completeAffirmative === "function") popup.completeAffirmative();
+                else if (typeof popup.hide === "function") popup.hide();
+            } catch (e) { /* popup still has Close button */ }
+        });
+
+        await popup.show();
+    }
+
+    function renderKreaLoraGallery(c) {
+        c.empty();
+        const s = getLocalProfile().imageGen;
+        ensureImageGenLoraArrays(s);
+        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', assignmentViewMode: 'structured', sendAllCharactersToPromptAi: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
+        ensureLoraIntelDefaults(s.loraIntel);
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        ensureStructuredCharacterAssignments(li, charKey);
+        syncCurrentModeCharacterAssignments(li, charKey);
+
+        c.append(`
+            <style>
+                .kg-thumb-fallback { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem; }
+            </style>
+            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 0; margin-bottom: 20px; overflow: hidden;">
+                <div id="kg_toolbar" style="position: sticky; top: 0; z-index: 5; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+                    <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <input id="kg_search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search LoRA name..." class="ps-modern-input" style="flex: 1; min-width: 140px; font-size: 16px; padding: 10px;">
+                        <select id="kg_source_filter" class="ps-modern-input" style="width: auto; padding: 10px; font-size: 0.8rem;">
+                            <option value="all">All Sources</option>
+                            <option value="Runtime">Runtime (Malcolmrey)</option>
+                            <option value="Baked">Baked</option>
+                        </select>
+                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary" style="padding: 10px 12px;" title="Re-download the LoRA index"><i class="fa-solid fa-rotate"></i></button>
+                    </div>
+                    <div id="kg_status" style="font-size: 0.72rem; color: var(--text-muted);">Loading LoRA index…</div>
+                </div>
+                <div id="kg_grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; padding: 14px;"></div>
+            </div>
+        `);
+
+        const $status = $("#kg_status");
+        const $grid = $("#kg_grid");
+        let allEntries = [];
+
+        function cardHtml(entry) {
+            const safeLabel = psEscapeText(entry.label);
+            const safeRef = psEscapeAttr(entry.reference);
+            const badgeColor = entry.source === "Runtime" ? "#a855f7" : "#10b981";
+            const imgOrPlaceholder = entry.thumbUrl
+                ? `<img class="kg-thumb" src="${psEscapeAttr(entry.thumbUrl)}" loading="lazy" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px;">`
+                : `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
+            return `
+                <div class="kg-card" data-ref="${safeRef}" data-label="${safeLabel}" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 10px; padding: 6px; cursor: pointer; display:flex; flex-direction:column; gap:6px; -webkit-tap-highlight-color: rgba(168,85,247,0.25);">
+                    <div style="width:100%; aspect-ratio:1/1; border-radius:8px; overflow:hidden; background:rgba(255,255,255,0.04); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem;">${imgOrPlaceholder}</div>
+                    <div style="font-size:0.68rem; font-weight:700; color:var(--text-main); line-height:1.2; max-height:2.4em; overflow:hidden;">${safeLabel}</div>
+                    <span style="align-self:flex-start; font-size:0.58rem; font-weight:800; text-transform:uppercase; padding:2px 6px; border-radius:5px; background:${badgeColor}22; color:${badgeColor};">${entry.source}</span>
+                </div>
+            `;
+        }
+
+        function renderGrid() {
+            const term = String($("#kg_search").val() || "").trim().toLowerCase();
+            const sourceFilter = $("#kg_source_filter").val();
+            let filtered = allEntries;
+            if (sourceFilter !== "all") filtered = filtered.filter(e => e.source === sourceFilter);
+            if (term) filtered = filtered.filter(e => e.label.toLowerCase().includes(term) || e.filename.toLowerCase().includes(term));
+            $status.text(`${filtered.length} of ${allEntries.length} LoRAs`);
+            if (!filtered.length) {
+                $grid.html(`<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); font-size:0.8rem; padding:30px 0;">No LoRAs match your search.</div>`);
+                return;
+            }
+            $grid.html(filtered.map(cardHtml).join(""));
+            $grid.find(".kg-thumb").on("error", function() {
+                $(this).replaceWith(`<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`);
+            });
+            $grid.find(".kg-card").on("click", function() {
+                const ref = $(this).attr("data-ref");
+                const label = $(this).attr("data-label");
+                openKreaGalleryAssignPopup(s, li, charKey, ref, label);
+            });
+        }
+
+        async function loadAndRender(forceRefresh = false) {
+            $status.text("Loading LoRA index…");
+            try {
+                allEntries = await loadKreaGalleryEntries({ forceRefresh });
+                renderGrid();
+            } catch (e) {
+                console.error("[Megumin Suite] LoRA Gallery load failed:", e);
+                $status.text("Failed to load LoRA index. Tap refresh to retry.");
+                $grid.html(`<div style="grid-column:1/-1; text-align:center; color:#ef4444; font-size:0.8rem; padding:30px 0;">${psEscapeText(e && e.message ? e.message : String(e))}</div>`);
+            }
+        }
+
+        $("#kg_search").on("input", renderGrid);
+        $("#kg_source_filter").on("change", renderGrid);
+        $("#kg_refresh_btn").on("click", () => loadAndRender(true));
+
+        loadAndRender(false);
     }
 
     function setExplicitRuntimeLoraSlot(s, slot, reference) {
@@ -5535,6 +5759,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     return {
         renderImageGen,
+        renderKreaLoraGallery,
         toggleQuickGenButton,
         loadDanbooruTags,
         igGenerateWithComfy,
