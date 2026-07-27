@@ -1408,8 +1408,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 <!-- LoRA Lab -->
                 <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
-                        <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
+                    <div data-ig-collapse-header style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+                        <div class="ps-rule-title" style="margin-bottom:0; flex:1; min-width:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
                         <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:inline-flex; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
                     </div>
                     <div id="ig_krea_lora_hint" style="display:block; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Use this button to pick Malcolmrey / baked Krea LoRAs into slots 1–4. Needs <b>Render with RunPod</b> on and model <code>krea2_turbo_fp8_scaled.safetensors</code>. Selections are per profile and not overwritten by character keyword analysis.</div>
@@ -1434,10 +1434,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 <!-- Character Analysis -->
                 <div class="li-character-analysis-panel" data-ig-collapse="lora-intelligence" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7;"><i class="fa-solid fa-brain"></i> Character Analysis</div>
-                        <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
-                            <div class="ps-switch" style="transform: scale(0.8);"></div>
+                    <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 15px;">
+                        <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7; flex: 1; min-width: 0;"><i class="fa-solid fa-brain"></i> Character Analysis</div>
+                        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                            <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
+                                <div class="ps-switch" style="transform: scale(0.8);"></div>
+                            </div>
+                            <button type="button" id="li_collapse_btn" class="ps-modern-btn secondary" style="padding:8px 10px; min-height:40px; min-width:40px;" title="Expand or collapse Character Analysis"><i class="fa-solid fa-chevron-down" style="transition:transform .2s;"></i></button>
                         </div>
                     </div>
 
@@ -1784,6 +1787,21 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         // --- LoRA Intelligence Event Bindings ---
         $("#li_enable_toggle").on("click", function() {
             li.enabled = !li.enabled; saveProfileToMemory(); renderImageGen(c);
+        });
+        $("#li_collapse_btn").on("click", function(e) {
+            e.stopPropagation();
+            const $panel = $(this).closest("[data-ig-collapse]");
+            const key = $panel.attr("data-ig-collapse");
+            if (!key) return;
+            const $body = $panel.children(`[data-ig-collapse-body="${key}"]`);
+            if (!$body.length) return;
+            const nextOpen = !$body.is(":visible");
+            s.sectionOpenStates[key] = nextOpen;
+            saveProfileToMemory();
+            const rotate = nextOpen ? "rotate(180deg)" : "none";
+            $panel.find(".ig-section-chevron").css("transform", rotate);
+            $(this).find("i").css("transform", rotate);
+            $body.stop(true, true)[nextOpen ? "slideDown" : "slideUp"](180);
         });
         $("#li_analysis_mode").on("change", function() {
             const mode = $(this).val() || "booru";
@@ -2203,6 +2221,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     async function showMalcolmreyKreaLoraFinder(s) {
+      try {
         const rp = ensureRunpodSettings(s);
         if (!rp.enabled) {
             rp.enabled = true;
@@ -2273,7 +2292,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             $status.css("padding", "10px 18px");
             $results.show();
             render();
-            $overlay.find(".ig-krea-lora-search").on("input", render).trigger("focus");
+            $overlay.find(".ig-krea-lora-search").on("input", render);
             $overlay.on("click", ".ig-krea-lora-pick", function() {
                 const slot = $overlay.find(".ig-krea-lora-slot").val();
                 setExplicitRuntimeLoraSlot(s, slot, String($(this).attr("data-reference") || ""));
@@ -2283,6 +2302,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } catch (error) {
             $overlay.find(".ig-krea-lora-status").html(`<span style="color:#ef4444;">${psEscapeText(error.message || "Could not load the Malcolmrey index.")}</span>`);
         }
+      } catch (outerError) {
+        console.error("[Megumin Suite] Krea LoRA Finder failed to open:", outerError);
+        toastr.error(`Krea LoRA Finder could not open: ${outerError && outerError.message ? outerError.message : outerError}`);
+      }
     }
 
     let meguminComfyLoraCache = null;
@@ -2633,11 +2656,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         const assignments = getModeCharacterAssignments(li, charKey);
 
-        // Per-character LoRA file fields used to drive keyword slot-swapping
-        // (ensureLoras). Krea Runtime mode keeps LoRAs explicit in LoRA Lab
-        // slots instead, so show a picker affordance rather than a dead text box.
-        const showLoras = !!li.ensureLoras;
-        const showKreaRuntimeLoraHelp = !!li.naturalLoraMode && !showLoras;
+        const showLoras = li.ensureLoras;
         const showDesc = li.useCharDescriptions;
         const showBooru = li.useDanbooruTags;
         const showMatchKw = showLoras || showBooru || showDesc;
@@ -2680,18 +2699,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         });
 
         table.append(header);
-
-        if (showKreaRuntimeLoraHelp) {
-            const $help = $(`
-                <div style="margin-bottom:10px; padding:10px 12px; border:1px solid rgba(192,132,252,.35); background:rgba(168,85,247,.08); border-radius:8px; font-size:.72rem; color:var(--text-main); line-height:1.45;">
-                    <b style="color:#c084fc;">Krea Runtime LoRAs are chosen in LoRA Lab</b> — click <b>Krea LoRA Finder</b> above and put Malcolmrey / baked LoRAs in slots 1–4.
-                    Character Analysis in this mode writes appearance prose only; it does <b>not</b> auto-pick or swap LoRAs from chat keywords.
-                    <button type="button" class="ps-modern-btn secondary li-open-krea-finder" style="margin-top:8px; padding:5px 10px; font-size:.68rem;"><i class="fa-solid fa-magnifying-glass"></i> Open Krea LoRA Finder</button>
-                </div>
-            `);
-            $help.find(".li-open-krea-finder").on("click", () => showMalcolmreyKreaLoraFinder(s));
-            table.append($help);
-        }
 
         if (assignments.length === 0) {
             table.append('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" or "Add".</div>');
