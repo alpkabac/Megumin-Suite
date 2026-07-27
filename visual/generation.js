@@ -1410,9 +1410,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
                         <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
-                        <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'inline-flex' : 'none'}; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
+                        <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:inline-flex; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
                     </div>
-                    <div id="ig_krea_lora_hint" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'block' : 'none'}; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Finder selections are explicit, saved per profile, downloaded by the RunPod worker only when needed, and never changed by character keyword analysis.</div>
+                    <div id="ig_krea_lora_hint" style="display:block; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Use this button to pick Malcolmrey / baked Krea LoRAs into slots 1–4. Needs <b>Render with RunPod</b> on and model <code>krea2_turbo_fp8_scaled.safetensors</code>. Selections are per profile and not overwritten by character keyword analysis.</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         ${[1,2,3,4].map(i => `
                             <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; border-left: 3px solid #a855f7;">
@@ -1643,13 +1643,20 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         $("#ig_runpod_card").on("click", function() {
             const rp = ensureRunpodSettings(s);
             rp.enabled = !rp.enabled;
-            if (rp.enabled && ensureRunpodDropdownValues(s)) {
-                toastr.info("RunPod model defaults applied.");
+            if (rp.enabled) {
+                // Krea prose style should land on the Krea worker model so Finder/LoRAs work.
+                if (s.promptStyle === "krea2" && s.selectedModel !== RUNPOD_KREA_MODEL) {
+                    s.selectedModel = RUNPOD_KREA_MODEL;
+                }
+                if (ensureRunpodDropdownValues(s)) {
+                    toastr.info("RunPod model defaults applied.");
+                }
             }
             saveProfileToMemory();
             $(this).toggleClass("active", rp.enabled);
             if (rp.enabled) $("#ig_runpod_settings").slideDown(200);
             else $("#ig_runpod_settings").slideUp(200);
+            syncKreaLoraFinderUi(s);
             if (rp.enabled) {
                 populateRunpodImageLists(s);
                 igFetchComfyLists();
@@ -1733,11 +1740,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             s.selectedModel = $(e.target).val();
             if (ensureRunpodSettings(s).enabled) ensureRunpodDropdownValues(s);
             saveProfileToMemory();
+            syncKreaLoraFinderUi(s);
             renderImageGen(c);
         });
         $("#ig_sampler").on("change", (e) => { s.selectedSampler = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_scheduler").on("change", (e) => { s.selectedScheduler = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_krea_lora_browser_btn").on("click", () => showMalcolmreyKreaLoraFinder(s));
+        syncKreaLoraFinderUi(s);
 
         // Buttons
         $("#ig_test_btn").on("click", igTestConnection);
@@ -2176,9 +2185,47 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return current ? `${current}\n${instruction}` : instruction;
     }
 
+    function syncKreaLoraFinderUi(s) {
+        const runpodOn = !!(s && ensureRunpodSettings(s).enabled);
+        const isKrea = !!(s && s.selectedModel === RUNPOD_KREA_MODEL);
+        const $btn = $("#ig_krea_lora_browser_btn");
+        const $hint = $("#ig_krea_lora_hint");
+        if (!$btn.length) return;
+        $btn.css("display", "inline-flex");
+        if (!runpodOn) {
+            $hint.html('Turn on <b>Render with RunPod</b>, set model to <code>krea2_turbo_fp8_scaled.safetensors</code>, then click <b>Krea LoRA Finder</b> to pick Malcolmrey / baked LoRAs into slots 1–4.');
+        } else if (!isKrea) {
+            $hint.html('RunPod is on, but the model is not Krea 2. Select <code>krea2_turbo_fp8_scaled.safetensors</code> in the Model dropdown (or click Finder — it will switch for you).');
+        } else {
+            $hint.html('Finder picks Malcolmrey <span style="color:#c084fc;font-weight:700;">Runtime</span> and baked <span style="color:#10b981;font-weight:700;">Baked</span> LoRAs into slots 1–4. Saved per profile; not overwritten by character keyword analysis.');
+        }
+        $hint.show();
+    }
+
     async function showMalcolmreyKreaLoraFinder(s) {
-        if (!ensureRunpodSettings(s).enabled || s.selectedModel !== RUNPOD_KREA_MODEL) {
-            return toastr.warning("Enable RunPod and select the Krea 2 model before choosing a runtime LoRA.");
+        const rp = ensureRunpodSettings(s);
+        if (!rp.enabled) {
+            rp.enabled = true;
+            if (s.promptStyle === "krea2" || !s.selectedModel || s.selectedModel === RUNPOD_ANIMA_MODEL) {
+                s.selectedModel = RUNPOD_KREA_MODEL;
+            }
+            ensureRunpodDropdownValues(s);
+            saveProfileToMemory();
+            $("#ig_runpod_card").addClass("active");
+            $("#ig_runpod_settings").show();
+            populateRunpodImageLists(s);
+            igFetchComfyLists();
+            syncKreaLoraFinderUi(s);
+            toastr.info("Enabled RunPod for Krea LoRA Finder.");
+        }
+        if (s.selectedModel !== RUNPOD_KREA_MODEL) {
+            s.selectedModel = RUNPOD_KREA_MODEL;
+            ensureRunpodDropdownValues(s);
+            saveProfileToMemory();
+            populateRunpodImageLists(s);
+            $("#ig_model").val(RUNPOD_KREA_MODEL);
+            syncKreaLoraFinderUi(s);
+            toastr.info("Switched model to Krea 2 for runtime LoRAs.");
         }
         const $overlay = $(`
             <div class="ig-krea-lora-overlay" style="position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:18px; box-sizing:border-box; background:rgba(0,0,0,.72); font-family:'Inter',sans-serif;">
@@ -2586,7 +2633,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         const assignments = getModeCharacterAssignments(li, charKey);
 
-        const showLoras = li.ensureLoras;
+        // Per-character LoRA file fields used to drive keyword slot-swapping
+        // (ensureLoras). Krea Runtime mode keeps LoRAs explicit in LoRA Lab
+        // slots instead, so show a picker affordance rather than a dead text box.
+        const showLoras = !!li.ensureLoras;
+        const showKreaRuntimeLoraHelp = !!li.naturalLoraMode && !showLoras;
         const showDesc = li.useCharDescriptions;
         const showBooru = li.useDanbooruTags;
         const showMatchKw = showLoras || showBooru || showDesc;
@@ -2629,6 +2680,18 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         });
 
         table.append(header);
+
+        if (showKreaRuntimeLoraHelp) {
+            const $help = $(`
+                <div style="margin-bottom:10px; padding:10px 12px; border:1px solid rgba(192,132,252,.35); background:rgba(168,85,247,.08); border-radius:8px; font-size:.72rem; color:var(--text-main); line-height:1.45;">
+                    <b style="color:#c084fc;">Krea Runtime LoRAs are chosen in LoRA Lab</b> — click <b>Krea LoRA Finder</b> above and put Malcolmrey / baked LoRAs in slots 1–4.
+                    Character Analysis in this mode writes appearance prose only; it does <b>not</b> auto-pick or swap LoRAs from chat keywords.
+                    <button type="button" class="ps-modern-btn secondary li-open-krea-finder" style="margin-top:8px; padding:5px 10px; font-size:.68rem;"><i class="fa-solid fa-magnifying-glass"></i> Open Krea LoRA Finder</button>
+                </div>
+            `);
+            $help.find(".li-open-krea-finder").on("click", () => showMalcolmreyKreaLoraFinder(s));
+            table.append($help);
+        }
 
         if (assignments.length === 0) {
             table.append('<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 15px; border: 1px dashed var(--border-color); border-radius: 8px;">No assignments yet. Click "Analyze Characters" or "Add".</div>');
