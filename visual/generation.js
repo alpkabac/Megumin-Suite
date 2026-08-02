@@ -1645,12 +1645,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                     <option value="plain" ${li.assignmentViewMode === 'plain' ? 'selected' : ''}>Plain Text View</option>
                                 </select>
                             </div>
-                            <div class="ps-toggle-card ${li.sendAllCharactersToPromptAi ? 'active' : ''}" id="li_send_all_chars_toggle" style="padding: 10px 12px; margin-top: 12px; min-height: auto; cursor: pointer;">
-                                <div style="display:flex; flex-direction:column;">
-                                    <span style="font-weight:700; font-size:0.78rem; color:var(--text-main);">Send All Character References To Prompt AI</span>
-                                    <div style="margin-top:2px; font-size:0.65rem; color:var(--text-muted);">Provides every analyzed character as a reference library and tells the AI to choose who appears from the latest message.</div>
+                            <div class="ps-toggle-card ${li.sendAllCharactersToPromptAi ? 'active' : ''}" id="li_send_all_chars_toggle" style="padding: 10px 12px; margin-top: 12px; min-height: auto; cursor: pointer; ${li.sendAllCharactersToPromptAi ? 'border-color: rgba(245,158,11,0.55); background: rgba(245,158,11,0.08);' : ''}">
+                                <div style="display:flex; flex-direction:column; min-width:0; padding-right:10px;">
+                                    <span style="font-weight:700; font-size:0.78rem; color:${li.sendAllCharactersToPromptAi ? '#fbbf24' : 'var(--text-main)'};">Send All Character References To Prompt AI</span>
+                                    <div style="margin-top:2px; font-size:0.65rem; color:var(--text-muted);">Always sends every analyzed character as an appearance library. The AI picks who is present from the latest scene. Keyword-inferred casts do not shrink this library.</div>
                                 </div>
-                                <div class="ps-switch" style="transform:scale(0.75);"></div>
+                                <div class="ps-switch" style="transform:scale(0.75); flex-shrink:0; ${li.sendAllCharactersToPromptAi ? 'background:#f59e0b;' : ''}"></div>
                             </div>
                             <div style="display: ${li.useDanbooruTags ? 'grid' : 'none'}; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 14px;">
                                 ${liTagFieldToggle("li_field_character", "Character Tag", li.tagFieldToggles.characterTag)}
@@ -2067,7 +2067,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             e.stopPropagation();
             li.sendAllCharactersToPromptAi = !li.sendAllCharactersToPromptAi;
             saveProfileToMemory();
-            renderImageGen(c);
+            const on = !!li.sendAllCharactersToPromptAi;
+            $(this).toggleClass("active", on);
+            $(this).css({
+                borderColor: on ? "rgba(245,158,11,0.55)" : "",
+                background: on ? "rgba(245,158,11,0.08)" : ""
+            });
+            $(this).find("span").first().css("color", on ? "#fbbf24" : "");
+            $(this).find(".ps-switch").css("background", on ? "#f59e0b" : "");
         });
 
         // Prompt preview toggle
@@ -4076,7 +4083,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 prompt: String(p?.prompt || "").trim()
             })).filter(p => p.label && p.prompt)
             : [];
-        return { assignments, positions };
+        // Only the Manual Scene Selector sets userPickedCast. Auto/smart/
+        // keyword-inferred casts must NOT be treated as a user override, or
+        // "Send All Character References" silently shrinks after the first run.
+        return {
+            assignments,
+            positions,
+            userPickedCast: !!(scene?.userPickedCast && assignments.length > 0)
+        };
     }
 
     function buildManualImageSceneInstruction(scene, s, li, booruStd = false) {
@@ -4206,7 +4220,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             $("body").append($overlay);
             $overlay.find(".ig-manual-scene-one").on("click", function() {
                 const idx = parseInt($(this).attr("data-idx"), 10);
-                finish({ assignments: [assignments[idx]].filter(Boolean), positions: readPositions() });
+                finish({ assignments: [assignments[idx]].filter(Boolean), positions: readPositions(), userPickedCast: true });
             });
             $overlay.find(".ig-manual-scene-send").on("click", function() {
                 const selected = $overlay.find(".ig-manual-scene-check:checked").map(function() {
@@ -4216,7 +4230,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     toastr.warning("Select at least one character, or click Use Only on a row.");
                     return;
                 }
-                finish({ assignments: selected, positions: readPositions() });
+                finish({ assignments: selected, positions: readPositions(), userPickedCast: true });
             });
             $overlay.find(".ig-manual-scene-cancel").on("click", () => finish(null));
             $overlay.on("click", function(e) {
@@ -4263,13 +4277,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             } else {
                 const sceneText = getSceneSnapshotForMessage(clickedMessage);
                 const latestSceneText = getLatestVisualSceneText(clickedMessage);
-                const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
-                const selectedPositions = normalizeManualImageScene(manualScene).positions;
+                const normalizedManual = normalizeManualImageScene(manualScene);
+                const selectedAssignments = normalizedManual.assignments;
+                const selectedPositions = normalizedManual.positions;
                 if (source === "comfy_llm") {
-                    const nanoContext = buildComfyNanoPromptContext(s, sceneText, {
-                        assignments: selectedAssignments,
-                        positions: selectedPositions
-                    });
+                    const nanoContext = buildComfyNanoPromptContext(s, sceneText, normalizedManual);
                     promptText = nanoContext.fallbackPrompt;
                     aiText = nanoContext.aiText;
                     nanoSystemPrompt = nanoContext.systemPrompt;
@@ -4479,11 +4491,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     // New Helper Function for generating the prompt text
-    function getMatchedBooruTags(li, charKey, manualAssignments = null) {
+    function getMatchedBooruTags(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
         const matched = [];
 
-        for (const a of getPromptAiCharacterAssignments(li, charKey, manualAssignments)) {
+        for (const a of getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts)) {
             ensureStructuredCharacterAssignment(a);
             const tagBlock = getAssignmentTagBlock(a, li);
             if (!tagBlock) continue;
@@ -4500,9 +4512,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return String(a.description || "").trim();
     }
 
-    function getMatchedCharacterAssignments(li, charKey, manualAssignments = null) {
+    function getMatchedCharacterAssignments(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled) return [];
-        return getPromptAiCharacterAssignments(li, charKey, manualAssignments);
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts);
     }
 
     function getActiveCharacterAssignments(li, charKey, manualAssignments = null) {
@@ -4521,9 +4533,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             .filter(a => assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch));
     }
 
-    function getPromptAiCharacterAssignments(li, charKey, manualAssignments = null) {
+    function getPromptAiCharacterAssignments(li, charKey, manualAssignments = null, opts = null) {
         if (!li) return [];
-        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+        const userPickedCast = !!(opts?.userPickedCast && Array.isArray(manualAssignments) && manualAssignments.length > 0);
+        // User explicitly picked a cast in the Manual Scene Selector → only
+        // those references. Otherwise (including keyword-inferred casts), honor
+        // Send All so the prompt AI always gets the full appearance library.
+        if (userPickedCast) {
             return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
         }
         if (li.sendAllCharactersToPromptAi) {
@@ -4531,15 +4547,22 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 .map(ensureStructuredCharacterAssignment)
                 .filter(a => a && !a.neverInclude);
         }
+        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+            return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
+        }
         return getActiveCharacterAssignments(li, charKey, manualAssignments);
     }
 
-    function shouldPromptAiChooseCharacters(li, manualAssignments = null) {
-        return !!(li?.sendAllCharactersToPromptAi && !(Array.isArray(manualAssignments) && manualAssignments.length > 0));
+    function shouldPromptAiChooseCharacters(li, manualAssignments = null, opts = null) {
+        if (!li?.sendAllCharactersToPromptAi) return false;
+        // Only a user-picked Manual Scene cast disables the choose-from-library
+        // mode. Inferred/auto assignment lists must not.
+        if (opts?.userPickedCast && Array.isArray(manualAssignments) && manualAssignments.length > 0) return false;
+        return true;
     }
 
-    function getPromptAiCharacterChoiceInstruction(li, manualAssignments = null) {
-        if (shouldPromptAiChooseCharacters(li, manualAssignments)) {
+    function getPromptAiCharacterChoiceInstruction(li, manualAssignments = null, opts = null) {
+        if (shouldPromptAiChooseCharacters(li, manualAssignments, opts)) {
             return "All analyzed character references are provided below as a reference library. Choose which character or characters are actually present from the latest roleplay message/scene, and use only those chosen characters in the image prompt. Do not include every reference character by default, and do not add absent characters just because their reference appears here.";
         }
         return "Use these stable appearance cues for who is present, then derive action, pose, expression, temporary state, setting, and composition from the chat scene.";
@@ -4646,9 +4669,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ].filter(Boolean).join(', '));
     }
 
-    function getMatchedCharacterGuidance(li, charKey, manualAssignments = null) {
+    function getMatchedCharacterGuidance(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
-        return getPromptAiCharacterAssignments(li, charKey, manualAssignments)
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts)
             .map(a => ({ character: a.character || "character", tags: getStableAssignmentTagBlock(a, li) }))
             .filter(a => a.tags);
     }
@@ -4715,9 +4738,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
         const allowStoredAppearanceGuidance = true;
         const manualAssignments = manualScene.assignments;
-        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments) : [];
+        const castOpts = { userPickedCast: !!manualScene.userPickedCast };
+        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments, castOpts) : [];
         const guidedCharacters = characterGuidance.length > 0;
-        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, manualAssignments);
+        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, manualAssignments, castOpts);
         const personaGuidance = buildPersonaImageGuidance(s, booruStd);
         const manualSceneInstruction = buildManualImageSceneInstruction(manualScene, s, li, booruStd);
 
@@ -4775,7 +4799,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 extraParts.push(`Character reference library. ${characterChoiceInstruction} Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments, castOpts);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     extraParts.push(`Character appearance cues (Danbooru-style tags per role). ${characterChoiceInstruction} Weave the chosen character cues into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
@@ -4804,7 +4828,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     extraStr += `\nCharacter reference library. ${characterChoiceInstruction} Keep chosen Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
                 }
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments, castOpts);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     extraStr += `\n${characterChoiceInstruction}`;
@@ -5096,6 +5120,18 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (generated) {
                 if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(generated)) return;
                 finalPrompt = sanitizePromptTags(generated);
+                // Tag styles get the same Anima post-processing as the
+                // legacy path: underscore/parenthesis normalization plus
+                // the Max Tags dedupe/cap, then the user's Leading Tags
+                // (quality/meta block) are prepended in code -- never
+                // invented by the writer.
+                if (!isNaturalLanguageImageStyle(s.promptStyle)) {
+                    finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+                }
+                finalPrompt = limitAnimaPromptTags(finalPrompt, s, s.loraIntel);
+                if (!opts?.skipLeadPrefix) {
+                    finalPrompt = ensureImageLeadPrefix(finalPrompt);
+                }
                 nanoPromptClientSide = true;
             } else if (getNanoGptGlobalSettings().apiKey) {
                 toastr.warning("NanoGPT direct call failed. Falling back to the in-workflow NanoGPT node (prompt will not be previewable).", "Megumin Suite");
@@ -6175,6 +6211,19 @@ An explicit digital anime illustration in warm lamplight, eye-level medium shot 
 STYLE EXAMPLE (normal register -- copy the shape, never the people, clothing, or setting):
 A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye level. A woman with short black hair and amber eyes sits on the left of a small wooden table in an oversized beige sweater, laughing with a coffee cup raised halfway. A woman with a silver ponytail and blue eyes sits across from her on the right in a fitted denim jacket, leaning forward mid-story with animated hands. Warm window light, a blurred pastry counter in the background, soft bokeh, gentle golden palette.`;
 
+    // Concrete few-shot shape references for the Anima tag writer. Same
+    // two-register rationale as KREA2_WRITER_STYLE_EXAMPLES: an explicit
+    // example (direct act/anatomy tags instead of euphemism) and a safe
+    // example (normal scenes stay normal). Quality/meta tags (masterpiece,
+    // score_N, etc.) are intentionally omitted -- those come from the
+    // user's Leading Tags setting and are prepended in code. Examples
+    // therefore start at the safety/count block.
+    const ANIMA_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the tag order, grouping, and directness, never the people, bodies, setting, or act; do not invent quality tags -- those are prepended separately):
+nsfw, explicit, 2girls, yuri, long hair, red hair, red eyes, small breasts, completely nude, all fours, arched back, moaning, open mouth, blush, sheet grab, second woman kneeling behind her, wavy hair, blonde hair, green eyes, large breasts, nude, breast press, fingering from behind, vaginal, grabbing another's breast, sweat, trembling, indoors, bedroom, on bed, bed sheet, dim lighting, lamp, depth of field
+
+STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the people, clothing, or setting; do not invent quality tags -- those are prepended separately):
+safe, 2girls, cafe, sitting, short hair, black hair, brown eyes, oversized sweater, holding cup, laughing, second woman across the table, grey hair, ponytail, blue eyes, denim jacket, leaning forward, talking, wooden table, window, sunlight, blurry background, indoors, warm lighting, medium shot`;
+
     /**
      * Single source of truth for the prompt-writer LLM's instructions.
      * Instructions live ONLY here (the system message); the user message is
@@ -6195,11 +6244,26 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
                 "Never use Danbooru tags, underscores, 1girl-style shorthand, quality-token lists, or comma-separated tag dumps."
             );
         } else {
+            const booruStd = isBooruStandardImageMode(s, s?.loraIntel);
+            const maxTags = getAnimaMaxTags(s);
+            const leadTags = buildBooruStandardTagLead(s, s?.loraIntel);
             parts.push(
-                "You convert roleplay scene data into one finished image-generation prompt as a comma-separated list of lowercase tags (spaces instead of underscores).",
+                "You convert roleplay scene data into one finished image-generation prompt for the Anima anime model: a single comma-separated list of lowercase Danbooru-style tags with spaces instead of underscores. Score tags like score_7 are the only tags that keep underscores. Prefer real booru tags (Gelbooru spelling when it differs from Danbooru) over invented phrases.",
                 "Depict only the latest visible moment of the SCENE section; the most recent message matters most.",
-                "The CHARACTERS section is appearance reference only; never treat it as evidence of action, pose, nudity, or camera.",
-                "Group each character's appearance tags together with a spatial tag so identities never merge. Every depicted person must be an unmistakable adult."
+                "Follow the official Anima tag order after any fixed leading tags: safety tags, character-count tags, per-character appearance blocks, then act/pose/contact tags, then setting, lighting, and camera/composition tags.",
+                // Quality/meta tags are owned by the user's Leading Tags
+                // setting and prepended in code -- the writer must never invent
+                // its own masterpiece/score_N block from training priors.
+                leadTags
+                    ? `Do not invent quality or meta tags such as masterpiece, best quality, score_N, highres, or newest. The app automatically prepends these fixed Leading Tags after you write: ${leadTags}. Leave them out of your output entirely.`
+                    : "Do not invent quality or meta tags such as masterpiece, best quality, score_N, highres, or newest. Start directly with the safety tag for the scene.",
+                "Open with the safety tag that matches the scene: 'safe' for non-sexual scenes, 'sensitive' for suggestive but non-sexual scenes, 'nsfw, explicit' for sex acts.",
+                "After the safety tag, state the exact visible person count with tags such as 1girl, 1boy, 2girls, or 1boy, 1girl.",
+                "The CHARACTERS section is appearance reference only; never treat it as evidence of action, pose, nudity, or camera. Copy each depicted character's appearance tags into that character's own block, dropping any reference tag the current scene contradicts (for example clothing tags when that character is undressed in the scene).",
+                "When more than one person is visible, keep each character's hair, eye, body, breast-size, and clothing tags inside one contiguous block, and anchor every block after the first with a short spatial phrase such as 'second woman kneeling behind her' (Anima accepts short natural-language phrases mixed with tags). Never interleave two characters' appearance tags.",
+                "Every depicted person must be an unmistakable adult.",
+                maxTags && !booruStd ? `Output at most ${maxTags} comma-separated tags total. When trimming, keep safety, character-count, per-character appearance, and act/pose/contact tags before scenery and mood detail.` : "",
+                "Never output underscores between words, artist tags, watermark or username tags, weighted tags like (tag:1.2), duplicate tags, or full sentences beyond the short spatial anchor phrases."
             );
         }
         if (s?.adultTagPrecision) parts.push(getAdultPrecisionInstruction(s));
@@ -6212,23 +6276,27 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
         );
         const rules = parts.filter(Boolean).join(" ");
         // Concrete few-shot shape references matter more than rules for
-        // small prompt-writer models; include them for prose styles.
+        // small prompt-writer models; every style gets register-matched
+        // examples (prose for Krea2/SDXL, Anima tag lists otherwise).
         if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
             return `${rules}\n\n${KREA2_WRITER_STYLE_EXAMPLES}`;
         }
-        return rules;
+        return `${rules}\n\n${ANIMA_WRITER_STYLE_EXAMPLES}`;
     }
 
     function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
         const normalizedScene = normalizeManualImageScene(manualScene);
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
+        const castOpts = { userPickedCast: !!normalizedScene.userPickedCast };
+        // Scene-cast for fallback/LoRA inference may be keyword-filtered; that
+        // must not shrink the prompt-AI reference library when Send All is on.
         const assignments = normalizedScene.assignments.length
             ? normalizedScene.assignments
             : getDeterministicSceneAssignments(s, sceneText);
-        const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments)
-            ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments)
-            : assignments;
+        const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments, castOpts)
+            ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments, castOpts)
+            : (Array.isArray(assignments) ? assignments : []);
         const naturalDescriptionLines = li?.enabled && li.useCharDescriptions
             ? promptReferenceAssignments.map(a => {
                 const desc = getAssignmentNaturalDescription(a);
@@ -6245,10 +6313,13 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
         const selectedActionTags = normalizedScene.positions
             .map(position => getBatchPositionStaging(position.label, position.prompt))
             .filter(Boolean);
-        const extraGuidance = normalizeGeneratedTagField([
-            buildBooruStandardTagLead(s, li),
-            s.promptExtra
-        ].filter(Boolean).join(", "));
+        // Leading Tags are prepended in code (ensureImageLeadPrefix), not
+        // mixed into EXTRA GUIDANCE -- otherwise the writer either echoes
+        // or invents a competing quality block.
+        const extraGuidance = normalizeGeneratedTagField(String(s.promptExtra || "").trim());
+        const chooseInstruction = shouldPromptAiChooseCharacters(li, normalizedScene.assignments, castOpts)
+            ? getPromptAiCharacterChoiceInstruction(li, normalizedScene.assignments, castOpts)
+            : "";
 
         // Deterministic fallback: a real scene-derived prompt (characters,
         // detected action, scene tags) that renders something sensible even
@@ -6261,9 +6332,13 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
         }) || "a detailed cinematic illustration of the current roleplay scene";
 
         // User message = pure data with named sections. All instructions live
-        // in the system prompt (buildNanoImageSystemPrompt).
+        // in the system prompt (buildNanoImageSystemPrompt), except the
+        // choose-who-appears line which only applies when Send All is on.
         return {
-            systemPrompt: buildNanoImageSystemPrompt(s),
+            systemPrompt: [
+                buildNanoImageSystemPrompt(s),
+                chooseInstruction
+            ].filter(Boolean).join(" "),
             fallbackPrompt,
             aiText: [
                 characterLines.length ? `CHARACTERS (appearance reference only):\n${characterLines.join("\n")}` : "",

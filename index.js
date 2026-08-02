@@ -225,9 +225,11 @@ function initProfile() {
                 descriptionStyle: 'natural',
                 promptAssemblyMode: 'structured',
                 assignmentViewMode: 'structured',
+                sendAllCharactersToPromptAi: false,
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},
+                characterAssignmentsByMode: {},
                 tagFieldToggles: {
                     characterTag: true,
                     seriesTag: true,
@@ -235,6 +237,7 @@ function initProfile() {
                     clothingTags: true
                 },
                 lastCharacterAnalysisResponse: "",
+                characterAnalysisFeedback: "",
                 compiledPromptOverride: ""
             }
         },
