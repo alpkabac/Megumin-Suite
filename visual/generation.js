@@ -4305,7 +4305,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 aiText: aiText || promptText,
                 nanoSystemPrompt,
                 requireAiTextWorkflow: source === "comfy_llm",
-                skipLeadPrefix: source === "comfy_llm" ? true : skipLeadPrefix
+                skipLeadPrefix: source === "comfy_llm" ? isNaturalLanguageImageStyle(s.promptStyle) : skipLeadPrefix
             });
 
         } catch(e) {
@@ -6214,15 +6214,15 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
     // Concrete few-shot shape references for the Anima tag writer. Same
     // two-register rationale as KREA2_WRITER_STYLE_EXAMPLES: an explicit
     // example (direct act/anatomy tags instead of euphemism) and a safe
-    // example (normal scenes stay normal). Quality/meta tags (masterpiece,
-    // score_N, etc.) are intentionally omitted -- those come from the
-    // user's Leading Tags setting and are prepended in code. Examples
-    // therefore start at the safety/count block.
-    const ANIMA_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the tag order, grouping, and directness, never the people, bodies, setting, or act; do not invent quality tags -- those are prepended separately):
-nsfw, explicit, 2girls, yuri, long hair, red hair, red eyes, small breasts, completely nude, all fours, arched back, moaning, open mouth, blush, sheet grab, second woman kneeling behind her, wavy hair, blonde hair, green eyes, large breasts, nude, breast press, fingering from behind, vaginal, grabbing another's breast, sweat, trembling, indoors, bedroom, on bed, bed sheet, dim lighting, lamp, depth of field
+    // example (normal scenes stay normal). Quality/safety/meta tags
+    // (masterpiece, score_N, safe, nsfw, explicit, etc.) are intentionally
+    // omitted -- those come from the user's Leading Tags setting and are
+    // prepended in code. Examples therefore start at the count block.
+    const ANIMA_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the tag order, grouping, and directness, never the people, bodies, setting, or act; do not invent quality/safety prefix tags -- those are prepended separately):
+2girls, yuri, long hair, red hair, red eyes, small breasts, completely nude, all fours, arched back, moaning, open mouth, blush, sheet grab, second woman kneeling behind her, wavy hair, blonde hair, green eyes, large breasts, nude, breast press, fingering from behind, vaginal, grabbing another's breast, sweat, trembling, indoors, bedroom, on bed, bed sheet, dim lighting, lamp, depth of field
 
-STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the people, clothing, or setting; do not invent quality tags -- those are prepended separately):
-safe, 2girls, cafe, sitting, short hair, black hair, brown eyes, oversized sweater, holding cup, laughing, second woman across the table, grey hair, ponytail, blue eyes, denim jacket, leaning forward, talking, wooden table, window, sunlight, blurry background, indoors, warm lighting, medium shot`;
+STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the people, clothing, or setting; do not invent quality/safety prefix tags -- those are prepended separately):
+2girls, cafe, sitting, short hair, black hair, brown eyes, oversized sweater, holding cup, laughing, second woman across the table, grey hair, ponytail, blue eyes, denim jacket, leaning forward, talking, wooden table, window, sunlight, blurry background, indoors, warm lighting, medium shot`;
 
     /**
      * Single source of truth for the prompt-writer LLM's instructions.
@@ -6250,19 +6250,18 @@ safe, 2girls, cafe, sitting, short hair, black hair, brown eyes, oversized sweat
             parts.push(
                 "You convert roleplay scene data into one finished image-generation prompt for the Anima anime model: a single comma-separated list of lowercase Danbooru-style tags with spaces instead of underscores. Score tags like score_7 are the only tags that keep underscores. Prefer real booru tags (Gelbooru spelling when it differs from Danbooru) over invented phrases.",
                 "Depict only the latest visible moment of the SCENE section; the most recent message matters most.",
-                "Follow the official Anima tag order after any fixed leading tags: safety tags, character-count tags, per-character appearance blocks, then act/pose/contact tags, then setting, lighting, and camera/composition tags.",
-                // Quality/meta tags are owned by the user's Leading Tags
+                "Follow the official Anima tag order after any fixed leading tags: character-count tags, per-character appearance blocks, then act/pose/contact tags, then setting, lighting, and camera/composition tags.",
+                // Quality/safety/meta tags are owned by the user's Leading Tags
                 // setting and prepended in code -- the writer must never invent
-                // its own masterpiece/score_N block from training priors.
+                // its own masterpiece/score_N/safe/nsfw/explicit block.
                 leadTags
-                    ? `Do not invent quality or meta tags such as masterpiece, best quality, score_N, highres, or newest. The app automatically prepends these fixed Leading Tags after you write: ${leadTags}. Leave them out of your output entirely.`
-                    : "Do not invent quality or meta tags such as masterpiece, best quality, score_N, highres, or newest. Start directly with the safety tag for the scene.",
-                "Open with the safety tag that matches the scene: 'safe' for non-sexual scenes, 'sensitive' for suggestive but non-sexual scenes, 'nsfw, explicit' for sex acts.",
-                "After the safety tag, state the exact visible person count with tags such as 1girl, 1boy, 2girls, or 1boy, 1girl.",
+                    ? `Do not invent quality, safety, or meta tags such as masterpiece, best quality, score_N, highres, newest, safe, sensitive, nsfw, or explicit. The app automatically prepends these fixed Leading Tags after you write: ${leadTags}. Leave them out of your output entirely.`
+                    : "Do not invent quality, safety, or meta tags such as masterpiece, best quality, score_N, highres, newest, safe, sensitive, nsfw, or explicit. Start directly with the character-count tags.",
+                "Start with the exact visible person count using tags such as 1girl, 1boy, 2girls, or 1boy, 1girl.",
                 "The CHARACTERS section is appearance reference only; never treat it as evidence of action, pose, nudity, or camera. Copy each depicted character's appearance tags into that character's own block, dropping any reference tag the current scene contradicts (for example clothing tags when that character is undressed in the scene).",
                 "When more than one person is visible, keep each character's hair, eye, body, breast-size, and clothing tags inside one contiguous block, and anchor every block after the first with a short spatial phrase such as 'second woman kneeling behind her' (Anima accepts short natural-language phrases mixed with tags). Never interleave two characters' appearance tags.",
                 "Every depicted person must be an unmistakable adult.",
-                maxTags && !booruStd ? `Output at most ${maxTags} comma-separated tags total. When trimming, keep safety, character-count, per-character appearance, and act/pose/contact tags before scenery and mood detail.` : "",
+                maxTags && !booruStd ? `Output at most ${maxTags} comma-separated tags total. When trimming, keep character-count, per-character appearance, and act/pose/contact tags before scenery and mood detail.` : "",
                 "Never output underscores between words, artist tags, watermark or username tags, weighted tags like (tag:1.2), duplicate tags, or full sentences beyond the short spatial anchor phrases."
             );
         }
