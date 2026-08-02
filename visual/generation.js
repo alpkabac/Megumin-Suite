@@ -2391,17 +2391,24 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return url;
     }
 
-    async function resolveKreaThumbDisplayUrl(remoteUrl) {
+    async function resolveKreaThumbDisplayUrl(remoteUrl, opts = {}) {
         const cacheKey = String(remoteUrl || "").trim();
+        const forceReload = !!opts.forceReload;
         if (!cacheKey) return null;
-        if (kreaThumbBlobUrlByKey.has(cacheKey)) return kreaThumbBlobUrlByKey.get(cacheKey);
-        if (kreaThumbInflight.has(cacheKey)) return kreaThumbInflight.get(cacheKey);
+        if (!forceReload && kreaThumbBlobUrlByKey.has(cacheKey)) return kreaThumbBlobUrlByKey.get(cacheKey);
+        if (!forceReload && kreaThumbInflight.has(cacheKey)) return kreaThumbInflight.get(cacheKey);
 
         const work = (async () => {
-            const cached = await readKreaThumbBlob(cacheKey);
-            if (cached) return kreaThumbObjectUrlFromBlob(cacheKey, cached);
+            if (!forceReload) {
+                const cached = await readKreaThumbBlob(cacheKey);
+                if (cached) return kreaThumbObjectUrlFromBlob(cacheKey, cached);
+            }
             try {
-                const res = await fetch(cacheKey, { mode: "cors", credentials: "omit", cache: "force-cache" });
+                const res = await fetch(cacheKey, {
+                    mode: "cors",
+                    credentials: "omit",
+                    cache: forceReload ? "reload" : "force-cache",
+                });
                 if (!res.ok) return null;
                 const blob = await res.blob();
                 // HF sometimes serves thumbs as octet-stream / empty MIME — still accept image-looking blobs.
@@ -2409,6 +2416,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const looksImage = !mime || mime.startsWith("image/") || mime === "application/octet-stream";
                 if (!(blob instanceof Blob) || !blob.size || !looksImage) return null;
                 await writeKreaThumbBlob(cacheKey, blob);
+                // Replace any prior object URL for this key after a forced reload.
+                if (forceReload && kreaThumbBlobUrlByKey.has(cacheKey)) {
+                    try { URL.revokeObjectURL(kreaThumbBlobUrlByKey.get(cacheKey)); } catch (e) { /* ignore */ }
+                    kreaThumbBlobUrlByKey.delete(cacheKey);
+                }
                 return kreaThumbObjectUrlFromBlob(cacheKey, blob);
             } catch (e) {
                 return null; // CORS / network — remote <img src> remains the display path
@@ -2421,6 +2433,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     // Prefer IndexedDB/blob when available; never block first paint on network fetch.
     // Misses keep the remote src visible and warm the cache in the background.
+    // Keep data-thumb-url so blank/failed thumbs can be retried later.
     async function hydrateKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
         const imgs = ($root.find ? $root.find("img.kg-thumb[data-thumb-url]") : $()).toArray();
         if (!imgs.length) return;
@@ -2437,7 +2450,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const memoryHit = kreaThumbBlobUrlByKey.get(remote);
                 if (memoryHit) {
                     img.src = memoryHit;
-                    img.removeAttribute("data-thumb-url");
                     continue;
                 }
 
@@ -2445,18 +2457,94 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const cached = await readKreaThumbBlob(remote);
                 if (!img.isConnected) continue;
                 if (cached) {
-                    const localUrl = kreaThumbObjectUrlFromBlob(remote, cached);
-                    img.src = localUrl;
-                    img.removeAttribute("data-thumb-url");
+                    img.src = kreaThumbObjectUrlFromBlob(remote, cached);
                     continue;
                 }
 
                 // Keep remote src painting now; cache opportunistically for next time
-                img.removeAttribute("data-thumb-url");
                 resolveKreaThumbDisplayUrl(remote).catch(() => {});
             }
         }
         await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    }
+
+    function kreaThumbFallbackHtml(remoteUrl) {
+        const attr = remoteUrl ? ` data-thumb-url="${psEscapeAttr(remoteUrl)}"` : "";
+        return `<div class="kg-thumb-fallback kg-thumb-missing"${attr}><i class="fa-solid fa-image"></i></div>`;
+    }
+
+    function kreaThumbImgHtml(remoteUrl, srcUrl) {
+        return `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(remoteUrl)}" src="${psEscapeAttr(srcUrl || remoteUrl)}" loading="eager" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
+    }
+
+    function waitForImageLoad(img) {
+        return new Promise(resolve => {
+            if (!img) { resolve(false); return; }
+            const finish = (ok) => {
+                img.onload = null;
+                img.onerror = null;
+                resolve(!!ok);
+            };
+            if (img.complete) {
+                finish(img.naturalWidth > 0);
+                return;
+            }
+            img.onload = () => finish(true);
+            img.onerror = () => finish(false);
+        });
+    }
+
+    // Reload only blank/broken thumbs currently visible in the gallery page.
+    async function retryBlankKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
+        if (!$root || !$root.length) return { attempted: 0, recovered: 0 };
+        const targets = [];
+
+        $root.find(".kg-thumb-fallback[data-thumb-url]").each(function() {
+            const remote = String($(this).attr("data-thumb-url") || "").trim();
+            if (remote) targets.push({ el: this, remote });
+        });
+
+        $root.find("img.kg-thumb[data-thumb-url]").each(function() {
+            const remote = String(this.getAttribute("data-thumb-url") || "").trim();
+            if (!remote) return;
+            if (this.complete && this.naturalWidth > 0) return;
+            targets.push({ el: this, remote });
+        });
+
+        if (!targets.length) return { attempted: 0, recovered: 0 };
+
+        let cursor = 0;
+        let recovered = 0;
+        const workerCount = Math.max(1, Math.min(concurrency, targets.length));
+
+        async function worker() {
+            while (cursor < targets.length) {
+                const item = targets[cursor++];
+                if (!item || !item.el || !item.el.isConnected) continue;
+
+                const localUrl = await resolveKreaThumbDisplayUrl(item.remote, { forceReload: true });
+                if (!item.el.isConnected) continue;
+
+                const nextSrc = localUrl || `${item.remote}${item.remote.includes("?") ? "&" : "?"}kgretry=${Date.now()}`;
+                let img = item.el.tagName === "IMG" ? item.el : null;
+
+                if (!img) {
+                    const $img = $(kreaThumbImgHtml(item.remote, nextSrc));
+                    $(item.el).replaceWith($img);
+                    img = $img[0];
+                } else {
+                    img.src = nextSrc;
+                }
+
+                const ok = await waitForImageLoad(img);
+                if (!img.isConnected) continue;
+                if (ok) recovered += 1;
+                else $(img).replaceWith(kreaThumbFallbackHtml(item.remote));
+            }
+        }
+
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+        return { attempted: targets.length, recovered };
     }
 
     // Returns [{ filename, label, reference, source: "Runtime"|"Baked", thumbUrl: string|null }]
@@ -2575,7 +2663,48 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         c.append(`
             <style>
-                .kg-gallery-root { flex-shrink: 0; min-width: 0; }
+                /* Keep gallery scroll inside the modal; do not grow the page behind SillyTavern. */
+                #ps_stage_content:has(.kg-gallery-root) {
+                    overflow: hidden !important;
+                    min-height: 0;
+                }
+                .kg-gallery-root {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    height: 100%;
+                    max-height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    background: #18181b;
+                    border: 1px solid var(--border-color);
+                    border-radius: 12px;
+                }
+                .kg-toolbar {
+                    flex: 0 0 auto;
+                    position: relative;
+                    z-index: 2;
+                    background: #18181b;
+                    border-bottom: 1px solid var(--border-color);
+                    padding: 14px 16px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
+                }
+                #kg_grid {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-x: hidden;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                    overscroll-behavior: contain;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+                    gap: 10px;
+                    padding: 14px;
+                    align-content: start;
+                }
                 .kg-thumb-fallback { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem; }
                 .kg-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
                 .kg-refresh-btn {
@@ -2595,11 +2724,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 .kg-refresh-btn.is-busy i { animation: kg-spin 0.8s linear infinite; }
                 @keyframes kg-spin { to { transform: rotate(360deg); } }
             </style>
-            <div class="kg-gallery-root" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 0; margin-bottom: 20px;">
-                <div id="kg_toolbar" style="position: sticky; top: 0; z-index: 5; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+            <div class="kg-gallery-root">
+                <div id="kg_toolbar" class="kg-toolbar">
                     <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
                         <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
-                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary kg-refresh-btn" title="Refresh LoRA list" aria-label="Refresh LoRA list"><i class="fa-solid fa-rotate"></i></button>
+                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary kg-refresh-btn" title="Retry blank thumbnails" aria-label="Retry blank thumbnails"><i class="fa-solid fa-rotate"></i></button>
                     </div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <input id="kg_search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search LoRA name..." class="ps-modern-input" style="flex: 1; min-width: 140px; font-size: 16px; padding: 10px;">
@@ -2616,7 +2745,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                         <button type="button" id="kg_next_btn" class="ps-modern-btn secondary kg-page-btn" style="padding: 8px 12px; font-size: 0.75rem;">Next <i class="fa-solid fa-chevron-right"></i></button>
                     </div>
                 </div>
-                <div id="kg_grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; padding: 14px;"></div>
+                <div id="kg_grid"></div>
             </div>
         `);
 
@@ -2637,12 +2766,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             let imgOrPlaceholder;
             if (entry.thumbUrl) {
                 const cachedLocal = kreaThumbBlobUrlByKey.get(entry.thumbUrl);
-                if (cachedLocal) {
-                    imgOrPlaceholder = `<img class="kg-thumb" src="${psEscapeAttr(cachedLocal)}" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px;">`;
-                } else {
-                    // Paint from HF immediately; hydrate swaps to IndexedDB blob when available.
-                    imgOrPlaceholder = `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(entry.thumbUrl)}" src="${psEscapeAttr(entry.thumbUrl)}" loading="lazy" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
-                }
+                imgOrPlaceholder = cachedLocal
+                    ? kreaThumbImgHtml(entry.thumbUrl, cachedLocal)
+                    : kreaThumbImgHtml(entry.thumbUrl, entry.thumbUrl);
             } else {
                 imgOrPlaceholder = `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
             }
@@ -2694,8 +2820,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 return;
             }
             $grid.html(pageEntries.map(cardHtml).join(""));
+            $grid.scrollTop(0);
             $grid.find(".kg-thumb").on("error", function() {
-                $(this).replaceWith(`<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`);
+                const remote = String($(this).attr("data-thumb-url") || "").trim();
+                $(this).replaceWith(kreaThumbFallbackHtml(remote));
             });
             $grid.find(".kg-card").on("click", function() {
                 const ref = $(this).attr("data-ref");
@@ -2714,20 +2842,35 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             renderGrid();
         }
 
-        async function loadAndRender(forceRefresh = false) {
-            $status.text(forceRefresh ? "Refreshing LoRA list…" : "Loading LoRA index…");
+        async function loadAndRender() {
+            $status.text("Loading LoRA index…");
             $pager.hide();
-            $refreshBtn.addClass("is-busy").prop("disabled", true);
             try {
-                if (forceRefresh) clearKreaGalleryIndexCache();
-                allEntries = await loadKreaGalleryEntries({ forceRefresh });
-                currentPage = 1;
+                allEntries = await loadKreaGalleryEntries({ forceRefresh: false });
+                // Keep the current page when possible (only clamp inside renderGrid).
                 renderGrid();
             } catch (e) {
                 console.error("[Megumin Suite] LoRA Gallery load failed:", e);
-                $status.text("Failed to load LoRA index. Tap refresh to retry.");
+                $status.text("Failed to load LoRA index.");
                 $pager.hide();
                 $grid.html(`<div style="grid-column:1/-1; text-align:center; color:#ef4444; font-size:0.8rem; padding:30px 0;">${psEscapeText(e && e.message ? e.message : String(e))}</div>`);
+            }
+        }
+
+        async function retryBlankThumbs() {
+            $refreshBtn.addClass("is-busy").prop("disabled", true);
+            const prevStatus = $status.text();
+            $status.text("Retrying blank thumbnails…");
+            try {
+                const result = await retryBlankKreaGalleryThumbs($grid);
+                if (!result.attempted) {
+                    $status.text(prevStatus || "No blank thumbnails on this page.");
+                } else {
+                    $status.text(`Retried ${result.attempted} blank thumbnail${result.attempted === 1 ? "" : "s"} — recovered ${result.recovered}.`);
+                }
+            } catch (e) {
+                console.error("[Megumin Suite] Thumbnail retry failed:", e);
+                $status.text("Thumbnail retry failed.");
             } finally {
                 $refreshBtn.removeClass("is-busy").prop("disabled", false);
             }
@@ -2735,12 +2878,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         $("#kg_search").on("input", resetToFirstPageAndRender);
         $("#kg_source_filter").on("change", resetToFirstPageAndRender);
-        $refreshBtn.on("click", () => loadAndRender(true));
+        $refreshBtn.on("click", () => retryBlankThumbs());
         $prevBtn.on("click", () => {
             if (currentPage > 1) {
                 currentPage -= 1;
                 renderGrid();
-                $("#kg_toolbar")[0]?.scrollIntoView?.({ behavior: "smooth", block: "start" });
             }
         });
         $nextBtn.on("click", () => {
@@ -2748,11 +2890,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (currentPage < totalPages) {
                 currentPage += 1;
                 renderGrid();
-                $("#kg_toolbar")[0]?.scrollIntoView?.({ behavior: "smooth", block: "start" });
             }
         });
 
-        loadAndRender(false);
+        loadAndRender();
     }
 
     function setExplicitRuntimeLoraSlot(s, slot, reference) {
