@@ -2289,9 +2289,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     const MALCOLMREY_THUMBNAIL_BASE_URL = "https://huggingface.co/datasets/malcolmrey/samples/resolve/main/thumbnails/";
     const KREA_GALLERY_CACHE_KEY = "megumin_krea_gallery_cache_v1";
     const KREA_GALLERY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const KREA_THUMB_DB_NAME = "megumin_krea_thumbs_v1";
+    const KREA_THUMB_STORE = "thumbs";
+    const KREA_THUMB_FETCH_CONCURRENCY = 4;
 
     let kreaGalleryEntriesCache = null; // in-memory, cleared on full page reload
     let kreaGalleryEntriesLoad = null;  // in-flight promise, avoids duplicate fetches
+    let kreaThumbDbPromise = null;
+    const kreaThumbBlobUrlByKey = new Map(); // cacheKey -> objectURL (session reuse)
+    const kreaThumbInflight = new Map(); // cacheKey -> Promise<string|null>
 
     function kreaGalleryThumbnailUrl(charKey) {
         return `${MALCOLMREY_THUMBNAIL_BASE_URL}${encodeURIComponent(charKey)}.jpg`;
@@ -2312,6 +2318,128 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         try {
             localStorage.setItem(KREA_GALLERY_CACHE_KEY, JSON.stringify({ ts: Date.now(), entries }));
         } catch (e) { /* localStorage full or unavailable — non-fatal, just skip caching */ }
+    }
+
+    function clearKreaGalleryIndexCache() {
+        kreaGalleryEntriesCache = null;
+        try { localStorage.removeItem(KREA_GALLERY_CACHE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function openKreaThumbDb() {
+        if (kreaThumbDbPromise) return kreaThumbDbPromise;
+        if (typeof indexedDB === "undefined") {
+            kreaThumbDbPromise = Promise.reject(new Error("IndexedDB unavailable"));
+            return kreaThumbDbPromise;
+        }
+        kreaThumbDbPromise = new Promise((resolve, reject) => {
+            let req;
+            try { req = indexedDB.open(KREA_THUMB_DB_NAME, 1); }
+            catch (e) { reject(e); return; }
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(KREA_THUMB_STORE)) {
+                    db.createObjectStore(KREA_THUMB_STORE, { keyPath: "key" });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+        }).catch(err => {
+            kreaThumbDbPromise = null;
+            throw err;
+        });
+        return kreaThumbDbPromise;
+    }
+
+    async function readKreaThumbBlob(cacheKey) {
+        try {
+            const db = await openKreaThumbDb();
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction(KREA_THUMB_STORE, "readonly");
+                const req = tx.objectStore(KREA_THUMB_STORE).get(cacheKey);
+                req.onsuccess = () => {
+                    const row = req.result;
+                    resolve(row && row.blob instanceof Blob ? row.blob : null);
+                };
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) { return null; }
+    }
+
+    async function writeKreaThumbBlob(cacheKey, blob) {
+        if (!(blob instanceof Blob) || !cacheKey) return;
+        try {
+            const db = await openKreaThumbDb();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(KREA_THUMB_STORE, "readwrite");
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+                tx.objectStore(KREA_THUMB_STORE).put({
+                    key: cacheKey,
+                    blob,
+                    mime: blob.type || "image/jpeg",
+                    ts: Date.now(),
+                });
+            });
+        } catch (e) { /* quota / private mode — non-fatal */ }
+    }
+
+    function kreaThumbObjectUrlFromBlob(cacheKey, blob) {
+        const existing = kreaThumbBlobUrlByKey.get(cacheKey);
+        if (existing) return existing;
+        const url = URL.createObjectURL(blob);
+        kreaThumbBlobUrlByKey.set(cacheKey, url);
+        return url;
+    }
+
+    async function resolveKreaThumbDisplayUrl(remoteUrl) {
+        const cacheKey = String(remoteUrl || "").trim();
+        if (!cacheKey) return null;
+        if (kreaThumbBlobUrlByKey.has(cacheKey)) return kreaThumbBlobUrlByKey.get(cacheKey);
+        if (kreaThumbInflight.has(cacheKey)) return kreaThumbInflight.get(cacheKey);
+
+        const work = (async () => {
+            const cached = await readKreaThumbBlob(cacheKey);
+            if (cached) return kreaThumbObjectUrlFromBlob(cacheKey, cached);
+            try {
+                const res = await fetch(cacheKey, { mode: "cors", credentials: "omit", cache: "force-cache" });
+                if (!res.ok) return null;
+                const blob = await res.blob();
+                if (!(blob instanceof Blob) || !blob.size || !(blob.type || "").startsWith("image/")) return null;
+                await writeKreaThumbBlob(cacheKey, blob);
+                return kreaThumbObjectUrlFromBlob(cacheKey, blob);
+            } catch (e) {
+                return null; // CORS / network — caller falls back to remote <img src>
+            }
+        })().finally(() => { kreaThumbInflight.delete(cacheKey); });
+
+        kreaThumbInflight.set(cacheKey, work);
+        return work;
+    }
+
+    async function hydrateKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
+        const imgs = ($root.find ? $root.find("img.kg-thumb[data-thumb-url]") : $()).toArray();
+        if (!imgs.length) return;
+        let cursor = 0;
+        const workerCount = Math.max(1, Math.min(concurrency, imgs.length));
+        async function worker() {
+            while (cursor < imgs.length) {
+                const img = imgs[cursor++];
+                if (!img || !img.isConnected) continue;
+                const remote = img.getAttribute("data-thumb-url");
+                if (!remote) continue;
+                const localUrl = await resolveKreaThumbDisplayUrl(remote);
+                if (!img.isConnected) continue;
+                if (localUrl) {
+                    img.src = localUrl;
+                    img.removeAttribute("data-thumb-url");
+                } else {
+                    // Keep remote URL; browser HTTP cache may still help.
+                    img.src = remote;
+                    img.removeAttribute("data-thumb-url");
+                }
+            }
+        }
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
     }
 
     // Returns [{ filename, label, reference, source: "Runtime"|"Baked", thumbUrl: string|null }]
@@ -2425,13 +2553,35 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureStructuredCharacterAssignments(li, charKey);
         syncCurrentModeCharacterAssignments(li, charKey);
 
+        const KG_PAGE_SIZE = 24;
+        let thumbHydrateToken = 0;
+
         c.append(`
             <style>
                 .kg-thumb-fallback { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem; }
+                .kg-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+                .kg-refresh-btn {
+                    flex: 0 0 auto;
+                    width: 30px;
+                    height: 30px;
+                    padding: 0 !important;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 8px;
+                    font-size: 0.72rem;
+                    line-height: 1;
+                    min-width: 30px;
+                }
+                .kg-refresh-btn.is-busy i { animation: kg-spin 0.8s linear infinite; }
+                @keyframes kg-spin { to { transform: rotate(360deg); } }
             </style>
             <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 0; margin-bottom: 20px; overflow: hidden;">
                 <div id="kg_toolbar" style="position: sticky; top: 0; z-index: 5; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
-                    <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+                        <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
+                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary kg-refresh-btn" title="Refresh LoRA list" aria-label="Refresh LoRA list"><i class="fa-solid fa-rotate"></i></button>
+                    </div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <input id="kg_search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search LoRA name..." class="ps-modern-input" style="flex: 1; min-width: 140px; font-size: 16px; padding: 10px;">
                         <select id="kg_source_filter" class="ps-modern-input" style="width: auto; padding: 10px; font-size: 0.8rem;">
@@ -2439,9 +2589,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             <option value="Runtime">Runtime (Malcolmrey)</option>
                             <option value="Baked">Baked</option>
                         </select>
-                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary" style="padding: 10px 12px;" title="Re-download the LoRA index"><i class="fa-solid fa-rotate"></i></button>
                     </div>
                     <div id="kg_status" style="font-size: 0.72rem; color: var(--text-muted);">Loading LoRA index…</div>
+                    <div id="kg_pager" style="display: none; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" id="kg_prev_btn" class="ps-modern-btn secondary kg-page-btn" style="padding: 8px 12px; font-size: 0.75rem;"><i class="fa-solid fa-chevron-left"></i> Prev</button>
+                        <span id="kg_page_label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;"></span>
+                        <button type="button" id="kg_next_btn" class="ps-modern-btn secondary kg-page-btn" style="padding: 8px 12px; font-size: 0.75rem;">Next <i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
                 </div>
                 <div id="kg_grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; padding: 14px;"></div>
             </div>
@@ -2449,15 +2603,29 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         const $status = $("#kg_status");
         const $grid = $("#kg_grid");
+        const $pager = $("#kg_pager");
+        const $pageLabel = $("#kg_page_label");
+        const $prevBtn = $("#kg_prev_btn");
+        const $nextBtn = $("#kg_next_btn");
+        const $refreshBtn = $("#kg_refresh_btn");
         let allEntries = [];
+        let currentPage = 1;
 
         function cardHtml(entry) {
             const safeLabel = psEscapeText(entry.label);
             const safeRef = psEscapeAttr(entry.reference);
             const badgeColor = entry.source === "Runtime" ? "#a855f7" : "#10b981";
-            const imgOrPlaceholder = entry.thumbUrl
-                ? `<img class="kg-thumb" src="${psEscapeAttr(entry.thumbUrl)}" loading="lazy" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px;">`
-                : `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
+            let imgOrPlaceholder;
+            if (entry.thumbUrl) {
+                const cachedLocal = kreaThumbBlobUrlByKey.get(entry.thumbUrl);
+                if (cachedLocal) {
+                    imgOrPlaceholder = `<img class="kg-thumb" src="${psEscapeAttr(cachedLocal)}" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px;">`;
+                } else {
+                    imgOrPlaceholder = `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(entry.thumbUrl)}" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
+                }
+            } else {
+                imgOrPlaceholder = `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
+            }
             return `
                 <div class="kg-card" data-ref="${safeRef}" data-label="${safeLabel}" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 10px; padding: 6px; cursor: pointer; display:flex; flex-direction:column; gap:6px; -webkit-tap-highlight-color: rgba(168,85,247,0.25);">
                     <div style="width:100%; aspect-ratio:1/1; border-radius:8px; overflow:hidden; background:rgba(255,255,255,0.04); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem;">${imgOrPlaceholder}</div>
@@ -2467,18 +2635,45 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             `;
         }
 
-        function renderGrid() {
+        function getFilteredEntries() {
             const term = String($("#kg_search").val() || "").trim().toLowerCase();
             const sourceFilter = $("#kg_source_filter").val();
             let filtered = allEntries;
             if (sourceFilter !== "all") filtered = filtered.filter(e => e.source === sourceFilter);
             if (term) filtered = filtered.filter(e => e.label.toLowerCase().includes(term) || e.filename.toLowerCase().includes(term));
-            $status.text(`${filtered.length} of ${allEntries.length} LoRAs`);
+            return filtered;
+        }
+
+        function renderGrid() {
+            const filtered = getFilteredEntries();
+            const totalPages = Math.max(1, Math.ceil(filtered.length / KG_PAGE_SIZE));
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const start = (currentPage - 1) * KG_PAGE_SIZE;
+            const pageEntries = filtered.slice(start, start + KG_PAGE_SIZE);
+            const showingFrom = filtered.length ? start + 1 : 0;
+            const showingTo = start + pageEntries.length;
+
+            $status.text(filtered.length
+                ? `Showing ${showingFrom}–${showingTo} of ${filtered.length} LoRAs${filtered.length !== allEntries.length ? ` (${allEntries.length} total)` : ""}`
+                : `0 of ${allEntries.length} LoRAs`);
+
+            if (filtered.length > KG_PAGE_SIZE) {
+                $pager.css("display", "flex");
+                $pageLabel.text(`Page ${currentPage} / ${totalPages}`);
+                $prevBtn.prop("disabled", currentPage <= 1);
+                $nextBtn.prop("disabled", currentPage >= totalPages);
+            } else {
+                $pager.hide();
+            }
+
             if (!filtered.length) {
+                thumbHydrateToken += 1;
                 $grid.html(`<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); font-size:0.8rem; padding:30px 0;">No LoRAs match your search.</div>`);
                 return;
             }
-            $grid.html(filtered.map(cardHtml).join(""));
+            $grid.html(pageEntries.map(cardHtml).join(""));
             $grid.find(".kg-thumb").on("error", function() {
                 $(this).replaceWith(`<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`);
             });
@@ -2487,23 +2682,55 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const label = $(this).attr("data-label");
                 openKreaGalleryAssignPopup(s, li, charKey, ref, label);
             });
+
+            const token = ++thumbHydrateToken;
+            hydrateKreaGalleryThumbs($grid).catch(() => {}).finally(() => {
+                if (token !== thumbHydrateToken) return;
+            });
+        }
+
+        function resetToFirstPageAndRender() {
+            currentPage = 1;
+            renderGrid();
         }
 
         async function loadAndRender(forceRefresh = false) {
-            $status.text("Loading LoRA index…");
+            $status.text(forceRefresh ? "Refreshing LoRA list…" : "Loading LoRA index…");
+            $pager.hide();
+            $refreshBtn.addClass("is-busy").prop("disabled", true);
             try {
+                if (forceRefresh) clearKreaGalleryIndexCache();
                 allEntries = await loadKreaGalleryEntries({ forceRefresh });
+                currentPage = 1;
                 renderGrid();
             } catch (e) {
                 console.error("[Megumin Suite] LoRA Gallery load failed:", e);
                 $status.text("Failed to load LoRA index. Tap refresh to retry.");
+                $pager.hide();
                 $grid.html(`<div style="grid-column:1/-1; text-align:center; color:#ef4444; font-size:0.8rem; padding:30px 0;">${psEscapeText(e && e.message ? e.message : String(e))}</div>`);
+            } finally {
+                $refreshBtn.removeClass("is-busy").prop("disabled", false);
             }
         }
 
-        $("#kg_search").on("input", renderGrid);
-        $("#kg_source_filter").on("change", renderGrid);
-        $("#kg_refresh_btn").on("click", () => loadAndRender(true));
+        $("#kg_search").on("input", resetToFirstPageAndRender);
+        $("#kg_source_filter").on("change", resetToFirstPageAndRender);
+        $refreshBtn.on("click", () => loadAndRender(true));
+        $prevBtn.on("click", () => {
+            if (currentPage > 1) {
+                currentPage -= 1;
+                renderGrid();
+                $("#kg_toolbar")[0]?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+            }
+        });
+        $nextBtn.on("click", () => {
+            const totalPages = Math.max(1, Math.ceil(getFilteredEntries().length / KG_PAGE_SIZE));
+            if (currentPage < totalPages) {
+                currentPage += 1;
+                renderGrid();
+                $("#kg_toolbar")[0]?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+            }
+        });
 
         loadAndRender(false);
     }
