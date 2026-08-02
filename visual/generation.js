@@ -2404,11 +2404,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const res = await fetch(cacheKey, { mode: "cors", credentials: "omit", cache: "force-cache" });
                 if (!res.ok) return null;
                 const blob = await res.blob();
-                if (!(blob instanceof Blob) || !blob.size || !(blob.type || "").startsWith("image/")) return null;
+                // HF sometimes serves thumbs as octet-stream / empty MIME — still accept image-looking blobs.
+                const mime = String(blob.type || "").toLowerCase();
+                const looksImage = !mime || mime.startsWith("image/") || mime === "application/octet-stream";
+                if (!(blob instanceof Blob) || !blob.size || !looksImage) return null;
                 await writeKreaThumbBlob(cacheKey, blob);
                 return kreaThumbObjectUrlFromBlob(cacheKey, blob);
             } catch (e) {
-                return null; // CORS / network — caller falls back to remote <img src>
+                return null; // CORS / network — remote <img src> remains the display path
             }
         })().finally(() => { kreaThumbInflight.delete(cacheKey); });
 
@@ -2416,6 +2419,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return work;
     }
 
+    // Prefer IndexedDB/blob when available; never block first paint on network fetch.
+    // Misses keep the remote src visible and warm the cache in the background.
     async function hydrateKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
         const imgs = ($root.find ? $root.find("img.kg-thumb[data-thumb-url]") : $()).toArray();
         if (!imgs.length) return;
@@ -2427,16 +2432,28 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 if (!img || !img.isConnected) continue;
                 const remote = img.getAttribute("data-thumb-url");
                 if (!remote) continue;
-                const localUrl = await resolveKreaThumbDisplayUrl(remote);
+
+                // Instant session/memory hit
+                const memoryHit = kreaThumbBlobUrlByKey.get(remote);
+                if (memoryHit) {
+                    img.src = memoryHit;
+                    img.removeAttribute("data-thumb-url");
+                    continue;
+                }
+
+                // Fast IndexedDB lookup — only swap if we already have bytes locally
+                const cached = await readKreaThumbBlob(remote);
                 if (!img.isConnected) continue;
-                if (localUrl) {
+                if (cached) {
+                    const localUrl = kreaThumbObjectUrlFromBlob(remote, cached);
                     img.src = localUrl;
                     img.removeAttribute("data-thumb-url");
-                } else {
-                    // Keep remote URL; browser HTTP cache may still help.
-                    img.src = remote;
-                    img.removeAttribute("data-thumb-url");
+                    continue;
                 }
+
+                // Keep remote src painting now; cache opportunistically for next time
+                img.removeAttribute("data-thumb-url");
+                resolveKreaThumbDisplayUrl(remote).catch(() => {});
             }
         }
         await Promise.all(Array.from({ length: workerCount }, () => worker()));
@@ -2558,12 +2575,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         c.append(`
             <style>
+                .kg-gallery-root { flex-shrink: 0; min-width: 0; }
                 .kg-thumb-fallback { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem; }
                 .kg-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
                 .kg-refresh-btn {
                     flex: 0 0 auto;
                     width: 30px;
                     height: 30px;
+                    min-height: 30px !important;
                     padding: 0 !important;
                     display: inline-flex;
                     align-items: center;
@@ -2576,7 +2595,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 .kg-refresh-btn.is-busy i { animation: kg-spin 0.8s linear infinite; }
                 @keyframes kg-spin { to { transform: rotate(360deg); } }
             </style>
-            <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 0; margin-bottom: 20px; overflow: hidden;">
+            <div class="kg-gallery-root" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 0; margin-bottom: 20px;">
                 <div id="kg_toolbar" style="position: sticky; top: 0; z-index: 5; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
                         <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
@@ -2621,7 +2640,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 if (cachedLocal) {
                     imgOrPlaceholder = `<img class="kg-thumb" src="${psEscapeAttr(cachedLocal)}" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px;">`;
                 } else {
-                    imgOrPlaceholder = `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(entry.thumbUrl)}" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
+                    // Paint from HF immediately; hydrate swaps to IndexedDB blob when available.
+                    imgOrPlaceholder = `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(entry.thumbUrl)}" src="${psEscapeAttr(entry.thumbUrl)}" loading="lazy" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
                 }
             } else {
                 imgOrPlaceholder = `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
