@@ -799,25 +799,47 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         defaultKreaLoraApplied: false
     };
     const RUNPOD_ANIMA_MODEL = "anima-turbo-v1.0.safetensors";
+    const RUNPOD_ANIMA_BASE_MODEL = "anima-base-v1.0.safetensors";
     const RUNPOD_KREA_MODEL = "krea2_turbo_fp8_scaled.safetensors";
-    const RUNPOD_IMAGE_MODELS = [RUNPOD_ANIMA_MODEL, RUNPOD_KREA_MODEL];
-    const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
-    const RUNPOD_IMAGE_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta", "linear_quadratic"];
+    const RUNPOD_ANIMA_MODELS = [RUNPOD_ANIMA_MODEL, RUNPOD_ANIMA_BASE_MODEL];
+    const RUNPOD_IMAGE_MODELS = [...RUNPOD_ANIMA_MODELS, RUNPOD_KREA_MODEL];
+    // Stock ComfyUI KSampler sampler/scheduler names (base install). RunPod
+    // Image Gen cannot query the worker at dropdown time, so keep these explicit.
+    const RUNPOD_IMAGE_SAMPLERS = [
+        "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp",
+        "heun", "heunpp2", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive",
+        "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu",
+        "dpmpp_2m", "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu",
+        "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "ipndm", "ipndm_v", "deis",
+        "ddim", "uni_pc", "uni_pc_bh2", "er_sde",
+        "res_multistep", "res_multistep_cfg_pp", "res_multistep_ancestral", "res_multistep_ancestral_cfg_pp",
+        "gradient_estimation", "gradient_estimation_cfg_pp", "sa_solver", "sa_solver_pece"
+    ];
+    const RUNPOD_IMAGE_SCHEDULERS = [
+        "simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform",
+        "beta", "linear_quadratic", "kl_optimal"
+    ];
     // This is baked into Dockerfile.krea2-runpod. Remote browser selections are
     // represented as hf:// references and are intentionally kept in the profile.
     const MEGUMIN_DEFAULT_KREA_LORA = "megumin-default-civitai-3027612.safetensors";
     const RUNPOD_IMAGE_LORAS = [MEGUMIN_DEFAULT_KREA_LORA];
     const KREA_BAKED_LORA_MANIFEST_URL = `${extensionFolderPath}/data/krea2_baked_loras.json`;
+    const ANIMA_BAKED_LORA_MANIFEST_URL = `${extensionFolderPath}/data/anima_baked_loras.json`;
     const MALCOLMREY_BROWSER_INDEX_URL = "https://huggingface.co/spaces/malcolmrey/browser/resolve/main/data-filenames.json";
     const MALCOLMREY_KREA_REPOSITORY = "malcolmrey/krea2";
     let malcolmreyKreaLoraCache = null;
     let malcolmreyKreaLoraLoad = null;
     let bakedKreaLoraCache = null;
     let bakedKreaLoraLoad = null;
+    let bakedAnimaLoraCache = null;
+    let bakedAnimaLoraLoad = null;
+    let meguminComfyLoraCache = null;
+    let meguminComfyLoraCacheUrl = "";
+    let runpodAnimaLoraNames = null;
+    let runpodKreaLoraNames = null;
     const RUNPOD_IMAGE_MODEL_ALIASES = {
         "rimixillustriousanima_rimixanima.safetensors": "anima-turbo-v1.0.safetensors",
         "ri-mix-illustrious-anima.safetensors": "anima-turbo-v1.0.safetensors",
-        "anima-base-v1.0.safetensors": "anima-turbo-v1.0.safetensors",
         "krea2_turbo_fp8.safetensors": "krea2_turbo_fp8_scaled.safetensors"
     };
 
@@ -826,6 +848,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!current) return "";
         const basename = current.replace(/\\/g, "/").split("/").pop().toLowerCase();
         return RUNPOD_IMAGE_MODEL_ALIASES[basename] || current;
+    }
+
+    function isRunpodAnimaModel(modelName) {
+        return RUNPOD_ANIMA_MODELS.includes(normalizeRunpodModelFilename(modelName));
     }
 
     function getRunpodGlobalSettings() {
@@ -991,13 +1017,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return changed;
     }
 
-    function populateRunpodImageLists(s, bakedLoras = []) {
+    function getRunpodLoraOptionsForModel(s, animaBaked = [], kreaBaked = []) {
+        if (isRunpodAnimaModel(s?.selectedModel)) return [...animaBaked];
+        if (normalizeRunpodModelFilename(s?.selectedModel) === RUNPOD_KREA_MODEL) {
+            return [...RUNPOD_IMAGE_LORAS, ...kreaBaked];
+        }
+        return [...RUNPOD_IMAGE_LORAS, ...animaBaked, ...kreaBaked];
+    }
+
+    function rememberRunpodBakedLoraNames(animaBaked, kreaBaked) {
+        if (Array.isArray(animaBaked)) runpodAnimaLoraNames = animaBaked;
+        if (Array.isArray(kreaBaked)) runpodKreaLoraNames = kreaBaked;
+    }
+
+    function populateRunpodImageLists(s, animaBaked, kreaBaked) {
+        const animaNames = Array.isArray(animaBaked) ? animaBaked : (runpodAnimaLoraNames || []);
+        const kreaNames = Array.isArray(kreaBaked) ? kreaBaked : (runpodKreaLoraNames || []);
+        if (Array.isArray(animaBaked) || Array.isArray(kreaBaked)) rememberRunpodBakedLoraNames(animaNames, kreaNames);
         ensureRunpodDropdownValues(s);
         ensureSelectHasOptions($("#ig_model"), RUNPOD_IMAGE_MODELS, s.selectedModel, "-- Select Model --");
         ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
         ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
+        const loraOptions = getRunpodLoraOptionsForModel(s, animaNames, kreaNames);
         for (let i = 1; i <= 4; i++) {
-            ensureSelectHasOptions($(`#ig_lora_${i}`), [...RUNPOD_IMAGE_LORAS, ...bakedLoras], s[i === 1 ? "selectedLora" : `selectedLora${i}`], "-- No LoRA --");
+            ensureSelectHasOptions($(`#ig_lora_${i}`), loraOptions, s[i === 1 ? "selectedLora" : `selectedLora${i}`], "-- No LoRA --");
+        }
+        if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
+            meguminComfyLoraCache = loraOptions;
+            meguminComfyLoraCacheUrl = "runpod";
         }
     }
 
@@ -2260,6 +2307,44 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return bakedKreaLoraLoad;
     }
 
+    async function loadBakedAnimaLoras() {
+        if (bakedAnimaLoraCache) return bakedAnimaLoraCache;
+        if (bakedAnimaLoraLoad) return bakedAnimaLoraLoad;
+        bakedAnimaLoraLoad = fetch(ANIMA_BAKED_LORA_MANIFEST_URL, { cache: "no-cache" })
+            .then(async response => {
+                if (!response.ok) throw new Error(`Baked Anima LoRA manifest request failed (${response.status}).`);
+                const manifest = await response.json();
+                if (!Array.isArray(manifest)) throw new Error("Baked Anima LoRA manifest must be an array.");
+                bakedAnimaLoraCache = manifest.map(item => {
+                    const filename = String(item?.filename || "").trim();
+                    if (!/^[^\\/]+\.safetensors$/i.test(filename)) return null;
+                    return {
+                        filename,
+                        label: String(item?.label || prettyKreaLoraName(filename)).trim(),
+                        reference: filename,
+                        source: "Baked"
+                    };
+                }).filter(Boolean);
+                return bakedAnimaLoraCache;
+            })
+            .finally(() => { bakedAnimaLoraLoad = null; });
+        return bakedAnimaLoraLoad;
+    }
+
+    async function loadRunpodBakedLoraBundles() {
+        const [anima, krea] = await Promise.all([
+            loadBakedAnimaLoras().catch(error => {
+                console.warn("[Megumin Suite] Could not load baked Anima LoRA manifest:", error);
+                return [];
+            }),
+            loadBakedKreaLoras().catch(error => {
+                console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error);
+                return [];
+            })
+        ]);
+        return { anima, krea };
+    }
+
     async function loadMalcolmreyKreaLoras() {
         if (malcolmreyKreaLoraLoad) return malcolmreyKreaLoraLoad;
         // Revalidate every time Finder opens: Malcolmrey's index changes often.
@@ -2962,7 +3047,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const rp = ensureRunpodSettings(s);
         if (!rp.enabled) {
             rp.enabled = true;
-            if (s.promptStyle === "krea2" || !s.selectedModel || s.selectedModel === RUNPOD_ANIMA_MODEL) {
+            if (s.promptStyle === "krea2" || !s.selectedModel || isRunpodAnimaModel(s.selectedModel)) {
                 s.selectedModel = RUNPOD_KREA_MODEL;
             }
             ensureRunpodDropdownValues(s);
@@ -3045,9 +3130,6 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
       }
     }
 
-    let meguminComfyLoraCache = null;
-    let meguminComfyLoraCacheUrl = "";
-
     /** Map saved LoRA path to the exact string Comfy lists (folder slash vs backslash, etc.). */
     function resolveLoraPathForDropdown(stored, filesList) {
         if (!stored || stored === "None" || stored === "") return stored || "";
@@ -3074,9 +3156,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             // Reuse the cache igFetchComfyLists already populated (it includes the
             // baked-manifest names); only fetch here if that hasn't run yet, so a
             // baked/manifest LoRA still canonicalizes correctly during generation.
-            if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === "runpod") return meguminComfyLoraCache;
-            const baked = await loadBakedKreaLoras().catch(() => []);
-            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...baked.map(item => item.reference)];
+            if (meguminComfyLoraCacheUrl === "runpod" && runpodAnimaLoraNames && runpodKreaLoraNames) {
+                meguminComfyLoraCache = getRunpodLoraOptionsForModel(s, runpodAnimaLoraNames, runpodKreaLoraNames);
+                return meguminComfyLoraCache;
+            }
+            const { anima, krea } = await loadRunpodBakedLoraBundles();
+            rememberRunpodBakedLoraNames(anima.map(item => item.reference), krea.map(item => item.reference));
+            meguminComfyLoraCache = getRunpodLoraOptionsForModel(s, runpodAnimaLoraNames, runpodKreaLoraNames);
             meguminComfyLoraCacheUrl = "runpod";
             return meguminComfyLoraCache;
         }
@@ -3099,14 +3185,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const s = getLocalProfile().imageGen;
         if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
             if (ensureRunpodDropdownValues(s)) saveProfileToMemory();
-            const baked = await loadBakedKreaLoras().catch(error => {
-                console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error);
-                return [];
-            });
-            const bakedNames = baked.map(item => item.reference);
-            populateRunpodImageLists(s, bakedNames);
-            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...bakedNames];
-            meguminComfyLoraCacheUrl = "runpod";
+            const { anima, krea } = await loadRunpodBakedLoraBundles();
+            const animaNames = anima.map(item => item.reference);
+            const kreaNames = krea.map(item => item.reference);
+            rememberRunpodBakedLoraNames(animaNames, kreaNames);
+            populateRunpodImageLists(s, animaNames, kreaNames);
             return;
         }
         const url = s.comfyUrl;
@@ -3208,6 +3291,56 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (node?.inputs && typeof node.inputs === "object") replaceLinks(node.inputs);
         }
         for (const nodeId of nanoNodeIds) delete workflow[nodeId];
+        return true;
+    }
+
+    /**
+     * Stock ComfyUI LoraLoader rejects empty/"None" names. Bypass idle slots by
+     * rewiring MODEL/CLIP consumers to that node's inputs, then delete the node.
+     * Leaves MeguminRuntimeLoraStack and rgthree stacks alone (they accept None).
+     */
+    function igBypassInactiveLoraLoaderNodes(workflow) {
+        if (!workflow || typeof workflow !== "object") return false;
+        const inactive = new Map();
+        for (const [nodeId, node] of Object.entries(workflow)) {
+            if (node?.class_type !== "LoraLoader") continue;
+            const name = String(node.inputs?.lora_name ?? "").trim();
+            if (name && name.toLowerCase() !== "none") continue;
+            inactive.set(String(nodeId), {
+                model: node.inputs?.model,
+                clip: node.inputs?.clip
+            });
+        }
+        if (!inactive.size) return false;
+
+        const resolveLink = (link, visiting = new Set()) => {
+            if (!Array.isArray(link) || link.length < 2) return link;
+            const src = String(link[0]);
+            if (!inactive.has(src) || visiting.has(src)) return link;
+            visiting.add(src);
+            const ports = inactive.get(src);
+            const next = Number(link[1]) === 1 ? ports.clip : ports.model;
+            return resolveLink(next, visiting);
+        };
+
+        const rewriteValue = (value) => {
+            if (Array.isArray(value)) {
+                if (value.length >= 2 && inactive.has(String(value[0])) && typeof value[1] === "number") {
+                    return resolveLink(value);
+                }
+                for (let i = 0; i < value.length; i++) value[i] = rewriteValue(value[i]);
+                return value;
+            }
+            if (!value || typeof value !== "object") return value;
+            for (const key of Object.keys(value)) value[key] = rewriteValue(value[key]);
+            return value;
+        };
+
+        for (const [nodeId, node] of Object.entries(workflow)) {
+            if (inactive.has(String(nodeId))) continue;
+            if (node?.inputs && typeof node.inputs === "object") rewriteValue(node.inputs);
+        }
+        for (const nodeId of inactive.keys()) delete workflow[nodeId];
         return true;
     }
 
@@ -4834,7 +4967,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const workflowHasAiText = igWorkflowContainsPlaceholder(workflow, "%ai_text%");
         if (opts?.requireAiTextWorkflow && !nanoPromptClientSide && !workflowHasAiText) {
             $("#kazuma_progress_overlay").hide();
-            throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json or add %ai_text% to the NanoGPT node.`);
+            throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json (or a NanoGPT workflow) or switch quick-image source away from ComfyUI NanoGPT.`);
         }
         let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
 
@@ -5010,6 +5143,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 if (!seedPlaceholderState.injected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
             }
         }
+        // Empty LoRA slots become "None" above; stock LoraLoader cannot load that.
+        igBypassInactiveLoraLoaderNodes(workflow);
 
         igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, aiText, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
         igRefreshLastComfyApiPanel();
@@ -6367,6 +6502,7 @@ A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye le
         loadDanbooruTags,
         igGenerateWithComfy,
         igManualGenerate,
+        igBypassInactiveLoraLoaderNodes,
         getCleanedChatHistory,
         cleanMessageTextForKeywords,
         stripUtilityThinkingWrapper,

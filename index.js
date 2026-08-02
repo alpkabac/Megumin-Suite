@@ -2305,6 +2305,9 @@ async function npcGeneratePfp(npcName) {
             if (node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
         }
     }
+    if (typeof visualGeneration.igBypassInactiveLoraLoaderNodes === "function") {
+        visualGeneration.igBypassInactiveLoraLoaderNodes(workflow);
+    }
 
     try {
         const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
