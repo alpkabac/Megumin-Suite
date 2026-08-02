@@ -172,6 +172,7 @@ function initProfile() {
             manualPrompt: "",
             manualPromptSource: "comfy_llm",
             standardBooruLeadTags: "",
+            loraTriggers: "",
             structuredPromptRules: true,
             adultTagPrecision: true,
             includePromptExamples: false,

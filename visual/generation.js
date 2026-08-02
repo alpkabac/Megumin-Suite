@@ -1190,7 +1190,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return {
             selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
             imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-            promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
+            promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, loraTriggers: s.loraTriggers, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
             structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
             manualSceneSelector: s.manualSceneSelector,
             selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt,
@@ -1256,6 +1256,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureImageGenLoraArrays(s);
         const runpod = ensureRunpodSettings(s);
         if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
+        if (s.loraTriggers === undefined) s.loraTriggers = "";
+        if (s.promptExtra === undefined) s.promptExtra = "";
         if (s.structuredPromptRules === undefined) s.structuredPromptRules = true;
         if (s.adultTagPrecision === undefined) s.adultTagPrecision = true;
         if (s.includePromptExamples === undefined) s.includePromptExamples = false;
@@ -1269,6 +1271,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', assignmentViewMode: 'structured', sendAllCharactersToPromptAi: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
         if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
+        if (s.lastGeneratedImagePrompt === undefined) s.lastGeneratedImagePrompt = "";
+        if (s.manualPromptFeedback === undefined) s.manualPromptFeedback = "";
+        if (!Array.isArray(s.manualPromptUndoStack)) s.manualPromptUndoStack = [];
         ensureLoraIntelDefaults(s.loraIntel);
         const li = s.loraIntel;
         const adultPrecisionTitle = isNaturalLanguageImageStyle(s.promptStyle) ? "Adult Prose Precision" : "Adult Tag Precision";
@@ -1456,7 +1461,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     </div>
 
                     <div id="ig_prompt_builder" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--gold);">
-                        <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                        <div style="display: flex; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Model Style Format</div>
                                 <select id="ig_style" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">
@@ -1479,13 +1484,29 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                 <input type="number" id="ig_anima_max_tags" class="ps-modern-input" value="${getAnimaMaxTags(s) || 0}" min="0" max="300" step="5" title="Maximum comma-separated tags for Anima-style prompts. Set 0 to disable." style="padding: 8px; font-size: 0.8rem; text-align: center;" />
                             </div>
                         </div>
-                        <div style="margin-bottom: 8px;">
-                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Leading tags (comma-separated)</div>
-                            <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended to the Comfy positive prompt when LoRA Intelligence is on, Booru Tags mode is enabled, and this field is non-empty. Does not depend on Model Style. Extra below is separate (image-prompt instructions). Leave empty to skip.</div>
-                            <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${(s.standardBooruLeadTags || '').replace(/"/g, '&quot;')}" style="padding: 8px; font-size: 0.8rem;" />
-                        </div>
-                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Extra (tags / cues, comma-separated)</div>
-                        <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Extra cues for the image-prompt step (mood, lighting, …)" value="${s.promptExtra}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+                </div>
+
+                <div data-ig-collapse="prompt-affixes" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-tags"></i> Prompt Affixes</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 14px;">Fixed prompt pieces kept separate from style, perspective, and other generation settings. Changes here save to this profile immediately.</div>
+
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Leading Tags</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended to the Comfy positive prompt when LoRA Intelligence is on and Booru Tags mode is enabled. Leave empty to skip.</div>
+                        <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${psEscapeAttr(s.standardBooruLeadTags || '')}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">LoRA Triggers</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Appended after Leading Tags wherever those leading tags are applied. Comma-separated is fine.</div>
+                        <input type="text" id="ig_lora_triggers" class="ps-modern-input" placeholder="e.g. trigger1, trigger2, character name" value="${psEscapeAttr(s.loraTriggers || '')}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+
+                    <div>
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Extra Instructions</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Extra cues for the image-prompt step (mood, lighting, composition). Separate from leading tags.</div>
+                        <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Extra cues for the image-prompt step (mood, lighting, …)" value="${psEscapeAttr(s.promptExtra || '')}" style="padding: 8px; font-size: 0.8rem;" />
                     </div>
                 </div>
 
@@ -1684,9 +1705,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                 <button id="ig_apply_position_preset" class="ps-modern-btn secondary" style="padding: 8px 12px;"><i class="fa-solid fa-plus"></i> Add Preset</button>
                                 <button id="ig_add_character_tags" class="ps-modern-btn secondary" style="padding: 8px 12px;"><i class="fa-solid fa-user-plus"></i> Add Character Tags</button>
                             </div>
+                            <div style="margin-bottom: 14px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom: 6px; flex-wrap: wrap;">
+                                    <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); text-transform: uppercase;">Last Generated Image Prompt</div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button type="button" id="ig_copy_last_prompt_btn" class="ps-modern-btn secondary" style="padding: 6px 10px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
+                                        <button type="button" id="ig_use_last_prompt_btn" class="ps-modern-btn secondary" style="padding: 6px 10px; font-size: 0.7rem;" title="Copy the last generated prompt into the manual prompt box"><i class="fa-solid fa-arrow-down"></i> Use in Manual</button>
+                                    </div>
+                                </div>
+                                <textarea id="ig_last_image_prompt" readonly class="ps-modern-input" style="height: 90px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.75rem; background: #0c0c0e; color: var(--text-main); cursor: default; margin-bottom: 0;" spellcheck="false" placeholder="No generated image prompt yet this session/profile.">${psEscapeText(s.lastGeneratedImagePrompt || "")}</textarea>
+                            </div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Manual Prompt</div>
                             <textarea id="ig_manual_prompt" class="ps-modern-input" style="height: 130px; resize: vertical; font-size: 0.85rem; line-height: 1.45; margin-bottom: 12px;" placeholder="Type the exact image prompt to render. This bypasses prompt generation but still uses current ComfyUI settings and LoRA slots.">${psEscapeText(s.manualPrompt || "")}</textarea>
-                            <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap;">
+                            <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;">
+                                <button type="button" id="ig_manual_undo_btn" class="ps-modern-btn secondary" style="padding: 8px 12px;" ${s.manualPromptUndoStack.length ? "" : "disabled"} title="Undo the last replace / Use in Manual / feedback rewrite"><i class="fa-solid fa-rotate-left"></i> Undo (${s.manualPromptUndoStack.length})</button>
                                 <button id="ig_manual_render_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; font-weight: 800;"><i class="fa-solid fa-image"></i> Render Manual Prompt</button>
+                            </div>
+                            <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">Regenerate Manual Prompt With Feedback</div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">Rewrites the current manual prompt box via NanoGPT using your notes. The previous value is saved for Undo.</div>
+                                <div class="li-analysis-feedback-row" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end;">
+                                    <label style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+                                        <span style="font-size: 0.68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Feedback</span>
+                                        <textarea id="ig_manual_prompt_feedback" class="ps-modern-input" placeholder="e.g. Make her hair shorter and red; keep pose and camera. Or: less crowded, focus on the woman on the left." style="min-height: 74px; resize: vertical; font-size: 0.8rem; line-height: 1.45; padding: 10px;">${psEscapeText(s.manualPromptFeedback || "")}</textarea>
+                                    </label>
+                                    <button type="button" id="ig_manual_regen_feedback_btn" class="ps-modern-btn secondary" title="Rewrite the manual prompt with NanoGPT using this feedback" style="padding: 8px 12px; font-size: 0.72rem; min-height: 42px;">
+                                        <i class="fa-solid fa-rotate"></i> Regenerate With Feedback
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -1853,6 +1899,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             saveProfileToMemory();
         });
         $("#ig_std_booru_lead").on("input", (e) => { s.standardBooruLeadTags = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_lora_triggers").on("input", (e) => { s.loraTriggers = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_w, #ig_h").on("input", (e) => { s[e.target.id === "ig_w" ? "imgWidth" : "imgHeight"] = parseInt($(e.target).val()); saveProfileToMemory(); });
         $("#ig_neg").on("input", (e) => { s.customNegative = $(e.target).val(); saveProfileToMemory(); });
@@ -1985,8 +2032,28 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         bindLiTagToggle("li_field_clothing", "clothingTags");
         $("#ig_manual_render_btn").on("click", igRenderManualPrompt);
         $("#ig_manual_prompt").on("input", (e) => { s.manualPrompt = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_manual_prompt_feedback").on("input", (e) => { s.manualPromptFeedback = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_apply_position_preset").on("click", () => applyPromptPresetToTextarea("#ig_nsfw_position_preset", "#ig_manual_prompt", s, "manualPrompt"));
         $("#ig_add_character_tags").on("click", () => igAddCharacterInfoToManualPrompt(s, li, charKey));
+        $("#ig_use_last_prompt_btn").on("click", () => {
+            const last = String(s.lastGeneratedImagePrompt || $("#ig_last_image_prompt").val() || "").trim();
+            if (!last) return toastr.warning("No last generated image prompt available yet.");
+            igSetManualPromptValue(s, last, { recordUndo: true, toast: "Last generated prompt loaded into Manual Prompt." });
+        });
+        $("#ig_copy_last_prompt_btn").on("click", async () => {
+            const last = String(s.lastGeneratedImagePrompt || $("#ig_last_image_prompt").val() || "").trim();
+            if (!last) return toastr.warning("No last generated image prompt available yet.");
+            try {
+                await navigator.clipboard.writeText(last);
+                toastr.success("Last generated prompt copied.");
+            } catch (e) {
+                toastr.error("Could not copy to clipboard.");
+            }
+        });
+        $("#ig_manual_undo_btn").on("click", () => igUndoManualPrompt(s));
+        $("#ig_manual_regen_feedback_btn").on("click", function() {
+            igRegenerateManualPromptWithFeedback(s, $(this));
+        });
         $("#li_prompt_assembly_mode").on("change", function() {
             li.promptAssemblyMode = $(this).val();
             saveProfileToMemory();
@@ -4239,6 +4306,136 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         }
     }
 
+    const MANUAL_PROMPT_UNDO_LIMIT = 20;
+
+    function igEnsureManualPromptState(s) {
+        if (!s) return s;
+        if (s.lastGeneratedImagePrompt === undefined) s.lastGeneratedImagePrompt = "";
+        if (s.manualPromptFeedback === undefined) s.manualPromptFeedback = "";
+        if (s.manualPrompt === undefined) s.manualPrompt = "";
+        if (!Array.isArray(s.manualPromptUndoStack)) s.manualPromptUndoStack = [];
+        return s;
+    }
+
+    function igRefreshManualUndoButton(s) {
+        const stack = Array.isArray(s?.manualPromptUndoStack) ? s.manualPromptUndoStack : [];
+        const $btn = $("#ig_manual_undo_btn");
+        if (!$btn.length) return;
+        $btn.prop("disabled", stack.length === 0);
+        $btn.html(`<i class="fa-solid fa-rotate-left"></i> Undo (${stack.length})`);
+    }
+
+    function igRememberGeneratedImagePrompt(promptText, opts = {}) {
+        const text = String(promptText || "").trim();
+        if (!text) return;
+        const s = getLocalProfile()?.imageGen;
+        if (!s) return;
+        igEnsureManualPromptState(s);
+        const promptChanged = s.lastGeneratedImagePrompt !== text;
+        if (promptChanged) {
+            s.lastGeneratedImagePrompt = text;
+            saveProfileToMemory();
+        }
+        if ($("#ig_last_image_prompt").length) $("#ig_last_image_prompt").val(text);
+        if (opts.syncManual !== false) {
+            const currentManual = String($("#ig_manual_prompt").val() ?? s.manualPrompt ?? "");
+            if (currentManual.trim() !== text) {
+                igSetManualPromptValue(s, text, {
+                    recordUndo: true,
+                    toast: opts.toast || null
+                });
+            }
+        }
+    }
+
+    function igPushManualPromptUndo(s, previousPrompt) {
+        igEnsureManualPromptState(s);
+        const prev = String(previousPrompt ?? "");
+        const last = s.manualPromptUndoStack[s.manualPromptUndoStack.length - 1];
+        if (last === prev) return false;
+        s.manualPromptUndoStack.push(prev);
+        if (s.manualPromptUndoStack.length > MANUAL_PROMPT_UNDO_LIMIT) {
+            s.manualPromptUndoStack.splice(0, s.manualPromptUndoStack.length - MANUAL_PROMPT_UNDO_LIMIT);
+        }
+        return true;
+    }
+
+    function igSetManualPromptValue(s, nextPrompt, opts = {}) {
+        igEnsureManualPromptState(s);
+        const next = String(nextPrompt || "");
+        const current = String($("#ig_manual_prompt").val() ?? s.manualPrompt ?? "");
+        if (next === current) {
+            igRefreshManualUndoButton(s);
+            return next;
+        }
+        if (opts.recordUndo) igPushManualPromptUndo(s, current);
+        s.manualPrompt = next;
+        if ($("#ig_manual_prompt").length) $("#ig_manual_prompt").val(next);
+        saveProfileToMemory();
+        igRefreshManualUndoButton(s);
+        if (opts.toast) toastr.success(opts.toast);
+        return next;
+    }
+
+    function igUndoManualPrompt(s) {
+        igEnsureManualPromptState(s);
+        if (!s.manualPromptUndoStack.length) return toastr.info("Nothing to undo.");
+        const restored = s.manualPromptUndoStack.pop();
+        s.manualPrompt = String(restored ?? "");
+        if ($("#ig_manual_prompt").length) $("#ig_manual_prompt").val(s.manualPrompt);
+        saveProfileToMemory();
+        igRefreshManualUndoButton(s);
+        toastr.success("Manual prompt restored.");
+    }
+
+    function buildManualPromptFeedbackSystemPrompt(s) {
+        const styleHint = (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl")
+            ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists)."
+            : "Keep the result as a comma-separated list of lowercase image tags (spaces instead of underscores), matching the existing style.";
+        return [
+            "You revise an existing image-generation prompt using the user's feedback.",
+            "Start from CURRENT PROMPT and apply only the requested FEEDBACK changes.",
+            "Preserve everything that the feedback does not mention: subjects, identities, pose, camera, setting, lighting, clothing/nudity state, and explicitness level.",
+            "Do not invent a new scene unless the feedback asks for it.",
+            "Every depicted person must remain an unmistakable adult.",
+            styleHint,
+            "Output contract: respond with the finished revised image prompt only. No preamble, quotes, labels, meta-commentary, or explanations."
+        ].join(" ");
+    }
+
+    async function igRegenerateManualPromptWithFeedback(s, $btn) {
+        igEnsureManualPromptState(s);
+        const current = String($("#ig_manual_prompt").val() || s.manualPrompt || "").trim();
+        const feedback = String($("#ig_manual_prompt_feedback").val() || s.manualPromptFeedback || "").trim();
+        if (!current) return toastr.warning("Manual prompt is empty. Paste or load a prompt first.");
+        if (!feedback) return toastr.warning("Add feedback first, then regenerate.");
+        const nano = getNanoGptGlobalSettings();
+        if (!nano.apiKey) return toastr.warning("Add a NanoGPT API key in the NanoGPT Prompt Writer card first.");
+
+        s.manualPromptFeedback = feedback;
+        saveProfileToMemory();
+
+        const originalHtml = $btn?.length ? $btn.html() : "";
+        if ($btn?.length) $btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Rewriting...');
+        try {
+            const revised = await callNanoGptPromptWriter(
+                buildManualPromptFeedbackSystemPrompt(s),
+                `CURRENT PROMPT:\n${current}\n\nFEEDBACK:\n${feedback}`
+            );
+            if (!revised) throw new Error("NanoGPT returned an empty response.");
+            const cleaned = stripUtilityThinkingWrapper(revised).trim();
+            if (!cleaned) throw new Error("NanoGPT returned an empty response.");
+            igSetManualPromptValue(s, cleaned, {
+                recordUndo: true,
+                toast: "Manual prompt updated from feedback."
+            });
+        } catch (e) {
+            toastr.error(e?.message || "Could not regenerate the manual prompt.");
+        } finally {
+            if ($btn?.length) $btn.prop("disabled", false).html(originalHtml || '<i class="fa-solid fa-rotate"></i> Regenerate With Feedback');
+        }
+    }
+
     async function igRenderManualPrompt() {
         const s = getLocalProfile()?.imageGen;
         if (!s || !s.enabled) return toastr.warning("Image Generation must be enabled first.");
@@ -4489,12 +4686,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return !!(li && li.enabled && li.useDanbooruTags);
     }
 
-    /** Comfy / preview prefix from `standardBooruLeadTags` when Booru Tags mode is on; empty otherwise. */
+    /** Comfy / preview prefix from leading tags + LoRA triggers when Booru Tags mode is on; empty otherwise. */
     function buildBooruStandardTagLead(s, li) {
         if (!s || !isLoraIntelBooruTagsMode(li)) return '';
-        const raw = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
-        if (!raw) return '';
-        return normalizeGeneratedTagField(raw);
+        const lead = String(s.standardBooruLeadTags || "").trim();
+        const triggers = String(s.loraTriggers || "").trim();
+        const parts = [];
+        if (lead) parts.push(lead);
+        if (triggers) parts.push(triggers);
+        if (!parts.length) return '';
+        return normalizeGeneratedTagField(parts.join(", "));
     }
 
     async function generateImagePromptText(opts = null) {
@@ -4689,6 +4890,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     async function igAttachGeneratedImage(base64Clean, finalPrompt, target, format = "png") {
+        const skipManualSync = !!(target?.libraryOnly || target?.background);
+        igRememberGeneratedImagePrompt(finalPrompt, { syncManual: !skipManualSync });
         if (target?.origin && !target.message) {
             target = { ...target, ...(resolveBackgroundOrigin(target.origin) || {}) };
         }
