@@ -184,7 +184,7 @@ export function createVisualGeneration(api) {
     const IMAGE_ADULT_PROSE_PRECISION_INSTRUCTION = "Adult prose precision: if the scene is explicit and all visible participants are adults, use direct natural-language visual description and concrete staging instead of euphemisms or tag dumps. Describe only the anatomy, contact, expression, fluids, body placement, camera angle, and visible action that are actually present in the chat or Extra field. Do not add an explicit act that is not present.";
     const IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION = "Body-shape guidance for natural-language image prompts: use positive silhouette words instead of body-size negation. Unless a character card, chat, or user feedback explicitly defines a fuller build, adult female characters should be described with an attractive slender-curvy or slim hourglass figure: narrow waist, graceful neck and shoulders, slender arms, toned or softly fit stomach, proportionate soft hips and thighs, and elegant facial features. Treat mature as adult age or confidence, not body size; prefer adult woman or woman in her late 20s/30s over mature female. Do not output body-size negations or insult words.";
 
-    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. " + IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION + " Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
+    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Treat the image as a photograph: open with phrasing such as 'A photo of' plus camera feel when useful. Never call it a digital illustration, anime, drawing, 2d, cartoon, render, or similar non-photo medium. Then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. " + IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION + " Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
     const KREA2_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
     const KREA2_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
@@ -211,11 +211,11 @@ export function createVisualGeneration(api) {
 
     const KREA2_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and character analysis.
 
-An explicit natural-light anime illustration of two adults in a modern bedroom. The adult woman on the bed is described with her analyzed face, hair, body type, clothing or nudity state, pose, expression, and visible arousal. The adult man is placed separately with his body position and visible anatomy described clearly. Their exact contact, penetration or oral/manual action, fluids if present, and body placement are named directly. The rumpled sheets, background furniture, warm window light, shallow depth of field, and polished high-resolution finish complete the prompt.
+A photo of two adults in a modern bedroom, shot in warm natural window light. The adult woman on the bed is described with her analyzed face, hair, body type, clothing or nudity state, pose, expression, and visible arousal. The adult man is placed separately with his body position and visible anatomy described clearly. Their exact contact, penetration or oral/manual action, fluids if present, and body placement are named directly. The rumpled sheets, background furniture, warm window light, shallow depth of field, and photographic skin texture complete the prompt.
 
-A polished erotic character portrait of one adult woman. Describe her stable analyzed appearance in prose: age bracket as adult, face, eyes, hair, body shape, skin, clothing or nudity state, expression, gaze, pose, hands, and the immediate setting. If the scene is explicit, state the exposed anatomy, arousal cues, fluids, or contact visible in the current moment. Finish with camera distance, lighting, texture, and color mood.
+A photo of one adult woman, framed as a close erotic portrait. Describe her stable analyzed appearance in prose: age bracket as adult, face, eyes, hair, body shape, skin, clothing or nudity state, expression, gaze, pose, hands, and the immediate setting. If the scene is explicit, state the exposed anatomy, arousal cues, fluids, or contact visible in the current moment. Finish with camera distance, lighting, lens, and color mood.
 
-First-person POV from across rumpled sheets. The foreground includes only the player's visible hands or body parts when the scene requires interaction, never the player's full face. The adult character facing the camera is described from the selected character analysis, with clear posture, expression, nudity/clothing state, exact adult action, visible contact points, and the bedroom lighting and lens focus.
+A photo from first-person POV across rumpled sheets. The foreground includes only the player's visible hands or body parts when the scene requires interaction, never the player's full face. The adult character facing the camera is described from the selected character analysis, with clear posture, expression, nudity/clothing state, exact adult action, visible contact points, and the bedroom lighting and lens focus.
 
 For a spatially complex explicit scene, keep the prompt in prose but include a final clarifying sentence for the exact act, position, camera angle, and contact direction. Do not switch into a raw comma-separated tag list.`;
 
@@ -237,7 +237,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             : (perspective === "character"
                 ? "Keep the prompt focused on a single character portrait unless the chat clearly demands more people. Prioritize face, hair, body, clothing, expression, gaze, and simple background."
                 : "Establish shot type, camera angle, subject count, pose/contact, environment, and lighting in that order.");
-        return `Structured prompt rules (${modeLabel}): write a ${outputType}. Build it in this order: quality/style anchor, camera/perspective, visible character count, per-character appearance and current action, then setting and lighting. ${perspectiveRule} ${characterRule}`;
+        const openerRule = style === "krea2"
+            ? "photographic opener such as 'A photo of' (never digital illustration, anime, drawing, 2d, or cartoon), camera/perspective"
+            : "quality/style anchor, camera/perspective";
+        return `Structured prompt rules (${modeLabel}): write a ${outputType}. Build it in this order: ${openerRule}, visible character count, per-character appearance and current action, then setting and lighting. ${perspectiveRule} ${characterRule}`;
     }
 
     function buildImagePromptExamples(s, booruStd = false) {
@@ -4401,9 +4404,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     function buildManualPromptFeedbackSystemPrompt(s) {
-        const styleHint = (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl")
-            ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists)."
-            : "Keep the result as a comma-separated list of lowercase image tags (spaces instead of underscores), matching the existing style.";
+        const styleHint = s?.promptStyle === "krea2"
+            ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists). Keep it a photograph starting with phrasing such as 'A photo of'; do not call it a digital illustration, anime, drawing, 2d, or cartoon."
+            : ((s?.promptStyle === "sdxl")
+                ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists)."
+                : "Keep the result as a comma-separated list of lowercase image tags (spaces instead of underscores), matching the existing style.");
         return [
             "You revise an existing image-generation prompt using the user's feedback.",
             "Start from CURRENT PROMPT and apply only the requested FEEDBACK changes.",
@@ -6111,8 +6116,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const participantText = explicit
             ? `${girls} adult ${girls === 1 ? "woman" : "women"} and ${boys} adult ${boys === 1 ? "man" : "men"}`
             : `${Math.max(1, assignments.length)} adult character${assignments.length === 1 ? "" : "s"}`;
+        const opener = s.promptStyle === "krea2"
+            ? `A photo of ${participantText}.`
+            : `A clear image of ${participantText}.`;
         return [
-            `A clear image of ${participantText}.`,
+            opener,
             people ? `Character identities and appearance: ${people}.` : "",
             positionStaging ? `They are performing this exact action: ${positionStaging}.` : "",
             anatomy ? `The adult male has a visibly ${anatomy}.` : "",
@@ -6202,14 +6210,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     // purpose: an explicit example (so adult scenes get direct anatomical
     // prose instead of euphemism) and a non-sexual example (so normal scenes
     // stay normal instead of drifting explicit). Both model the exact target
-    // shape: one paragraph, per-person sentences with spatial anchors, "a
-    // woman ..." subject construction (which doubles as the Krea LoRA
-    // trigger phrase), setting/lighting/camera close.
+    // shape: photographic opener ("A photo of"), one paragraph, per-person
+    // sentences with spatial anchors, "a woman ..." subject construction
+    // (which doubles as the Krea LoRA trigger phrase), setting/lighting/camera close.
     const KREA2_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the shape and directness, never the people, bodies, setting, or act):
-An explicit digital anime illustration in warm lamplight, eye-level medium shot on a rumpled bed. A woman with long crimson hair and red eyes kneels on the left on all fours, fully nude with small bare breasts, back arched, face flushed and mouth open in a moan as she grips the white sheets. A woman with wavy blonde hair and green eyes kneels close behind her on the right, nude with large breasts pressed against the first woman's back, one hand between her thighs with fingers visibly penetrating her, the other hand cupping her breast. Sweat glistens on both bodies. Dim bedside lamp, rumpled sheets, shallow depth of field, warm skin-toned palette, polished high-detail finish.
+A photo of two women in warm lamplight, eye-level medium shot on a rumpled bed. A woman with long crimson hair and red eyes kneels on the left on all fours, fully nude with small bare breasts, back arched, face flushed and mouth open in a moan as she grips the white sheets. A woman with wavy blonde hair and green eyes kneels close behind her on the right, nude with large breasts pressed against the first woman's back, one hand between her thighs with fingers visibly penetrating her, the other hand cupping her breast. Sweat glistens on both bodies. Dim bedside lamp, rumpled sheets, shallow depth of field, warm skin-toned palette, photographic skin texture.
 
 STYLE EXAMPLE (normal register -- copy the shape, never the people, clothing, or setting):
-A cinematic digital illustration of a cozy afternoon cafe, medium shot at eye level. A woman with short black hair and amber eyes sits on the left of a small wooden table in an oversized beige sweater, laughing with a coffee cup raised halfway. A woman with a silver ponytail and blue eyes sits across from her on the right in a fitted denim jacket, leaning forward mid-story with animated hands. Warm window light, a blurred pastry counter in the background, soft bokeh, gentle golden palette.`;
+A photo of a cozy afternoon cafe, medium shot at eye level. A woman with short black hair and amber eyes sits on the left of a small wooden table in an oversized beige sweater, laughing with a coffee cup raised halfway. A woman with a silver ponytail and blue eyes sits across from her on the right in a fitted denim jacket, leaning forward mid-story with animated hands. Warm window light, a blurred pastry counter in the background, soft bokeh, gentle golden palette.`;
 
     // Concrete few-shot shape references for the Anima tag writer. Same
     // two-register rationale as KREA2_WRITER_STYLE_EXAMPLES: an explicit
@@ -6233,10 +6241,13 @@ STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the peopl
     function buildNanoImageSystemPrompt(s) {
         const parts = [];
         if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
+            const mediumRule = s?.promptStyle === "krea2"
+                ? "Open with photographic phrasing such as 'A photo of' plus camera framing. Never call the image a digital illustration, anime, drawing, 2d, cartoon, render, or similar non-photo medium."
+                : "Cover, in order: medium/style and camera framing.";
             parts.push(
                 "You convert roleplay scene data into one finished natural-language image-generation prompt.",
                 "Write one dense paragraph of fluent, concrete English prose describing only what is visible in the latest moment of the SCENE section. The most recent message matters most.",
-                "Cover, in order: medium/style and camera framing; each visible adult subject with face, hair, body, clothing or nudity state, placement, pose, expression, and current action; then setting, lighting, and color mood.",
+                `${mediumRule} Then cover each visible adult subject with face, hair, body, clothing or nudity state, placement, pose, expression, and current action; then setting, lighting, and color mood.`,
                 "The CHARACTERS section is appearance reference only -- it tells you what each named person looks like. Never treat it as evidence of action, pose, nudity, or camera. Translate any tag shorthand in it into prose.",
                 "If more than one person is visible, give each their own sentence with a clear spatial anchor (left, right, foreground, behind, kneeling, standing) and keep each person's features inside their own sentence so identities never merge.",
                 "Prefer introducing each female subject as 'a woman with ...' before using her name or pronouns.",
@@ -6328,7 +6339,7 @@ STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the peopl
             assignments: assignments.length ? assignments : null,
             position: fallbackPosition,
             sceneType: (fallbackPosition || isExplicitSceneText(sceneText)) ? "explicit" : "normal"
-        }) || "a detailed cinematic illustration of the current roleplay scene";
+        }) || (s.promptStyle === "krea2" ? "a photo of the current roleplay scene" : "a detailed cinematic illustration of the current roleplay scene");
 
         // User message = pure data with named sections. All instructions live
         // in the system prompt (buildNanoImageSystemPrompt), except the
