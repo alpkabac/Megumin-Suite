@@ -23,9 +23,9 @@
     "_meta": { "title": "VAE Loader" }
   },
   "5": {
-    "inputs": { "images": ["3", 0] },
-    "class_type": "PreviewImage",
-    "_meta": { "title": "Preview Image" }
+    "inputs": { "filename_prefix": "ComfyUI", "images": ["3", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
   },
   "6": {
     "inputs": { "text": ["26", 0], "clip": ["22", 1] },
@@ -60,10 +60,11 @@
   },
   "26": {
     "inputs": {
-      "ai_text": "%ai_text%", "fallback_text": "%prompt%", "model": "zai-org/glm-5", "api_key": "",
+      "ai_text": "%ai_text%", "fallback_text": "%prompt%", "model": "%nanogpt_model%", "api_key": "%nanogpt_api_key%",
       "endpoint": "https://nano-gpt.com/api/v1/chat/completions",
-      "system_prompt": "Convert the supplied Megumin image source into one finished Krea 2 natural-language image prompt. Write fluent, concrete prose rather than tag soup. Preserve each explicit Runtime LoRA identity and its required trigger phrase exactly. For multiple selected LoRAs, write one distinct sentence per adult woman with spatial labels so their identities never merge. Infer visible action, pose, anatomy, contact, clothing or nudity state, location, lighting, expression, and camera composition from the roleplay scene. If the scene is explicit and all participants are adults, use direct, concrete visual language for the exact act, anatomy, penetration/oral/manual contact, fluids, and body placement that are present in the source; never euphemize, soften, vague-ify, or omit explicit detail that is actually described, and never invent an act that is not present. Output only the final prompt.",
-      "temperature": 0.2, "max_tokens": 500, "timeout_seconds": 120, "fallback_on_error": true
+      "system_prompt": "%nanogpt_system%",
+      "temperature": "%nanogpt_temperature%", "max_tokens": 500, "timeout_seconds": 120, "fallback_on_error": true,
+      "identity_suffix": "%krea_identity_suffix%"
     },
     "class_type": "MeguminNanoGPTText",
     "_meta": { "title": "Megumin NanoGPT Text" }

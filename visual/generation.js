@@ -184,7 +184,7 @@ export function createVisualGeneration(api) {
     const IMAGE_ADULT_PROSE_PRECISION_INSTRUCTION = "Adult prose precision: if the scene is explicit and all visible participants are adults, use direct natural-language visual description and concrete staging instead of euphemisms or tag dumps. Describe only the anatomy, contact, expression, fluids, body placement, camera angle, and visible action that are actually present in the chat or Extra field. Do not add an explicit act that is not present.";
     const IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION = "Body-shape guidance for natural-language image prompts: use positive silhouette words instead of body-size negation. Unless a character card, chat, or user feedback explicitly defines a fuller build, adult female characters should be described with an attractive slender-curvy or slim hourglass figure: narrow waist, graceful neck and shoulders, slender arms, toned or softly fit stomach, proportionate soft hips and thighs, and elegant facial features. Treat mature as adult age or confidence, not body size; prefer adult woman or woman in her late 20s/30s over mature female. Do not output body-size negations or insult words.";
 
-    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Open with the medium/style and camera feel when useful, then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. " + IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION + " Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
+    const KREA2_PROMPT_INSTRUCTION = "Krea 2 natural-language format: output one detailed, render-ready English image prompt in fluent prose, usually one dense paragraph. Krea responds well to natural language and long prompts, so describe the visible scene concretely instead of emitting Danbooru tag soup. Treat the image as a photograph: open with phrasing such as 'A photo of' plus camera feel when useful. Never call it a digital illustration, anime, drawing, 2d, cartoon, render, or similar non-photo medium. Then describe the visible adult subject count, each subject's identity, body, face, hair, clothing or nudity state, placement, pose, expression, and current action. For multiple visible characters, give each person a separate sentence with spatial labels such as left, right, foreground, background, above, below, behind, kneeling, seated, or standing so features do not bleed. Use stored character natural descriptions and booru cues as appearance references, but translate all shorthand into prose. Finish with setting, background, lighting, lens/focus, color palette, and texture. If the current scene is explicit and all visible participants are adults, use direct NSFW visual language for the actual act, anatomy, contact, penetration/oral/manual action, fluids, expression, and body placement when present; do not euphemize explicit content and do not add an unrelated sex act. Do not use underscore tokens, 1girl-style shorthand, raw tag lists, quality-score tags, or generic filler. " + IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION + " Output contract: your entire response must be the single finished renderable image prompt. Begin immediately with the prompt itself. Never output analysis, scene notes, extracted details, requirements, plans, drafts, refinements, self-talk, explanations, labels such as Draft or Final Prompt, or a second version of the prompt. Do not describe what you are about to write and do not comment after writing it.";
 
     const KREA2_FORBIDDEN_MINOR_RE = /\b(?:child(?:ren)?|kids?|toddlers?|infants?|bab(?:y|ies)|minors?|underage|pre[ -]?teens?|teens?|teenagers?|teenaged?|adolescents?|juveniles?|child[ -]?like|young[ -]?looking|loli(?:con)?|shota(?:con)?|school[ -]?(?:girl|boy))\b/i;
     const KREA2_UNDER_18_AGE_RE = /\b(?:age[ :]*|aged[ ]+)?(?:[0-9]|1[0-7])[ -]?(?:years?[ -]?old|y\/?o)\b/i;
@@ -211,11 +211,11 @@ export function createVisualGeneration(api) {
 
     const KREA2_PROMPT_EXAMPLES = `Formatting references only. Never copy their people, appearance, clothing, setting, or acts into another scene; derive the actual content from the current chat and character analysis.
 
-An explicit natural-light anime illustration of two adults in a modern bedroom. The adult woman on the bed is described with her analyzed face, hair, body type, clothing or nudity state, pose, expression, and visible arousal. The adult man is placed separately with his body position and visible anatomy described clearly. Their exact contact, penetration or oral/manual action, fluids if present, and body placement are named directly. The rumpled sheets, background furniture, warm window light, shallow depth of field, and polished high-resolution finish complete the prompt.
+A photo of two adults in a modern bedroom, shot in warm natural window light. The adult woman on the bed is described with her analyzed face, hair, body type, clothing or nudity state, pose, expression, and visible arousal. The adult man is placed separately with his body position and visible anatomy described clearly. Their exact contact, penetration or oral/manual action, fluids if present, and body placement are named directly. The rumpled sheets, background furniture, warm window light, shallow depth of field, and photographic skin texture complete the prompt.
 
-A polished erotic character portrait of one adult woman. Describe her stable analyzed appearance in prose: age bracket as adult, face, eyes, hair, body shape, skin, clothing or nudity state, expression, gaze, pose, hands, and the immediate setting. If the scene is explicit, state the exposed anatomy, arousal cues, fluids, or contact visible in the current moment. Finish with camera distance, lighting, texture, and color mood.
+A photo of one adult woman, framed as a close erotic portrait. Describe her stable analyzed appearance in prose: age bracket as adult, face, eyes, hair, body shape, skin, clothing or nudity state, expression, gaze, pose, hands, and the immediate setting. If the scene is explicit, state the exposed anatomy, arousal cues, fluids, or contact visible in the current moment. Finish with camera distance, lighting, lens, and color mood.
 
-First-person POV from across rumpled sheets. The foreground includes only the player's visible hands or body parts when the scene requires interaction, never the player's full face. The adult character facing the camera is described from the selected character analysis, with clear posture, expression, nudity/clothing state, exact adult action, visible contact points, and the bedroom lighting and lens focus.
+A photo from first-person POV across rumpled sheets. The foreground includes only the player's visible hands or body parts when the scene requires interaction, never the player's full face. The adult character facing the camera is described from the selected character analysis, with clear posture, expression, nudity/clothing state, exact adult action, visible contact points, and the bedroom lighting and lens focus.
 
 For a spatially complex explicit scene, keep the prompt in prose but include a final clarifying sentence for the exact act, position, camera angle, and contact direction. Do not switch into a raw comma-separated tag list.`;
 
@@ -237,7 +237,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             : (perspective === "character"
                 ? "Keep the prompt focused on a single character portrait unless the chat clearly demands more people. Prioritize face, hair, body, clothing, expression, gaze, and simple background."
                 : "Establish shot type, camera angle, subject count, pose/contact, environment, and lighting in that order.");
-        return `Structured prompt rules (${modeLabel}): write a ${outputType}. Build it in this order: quality/style anchor, camera/perspective, visible character count, per-character appearance and current action, then setting and lighting. ${perspectiveRule} ${characterRule}`;
+        const openerRule = style === "krea2"
+            ? "photographic opener such as 'A photo of' (never digital illustration, anime, drawing, 2d, or cartoon), camera/perspective"
+            : "quality/style anchor, camera/perspective";
+        return `Structured prompt rules (${modeLabel}): write a ${outputType}. Build it in this order: ${openerRule}, visible character count, per-character appearance and current action, then setting and lighting. ${perspectiveRule} ${characterRule}`;
     }
 
     function buildImagePromptExamples(s, booruStd = false) {
@@ -799,25 +802,47 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         defaultKreaLoraApplied: false
     };
     const RUNPOD_ANIMA_MODEL = "anima-turbo-v1.0.safetensors";
+    const RUNPOD_ANIMA_BASE_MODEL = "anima-base-v1.0.safetensors";
     const RUNPOD_KREA_MODEL = "krea2_turbo_fp8_scaled.safetensors";
-    const RUNPOD_IMAGE_MODELS = [RUNPOD_ANIMA_MODEL, RUNPOD_KREA_MODEL];
-    const RUNPOD_IMAGE_SAMPLERS = ["er_sde", "euler"];
-    const RUNPOD_IMAGE_SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform", "beta", "linear_quadratic"];
+    const RUNPOD_ANIMA_MODELS = [RUNPOD_ANIMA_MODEL, RUNPOD_ANIMA_BASE_MODEL];
+    const RUNPOD_IMAGE_MODELS = [...RUNPOD_ANIMA_MODELS, RUNPOD_KREA_MODEL];
+    // Stock ComfyUI KSampler sampler/scheduler names (base install). RunPod
+    // Image Gen cannot query the worker at dropdown time, so keep these explicit.
+    const RUNPOD_IMAGE_SAMPLERS = [
+        "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp",
+        "heun", "heunpp2", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive",
+        "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu",
+        "dpmpp_2m", "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu",
+        "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "ipndm", "ipndm_v", "deis",
+        "ddim", "uni_pc", "uni_pc_bh2", "er_sde",
+        "res_multistep", "res_multistep_cfg_pp", "res_multistep_ancestral", "res_multistep_ancestral_cfg_pp",
+        "gradient_estimation", "gradient_estimation_cfg_pp", "sa_solver", "sa_solver_pece"
+    ];
+    const RUNPOD_IMAGE_SCHEDULERS = [
+        "simple", "normal", "karras", "exponential", "sgm_uniform", "ddim_uniform",
+        "beta", "linear_quadratic", "kl_optimal"
+    ];
     // This is baked into Dockerfile.krea2-runpod. Remote browser selections are
     // represented as hf:// references and are intentionally kept in the profile.
     const MEGUMIN_DEFAULT_KREA_LORA = "megumin-default-civitai-3027612.safetensors";
     const RUNPOD_IMAGE_LORAS = [MEGUMIN_DEFAULT_KREA_LORA];
     const KREA_BAKED_LORA_MANIFEST_URL = `${extensionFolderPath}/data/krea2_baked_loras.json`;
+    const ANIMA_BAKED_LORA_MANIFEST_URL = `${extensionFolderPath}/data/anima_baked_loras.json`;
     const MALCOLMREY_BROWSER_INDEX_URL = "https://huggingface.co/spaces/malcolmrey/browser/resolve/main/data-filenames.json";
     const MALCOLMREY_KREA_REPOSITORY = "malcolmrey/krea2";
     let malcolmreyKreaLoraCache = null;
     let malcolmreyKreaLoraLoad = null;
     let bakedKreaLoraCache = null;
     let bakedKreaLoraLoad = null;
+    let bakedAnimaLoraCache = null;
+    let bakedAnimaLoraLoad = null;
+    let meguminComfyLoraCache = null;
+    let meguminComfyLoraCacheUrl = "";
+    let runpodAnimaLoraNames = null;
+    let runpodKreaLoraNames = null;
     const RUNPOD_IMAGE_MODEL_ALIASES = {
         "rimixillustriousanima_rimixanima.safetensors": "anima-turbo-v1.0.safetensors",
         "ri-mix-illustrious-anima.safetensors": "anima-turbo-v1.0.safetensors",
-        "anima-base-v1.0.safetensors": "anima-turbo-v1.0.safetensors",
         "krea2_turbo_fp8.safetensors": "krea2_turbo_fp8_scaled.safetensors"
     };
 
@@ -826,6 +851,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!current) return "";
         const basename = current.replace(/\\/g, "/").split("/").pop().toLowerCase();
         return RUNPOD_IMAGE_MODEL_ALIASES[basename] || current;
+    }
+
+    function isRunpodAnimaModel(modelName) {
+        return RUNPOD_ANIMA_MODELS.includes(normalizeRunpodModelFilename(modelName));
     }
 
     function getRunpodGlobalSettings() {
@@ -862,6 +891,83 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!SHOW_RUNPOD_IMAGE_BACKEND) return false;
         const runpod = ensureRunpodSettings(s);
         return !!(runpod.enabled && runpod.endpointId && runpod.apiKey);
+    }
+
+    // -------------------------------------------------------------
+    // NANOGPT PROMPT WRITER (client-side)
+    // -------------------------------------------------------------
+    // The image prompt is generated HERE, in the browser, before any render
+    // job is submitted. This is deliberate:
+    //  1. worker-comfyui only returns images from RunPod jobs -- text node
+    //     outputs are dropped, so a prompt generated inside the workflow can
+    //     never be shown to the user. Generating it client-side means the
+    //     user always sees (and can edit) the exact prompt that renders.
+    //  2. An LLM call inside the workflow burns billed GPU seconds while the
+    //     worker idles. Client-side costs zero GPU time.
+    //  3. Failures become visible immediately instead of silently rendering
+    //     a junk fallback after a full GPU cold start.
+    // The in-workflow MeguminNanoGPTText node remains as a fallback path when
+    // the direct call is unavailable (no key, CORS, network error).
+    const NANOGPT_PROMPT_ENDPOINT = "https://nano-gpt.com/api/v1/chat/completions";
+    const NANOGPT_DEFAULT_PROMPT_MODEL = "zai-org/glm-5";
+    const NANOGPT_DEFAULT_PROMPT_TEMPERATURE = 0.2;
+
+    function getNanoGptGlobalSettings() {
+        if (!extension_settings[extensionName]) extension_settings[extensionName] = {};
+        if (!extension_settings[extensionName].nanogpt || typeof extension_settings[extensionName].nanogpt !== "object") {
+            extension_settings[extensionName].nanogpt = { apiKey: "", model: NANOGPT_DEFAULT_PROMPT_MODEL, temperature: NANOGPT_DEFAULT_PROMPT_TEMPERATURE };
+        }
+        const nano = extension_settings[extensionName].nanogpt;
+        nano.apiKey = String(nano.apiKey || "").trim();
+        nano.model = String(nano.model || "").trim() || NANOGPT_DEFAULT_PROMPT_MODEL;
+        const temp = parseFloat(nano.temperature);
+        nano.temperature = Number.isFinite(temp) ? Math.max(0, Math.min(2, temp)) : NANOGPT_DEFAULT_PROMPT_TEMPERATURE;
+        return nano;
+    }
+
+    /**
+     * Direct browser call to NanoGPT. Returns the generated prompt string, or
+     * null when unavailable/failed (caller decides the fallback). Never throws.
+     */
+    async function callNanoGptPromptWriter(systemPrompt, userText) {
+        const nano = getNanoGptGlobalSettings();
+        if (!nano.apiKey) return null;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
+        try {
+            const response = await fetch(NANOGPT_PROMPT_ENDPOINT, {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                    "Authorization": `Bearer ${nano.apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: nano.model,
+                    temperature: nano.temperature,
+                    max_tokens: 500,
+                    stream: false,
+                    messages: [
+                        { role: "system", content: String(systemPrompt || "").trim() },
+                        { role: "user", content: String(userText || "").trim() }
+                    ]
+                })
+            });
+            if (!response.ok) {
+                const body = await response.text().catch(() => "");
+                console.warn(`[Megumin Suite] NanoGPT prompt writer HTTP ${response.status}:`, body.slice(0, 300));
+                return null;
+            }
+            const data = await response.json();
+            const raw = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? "";
+            const text = stripUtilityThinkingWrapper(raw);
+            return text && text.trim() ? text.trim() : null;
+        } catch (e) {
+            console.warn("[Megumin Suite] NanoGPT prompt writer call failed:", e?.message || e);
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     function ensureSelectHasOptions($select, options, currentValue, emptyLabel = null) {
@@ -914,13 +1020,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return changed;
     }
 
-    function populateRunpodImageLists(s, bakedLoras = []) {
+    function getRunpodLoraOptionsForModel(s, animaBaked = [], kreaBaked = []) {
+        if (isRunpodAnimaModel(s?.selectedModel)) return [...animaBaked];
+        if (normalizeRunpodModelFilename(s?.selectedModel) === RUNPOD_KREA_MODEL) {
+            return [...RUNPOD_IMAGE_LORAS, ...kreaBaked];
+        }
+        return [...RUNPOD_IMAGE_LORAS, ...animaBaked, ...kreaBaked];
+    }
+
+    function rememberRunpodBakedLoraNames(animaBaked, kreaBaked) {
+        if (Array.isArray(animaBaked)) runpodAnimaLoraNames = animaBaked;
+        if (Array.isArray(kreaBaked)) runpodKreaLoraNames = kreaBaked;
+    }
+
+    function populateRunpodImageLists(s, animaBaked, kreaBaked) {
+        const animaNames = Array.isArray(animaBaked) ? animaBaked : (runpodAnimaLoraNames || []);
+        const kreaNames = Array.isArray(kreaBaked) ? kreaBaked : (runpodKreaLoraNames || []);
+        if (Array.isArray(animaBaked) || Array.isArray(kreaBaked)) rememberRunpodBakedLoraNames(animaNames, kreaNames);
         ensureRunpodDropdownValues(s);
         ensureSelectHasOptions($("#ig_model"), RUNPOD_IMAGE_MODELS, s.selectedModel, "-- Select Model --");
         ensureSelectHasOptions($("#ig_sampler"), RUNPOD_IMAGE_SAMPLERS, s.selectedSampler);
         ensureSelectHasOptions($("#ig_scheduler"), RUNPOD_IMAGE_SCHEDULERS, s.selectedScheduler);
+        const loraOptions = getRunpodLoraOptionsForModel(s, animaNames, kreaNames);
         for (let i = 1; i <= 4; i++) {
-            ensureSelectHasOptions($(`#ig_lora_${i}`), [...RUNPOD_IMAGE_LORAS, ...bakedLoras], s[i === 1 ? "selectedLora" : `selectedLora${i}`], "-- No LoRA --");
+            ensureSelectHasOptions($(`#ig_lora_${i}`), loraOptions, s[i === 1 ? "selectedLora" : `selectedLora${i}`], "-- No LoRA --");
+        }
+        if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
+            meguminComfyLoraCache = loraOptions;
+            meguminComfyLoraCacheUrl = "runpod";
         }
     }
 
@@ -1066,7 +1193,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return {
             selectedModel: s.selectedModel, selectedSampler: s.selectedSampler, selectedScheduler: s.selectedScheduler, steps: s.steps, cfg: s.cfg, denoise: s.denoise, clipSkip: s.clipSkip,
             imgWidth: s.imgWidth, imgHeight: s.imgHeight, customSeed: s.customSeed, customNegative: s.customNegative,
-            promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
+            promptStyle: s.promptStyle, promptPerspective: s.promptPerspective, promptExtra: s.promptExtra, animaMaxTags: s.animaMaxTags, standardBooruLeadTags: s.standardBooruLeadTags, loraTriggers: s.loraTriggers, previewPrompt: s.previewPrompt, manualPromptSource: s.manualPromptSource,
             structuredPromptRules: s.structuredPromptRules, adultTagPrecision: s.adultTagPrecision, includePromptExamples: s.includePromptExamples,
             manualSceneSelector: s.manualSceneSelector,
             selectedLora: s.selectedLora, selectedLoraWt: s.selectedLoraWt,
@@ -1132,6 +1259,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ensureImageGenLoraArrays(s);
         const runpod = ensureRunpodSettings(s);
         if (s.standardBooruLeadTags === undefined) s.standardBooruLeadTags = "";
+        if (s.loraTriggers === undefined) s.loraTriggers = "";
+        if (s.promptExtra === undefined) s.promptExtra = "";
         if (s.structuredPromptRules === undefined) s.structuredPromptRules = true;
         if (s.adultTagPrecision === undefined) s.adultTagPrecision = true;
         if (s.includePromptExamples === undefined) s.includePromptExamples = false;
@@ -1145,6 +1274,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', assignmentViewMode: 'structured', sendAllCharactersToPromptAi: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
         if (s.animaMaxTags === undefined) s.animaMaxTags = 60;
         if (s.manualPrompt === undefined) s.manualPrompt = "";
+        if (s.lastGeneratedImagePrompt === undefined) s.lastGeneratedImagePrompt = "";
+        if (s.manualPromptFeedback === undefined) s.manualPromptFeedback = "";
+        if (!Array.isArray(s.manualPromptUndoStack)) s.manualPromptUndoStack = [];
         ensureLoraIntelDefaults(s.loraIntel);
         const li = s.loraIntel;
         const adultPrecisionTitle = isNaturalLanguageImageStyle(s.promptStyle) ? "Adult Prose Precision" : "Adult Tag Precision";
@@ -1186,6 +1318,26 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                             <option value="direct" ${s.generatorBackend === 'direct' ? 'selected' : ''}>Current ST Connection</option>
                             <option value="preset" ${s.generatorBackend === 'preset' ? 'selected' : ''}>Megumin Image Preset</option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- NanoGPT prompt writer (client-side) -->
+                <div data-ig-collapse="nanogpt-writer" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-feather-pointed"></i> NanoGPT Prompt Writer</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Writes the final image prompt in your browser before the render job is sent, so you can always see and edit the exact prompt that renders. Used by the ComfyUI NanoGPT quick-image mode and background jobs. Without a key here, prompt writing falls back to the NanoGPT node inside the ComfyUI workflow (invisible on RunPod).</div>
+                    <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.55fr); gap: 12px;">
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">NanoGPT API Key</div>
+                            <input type="password" id="ig_nanogpt_key" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().apiKey)}" placeholder="nano-gpt.com API key" autocomplete="off" style="padding: 8px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Model</div>
+                            <input type="text" id="ig_nanogpt_model" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().model)}" placeholder="${psEscapeAttr(NANOGPT_DEFAULT_PROMPT_MODEL)}" autocomplete="off" style="padding: 8px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;" title="0 = deterministic, 2 = wild. Low values keep the prompt faithful to the scene.">Temp</div>
+                            <input type="number" id="ig_nanogpt_temp" class="ps-modern-input" value="${psEscapeAttr(getNanoGptGlobalSettings().temperature)}" min="0" max="2" step="0.05" style="padding: 8px; font-size: 0.8rem; text-align: center;" />
+                        </div>
                     </div>
                 </div>
 
@@ -1312,7 +1464,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     </div>
 
                     <div id="ig_prompt_builder" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border-left: 3px solid var(--gold);">
-                        <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                        <div style="display: flex; gap: 15px;">
                             <div style="flex: 1;">
                                 <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Model Style Format</div>
                                 <select id="ig_style" class="ps-modern-input" style="padding: 8px; font-size: 0.8rem;">
@@ -1335,13 +1487,29 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                 <input type="number" id="ig_anima_max_tags" class="ps-modern-input" value="${getAnimaMaxTags(s) || 0}" min="0" max="300" step="5" title="Maximum comma-separated tags for Anima-style prompts. Set 0 to disable." style="padding: 8px; font-size: 0.8rem; text-align: center;" />
                             </div>
                         </div>
-                        <div style="margin-bottom: 8px;">
-                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Leading tags (comma-separated)</div>
-                            <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended to the Comfy positive prompt when LoRA Intelligence is on, Booru Tags mode is enabled, and this field is non-empty. Does not depend on Model Style. Extra below is separate (image-prompt instructions). Leave empty to skip.</div>
-                            <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${(s.standardBooruLeadTags || '').replace(/"/g, '&quot;')}" style="padding: 8px; font-size: 0.8rem;" />
-                        </div>
-                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px;">Extra (tags / cues, comma-separated)</div>
-                        <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Extra cues for the image-prompt step (mood, lighting, …)" value="${s.promptExtra}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+                </div>
+
+                <div data-ig-collapse="prompt-affixes" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                    <div class="ps-rule-title" style="margin-bottom: 12px;"><i class="fa-solid fa-tags"></i> Prompt Affixes</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 14px;">Fixed prompt pieces kept separate from style, perspective, and other generation settings. Changes here save to this profile immediately.</div>
+
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Leading Tags</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Prepended to the Comfy positive prompt when LoRA Intelligence is on and Booru Tags mode is enabled. Leave empty to skip.</div>
+                        <input type="text" id="ig_std_booru_lead" class="ps-modern-input" placeholder="e.g. nsfw, uncensored, @artist, digital anime illustration, 2d anime" value="${psEscapeAttr(s.standardBooruLeadTags || '')}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">LoRA Triggers</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Appended after Leading Tags wherever those leading tags are applied. Comma-separated is fine.</div>
+                        <input type="text" id="ig_lora_triggers" class="ps-modern-input" placeholder="e.g. trigger1, trigger2, character name" value="${psEscapeAttr(s.loraTriggers || '')}" style="padding: 8px; font-size: 0.8rem;" />
+                    </div>
+
+                    <div>
+                        <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Extra Instructions</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px;">Extra cues for the image-prompt step (mood, lighting, composition). Separate from leading tags.</div>
+                        <input type="text" id="ig_extra" class="ps-modern-input" placeholder="Extra cues for the image-prompt step (mood, lighting, …)" value="${psEscapeAttr(s.promptExtra || '')}" style="padding: 8px; font-size: 0.8rem;" />
                     </div>
                 </div>
 
@@ -1408,11 +1576,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 <!-- LoRA Lab -->
                 <div data-ig-collapse="lora-lab" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
-                        <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
-                        <button type="button" id="ig_krea_lora_browser_btn" class="ps-modern-btn secondary" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'inline-flex' : 'none'}; padding:6px 10px; font-size:.7rem;" title="Choose a Krea 2 LoRA from Malcolmrey's Hugging Face index"><i class="fa-solid fa-magnifying-glass"></i> Krea LoRA Finder</button>
+                    <div data-ig-collapse-header style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+                        <div class="ps-rule-title" style="margin-bottom:0; flex:1; min-width:0;"><i class="fa-solid fa-flask"></i> LoRA Lab</div>
                     </div>
-                    <div id="ig_krea_lora_hint" style="display:${runpod.enabled && s.selectedModel === RUNPOD_KREA_MODEL ? 'block' : 'none'}; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Finder selections are explicit, saved per profile, downloaded by the RunPod worker only when needed, and never changed by character keyword analysis.</div>
+                    <div style="display:block; margin:-4px 0 12px; font-size:.68rem; color:var(--text-muted);">Pick LoRAs from the <b>LoRA Gallery</b> tab and assign them to a slot below, or to a character in Character Analysis.</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                         ${[1,2,3,4].map(i => `
                             <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; border-left: 3px solid #a855f7;">
@@ -1434,10 +1601,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
                 <!-- Character Analysis -->
                 <div class="li-character-analysis-panel" data-ig-collapse="lora-intelligence" style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                    <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7;"><i class="fa-solid fa-brain"></i> Character Analysis</div>
-                        <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
-                            <div class="ps-switch" style="transform: scale(0.8);"></div>
+                    <div data-ig-collapse-header style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 15px;">
+                        <div class="ps-rule-title" style="margin-bottom: 0; color: #a855f7; flex: 1; min-width: 0;"><i class="fa-solid fa-brain"></i> Character Analysis</div>
+                        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                            <div class="ps-toggle-card ${li.enabled ? 'active' : ''}" id="li_enable_toggle" style="padding: 8px 14px; min-width: 54px; justify-content: center; cursor: pointer; border-radius: 8px;">
+                                <div class="ps-switch" style="transform: scale(0.8);"></div>
+                            </div>
+                            <button type="button" id="li_collapse_btn" class="ps-modern-btn secondary" style="padding:8px 10px; min-height:40px; min-width:40px;" title="Expand or collapse Character Analysis"><i class="fa-solid fa-chevron-down" style="transition:transform .2s;"></i></button>
                         </div>
                     </div>
 
@@ -1478,12 +1648,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                     <option value="plain" ${li.assignmentViewMode === 'plain' ? 'selected' : ''}>Plain Text View</option>
                                 </select>
                             </div>
-                            <div class="ps-toggle-card ${li.sendAllCharactersToPromptAi ? 'active' : ''}" id="li_send_all_chars_toggle" style="padding: 10px 12px; margin-top: 12px; min-height: auto; cursor: pointer;">
-                                <div style="display:flex; flex-direction:column;">
-                                    <span style="font-weight:700; font-size:0.78rem; color:var(--text-main);">Send All Character References To Prompt AI</span>
-                                    <div style="margin-top:2px; font-size:0.65rem; color:var(--text-muted);">Provides every analyzed character as a reference library and tells the AI to choose who appears from the latest message.</div>
+                            <div class="ps-toggle-card ${li.sendAllCharactersToPromptAi ? 'active' : ''}" id="li_send_all_chars_toggle" style="padding: 10px 12px; margin-top: 12px; min-height: auto; cursor: pointer; ${li.sendAllCharactersToPromptAi ? 'border-color: rgba(245,158,11,0.55); background: rgba(245,158,11,0.08);' : ''}">
+                                <div style="display:flex; flex-direction:column; min-width:0; padding-right:10px;">
+                                    <span style="font-weight:700; font-size:0.78rem; color:${li.sendAllCharactersToPromptAi ? '#fbbf24' : 'var(--text-main)'};">Send All Character References To Prompt AI</span>
+                                    <div style="margin-top:2px; font-size:0.65rem; color:var(--text-muted);">Always sends every analyzed character as an appearance library. The AI picks who is present from the latest scene. Keyword-inferred casts do not shrink this library.</div>
                                 </div>
-                                <div class="ps-switch" style="transform:scale(0.75);"></div>
+                                <div class="ps-switch" style="transform:scale(0.75); flex-shrink:0; ${li.sendAllCharactersToPromptAi ? 'background:#f59e0b;' : ''}"></div>
                             </div>
                             <div style="display: ${li.useDanbooruTags ? 'grid' : 'none'}; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 14px;">
                                 ${liTagFieldToggle("li_field_character", "Character Tag", li.tagFieldToggles.characterTag)}
@@ -1538,9 +1708,34 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                                 <button id="ig_apply_position_preset" class="ps-modern-btn secondary" style="padding: 8px 12px;"><i class="fa-solid fa-plus"></i> Add Preset</button>
                                 <button id="ig_add_character_tags" class="ps-modern-btn secondary" style="padding: 8px 12px;"><i class="fa-solid fa-user-plus"></i> Add Character Tags</button>
                             </div>
+                            <div style="margin-bottom: 14px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom: 6px; flex-wrap: wrap;">
+                                    <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); text-transform: uppercase;">Last Generated Image Prompt</div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button type="button" id="ig_copy_last_prompt_btn" class="ps-modern-btn secondary" style="padding: 6px 10px; font-size: 0.7rem;"><i class="fa-solid fa-copy"></i> Copy</button>
+                                        <button type="button" id="ig_use_last_prompt_btn" class="ps-modern-btn secondary" style="padding: 6px 10px; font-size: 0.7rem;" title="Copy the last generated prompt into the manual prompt box"><i class="fa-solid fa-arrow-down"></i> Use in Manual</button>
+                                    </div>
+                                </div>
+                                <textarea id="ig_last_image_prompt" readonly class="ps-modern-input" style="height: 90px; resize: vertical; font-family: Consolas, Monaco, monospace; font-size: 0.75rem; background: #0c0c0e; color: var(--text-main); cursor: default; margin-bottom: 0;" spellcheck="false" placeholder="No generated image prompt yet this session/profile.">${psEscapeText(s.lastGeneratedImagePrompt || "")}</textarea>
+                            </div>
+                            <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Manual Prompt</div>
                             <textarea id="ig_manual_prompt" class="ps-modern-input" style="height: 130px; resize: vertical; font-size: 0.85rem; line-height: 1.45; margin-bottom: 12px;" placeholder="Type the exact image prompt to render. This bypasses prompt generation but still uses current ComfyUI settings and LoRA slots.">${psEscapeText(s.manualPrompt || "")}</textarea>
-                            <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap;">
+                            <div style="display:flex; justify-content:flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;">
+                                <button type="button" id="ig_manual_undo_btn" class="ps-modern-btn secondary" style="padding: 8px 12px;" ${s.manualPromptUndoStack.length ? "" : "disabled"} title="Undo the last replace / Use in Manual / feedback rewrite"><i class="fa-solid fa-rotate-left"></i> Undo (${s.manualPromptUndoStack.length})</button>
                                 <button id="ig_manual_render_btn" class="ps-modern-btn primary" style="background: var(--gold); color: #000; font-weight: 800;"><i class="fa-solid fa-image"></i> Render Manual Prompt</button>
+                            </div>
+                            <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+                                <div style="font-size: 0.7rem; font-weight: bold; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">Regenerate Manual Prompt With Feedback</div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">Rewrites the current manual prompt box via NanoGPT using your notes. The previous value is saved for Undo.</div>
+                                <div class="li-analysis-feedback-row" style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end;">
+                                    <label style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+                                        <span style="font-size: 0.68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Feedback</span>
+                                        <textarea id="ig_manual_prompt_feedback" class="ps-modern-input" placeholder="e.g. Make her hair shorter and red; keep pose and camera. Or: less crowded, focus on the woman on the left." style="min-height: 74px; resize: vertical; font-size: 0.8rem; line-height: 1.45; padding: 10px;">${psEscapeText(s.manualPromptFeedback || "")}</textarea>
+                                    </label>
+                                    <button type="button" id="ig_manual_regen_feedback_btn" class="ps-modern-btn secondary" title="Rewrite the manual prompt with NanoGPT using this feedback" style="padding: 8px 12px; font-size: 0.72rem; min-height: 42px;">
+                                        <i class="fa-solid fa-rotate"></i> Regenerate With Feedback
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -1643,13 +1838,20 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         $("#ig_runpod_card").on("click", function() {
             const rp = ensureRunpodSettings(s);
             rp.enabled = !rp.enabled;
-            if (rp.enabled && ensureRunpodDropdownValues(s)) {
-                toastr.info("RunPod model defaults applied.");
+            if (rp.enabled) {
+                // Krea prose style should land on the Krea worker model so Finder/LoRAs work.
+                if (s.promptStyle === "krea2" && s.selectedModel !== RUNPOD_KREA_MODEL) {
+                    s.selectedModel = RUNPOD_KREA_MODEL;
+                }
+                if (ensureRunpodDropdownValues(s)) {
+                    toastr.info("RunPod model defaults applied.");
+                }
             }
             saveProfileToMemory();
             $(this).toggleClass("active", rp.enabled);
             if (rp.enabled) $("#ig_runpod_settings").slideDown(200);
             else $("#ig_runpod_settings").slideUp(200);
+            syncKreaLoraFinderUi(s);
             if (rp.enabled) {
                 populateRunpodImageLists(s);
                 igFetchComfyLists();
@@ -1677,6 +1879,19 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             rp.timeoutMs = Math.max(30000, parseInt($(e.target).val(), 10) || RUNPOD_IMAGE_DEFAULTS.timeoutMs);
             saveProfileToMemory();
         });
+        $("#ig_nanogpt_key").on("input", (e) => {
+            getNanoGptGlobalSettings().apiKey = String($(e.target).val() || "").trim();
+            saveProfileToMemory();
+        });
+        $("#ig_nanogpt_model").on("input", (e) => {
+            getNanoGptGlobalSettings().model = String($(e.target).val() || "").trim() || NANOGPT_DEFAULT_PROMPT_MODEL;
+            saveProfileToMemory();
+        });
+        $("#ig_nanogpt_temp").on("input", (e) => {
+            const value = parseFloat($(e.target).val());
+            getNanoGptGlobalSettings().temperature = Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : NANOGPT_DEFAULT_PROMPT_TEMPERATURE;
+            saveProfileToMemory();
+        });
         $("#ig_style").on("change", (e) => { s.promptStyle = $(e.target).val(); saveProfileToMemory(); renderImageGen(c); });
         $("#ig_persp").on("change", (e) => { s.promptPerspective = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_anima_max_tags").on("input", (e) => {
@@ -1687,6 +1902,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             saveProfileToMemory();
         });
         $("#ig_std_booru_lead").on("input", (e) => { s.standardBooruLeadTags = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_lora_triggers").on("input", (e) => { s.loraTriggers = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_extra").on("input", (e) => { s.promptExtra = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_w, #ig_h").on("input", (e) => { s[e.target.id === "ig_w" ? "imgWidth" : "imgHeight"] = parseInt($(e.target).val()); saveProfileToMemory(); });
         $("#ig_neg").on("input", (e) => { s.customNegative = $(e.target).val(); saveProfileToMemory(); });
@@ -1720,6 +1936,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 saveProfileToMemory();
             });
             $(`#ig_lorawt_${i}`).on("input", function() { let v = parseFloat(this.value); s[wtKey] = v; $(`#ig_lorawt_lbl_${i}`).text(v); saveProfileToMemory(); });
+            $(`#ig_lorawt_${i}`).on("change", function() { saveProfileToMemory(); });
             $(`#ig_lora_lock_${i}`).on("click", function() {
                 ensureImageGenLoraArrays(s);
                 s.loraSlotLocked[i - 1] = !s.loraSlotLocked[i - 1];
@@ -1733,11 +1950,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             s.selectedModel = $(e.target).val();
             if (ensureRunpodSettings(s).enabled) ensureRunpodDropdownValues(s);
             saveProfileToMemory();
+            syncKreaLoraFinderUi(s);
             renderImageGen(c);
         });
         $("#ig_sampler").on("change", (e) => { s.selectedSampler = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_scheduler").on("change", (e) => { s.selectedScheduler = $(e.target).val(); saveProfileToMemory(); });
-        $("#ig_krea_lora_browser_btn").on("click", () => showMalcolmreyKreaLoraFinder(s));
 
         // Buttons
         $("#ig_test_btn").on("click", igTestConnection);
@@ -1776,6 +1993,21 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         $("#li_enable_toggle").on("click", function() {
             li.enabled = !li.enabled; saveProfileToMemory(); renderImageGen(c);
         });
+        $("#li_collapse_btn").on("click", function(e) {
+            e.stopPropagation();
+            const $panel = $(this).closest("[data-ig-collapse]");
+            const key = $panel.attr("data-ig-collapse");
+            if (!key) return;
+            const $body = $panel.children(`[data-ig-collapse-body="${key}"]`);
+            if (!$body.length) return;
+            const nextOpen = !$body.is(":visible");
+            s.sectionOpenStates[key] = nextOpen;
+            saveProfileToMemory();
+            const rotate = nextOpen ? "rotate(180deg)" : "none";
+            $panel.find(".ig-section-chevron").css("transform", rotate);
+            $(this).find("i").css("transform", rotate);
+            $body.stop(true, true)[nextOpen ? "slideDown" : "slideUp"](180);
+        });
         $("#li_analysis_mode").on("change", function() {
             const mode = $(this).val() || "booru";
             li.ensureLoras = false;
@@ -1803,8 +2035,28 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         bindLiTagToggle("li_field_clothing", "clothingTags");
         $("#ig_manual_render_btn").on("click", igRenderManualPrompt);
         $("#ig_manual_prompt").on("input", (e) => { s.manualPrompt = $(e.target).val(); saveProfileToMemory(); });
+        $("#ig_manual_prompt_feedback").on("input", (e) => { s.manualPromptFeedback = $(e.target).val(); saveProfileToMemory(); });
         $("#ig_apply_position_preset").on("click", () => applyPromptPresetToTextarea("#ig_nsfw_position_preset", "#ig_manual_prompt", s, "manualPrompt"));
         $("#ig_add_character_tags").on("click", () => igAddCharacterInfoToManualPrompt(s, li, charKey));
+        $("#ig_use_last_prompt_btn").on("click", () => {
+            const last = String(s.lastGeneratedImagePrompt || $("#ig_last_image_prompt").val() || "").trim();
+            if (!last) return toastr.warning("No last generated image prompt available yet.");
+            igSetManualPromptValue(s, last, { recordUndo: true, toast: "Last generated prompt loaded into Manual Prompt." });
+        });
+        $("#ig_copy_last_prompt_btn").on("click", async () => {
+            const last = String(s.lastGeneratedImagePrompt || $("#ig_last_image_prompt").val() || "").trim();
+            if (!last) return toastr.warning("No last generated image prompt available yet.");
+            try {
+                await navigator.clipboard.writeText(last);
+                toastr.success("Last generated prompt copied.");
+            } catch (e) {
+                toastr.error("Could not copy to clipboard.");
+            }
+        });
+        $("#ig_manual_undo_btn").on("click", () => igUndoManualPrompt(s));
+        $("#ig_manual_regen_feedback_btn").on("click", function() {
+            igRegenerateManualPromptWithFeedback(s, $(this));
+        });
         $("#li_prompt_assembly_mode").on("change", function() {
             li.promptAssemblyMode = $(this).val();
             saveProfileToMemory();
@@ -1818,7 +2070,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             e.stopPropagation();
             li.sendAllCharactersToPromptAi = !li.sendAllCharactersToPromptAi;
             saveProfileToMemory();
-            renderImageGen(c);
+            const on = !!li.sendAllCharactersToPromptAi;
+            $(this).toggleClass("active", on);
+            $(this).css({
+                borderColor: on ? "rgba(245,158,11,0.55)" : "",
+                background: on ? "rgba(245,158,11,0.08)" : ""
+            });
+            $(this).find("span").first().css("color", on ? "#fbbf24" : "");
+            $(this).find(".ps-switch").css("background", on ? "#f59e0b" : "");
         });
 
         // Prompt preview toggle
@@ -2125,6 +2384,44 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return bakedKreaLoraLoad;
     }
 
+    async function loadBakedAnimaLoras() {
+        if (bakedAnimaLoraCache) return bakedAnimaLoraCache;
+        if (bakedAnimaLoraLoad) return bakedAnimaLoraLoad;
+        bakedAnimaLoraLoad = fetch(ANIMA_BAKED_LORA_MANIFEST_URL, { cache: "no-cache" })
+            .then(async response => {
+                if (!response.ok) throw new Error(`Baked Anima LoRA manifest request failed (${response.status}).`);
+                const manifest = await response.json();
+                if (!Array.isArray(manifest)) throw new Error("Baked Anima LoRA manifest must be an array.");
+                bakedAnimaLoraCache = manifest.map(item => {
+                    const filename = String(item?.filename || "").trim();
+                    if (!/^[^\\/]+\.safetensors$/i.test(filename)) return null;
+                    return {
+                        filename,
+                        label: String(item?.label || prettyKreaLoraName(filename)).trim(),
+                        reference: filename,
+                        source: "Baked"
+                    };
+                }).filter(Boolean);
+                return bakedAnimaLoraCache;
+            })
+            .finally(() => { bakedAnimaLoraLoad = null; });
+        return bakedAnimaLoraLoad;
+    }
+
+    async function loadRunpodBakedLoraBundles() {
+        const [anima, krea] = await Promise.all([
+            loadBakedAnimaLoras().catch(error => {
+                console.warn("[Megumin Suite] Could not load baked Anima LoRA manifest:", error);
+                return [];
+            }),
+            loadBakedKreaLoras().catch(error => {
+                console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error);
+                return [];
+            })
+        ]);
+        return { anima, krea };
+    }
+
     async function loadMalcolmreyKreaLoras() {
         if (malcolmreyKreaLoraLoad) return malcolmreyKreaLoraLoad;
         // Revalidate every time Finder opens: Malcolmrey's index changes often.
@@ -2147,6 +2444,620 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return malcolmreyKreaLoraLoad;
     }
 
+    // -------------------------------------------------------------
+    // KREA LORA GALLERY — data loading + local caching
+    // -------------------------------------------------------------
+    const MALCOLMREY_THUMBNAIL_INDEX_URL = "https://huggingface.co/spaces/malcolmrey/browser/resolve/main/data-thumbnails.json";
+    const MALCOLMREY_THUMBNAIL_BASE_URL = "https://huggingface.co/datasets/malcolmrey/samples/resolve/main/thumbnails/";
+    const KREA_GALLERY_CACHE_KEY = "megumin_krea_gallery_cache_v1";
+    const KREA_GALLERY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const KREA_THUMB_DB_NAME = "megumin_krea_thumbs_v1";
+    const KREA_THUMB_STORE = "thumbs";
+    const KREA_THUMB_FETCH_CONCURRENCY = 4;
+
+    let kreaGalleryEntriesCache = null; // in-memory, cleared on full page reload
+    let kreaGalleryEntriesLoad = null;  // in-flight promise, avoids duplicate fetches
+    let kreaThumbDbPromise = null;
+    const kreaThumbBlobUrlByKey = new Map(); // cacheKey -> objectURL (session reuse)
+    const kreaThumbInflight = new Map(); // cacheKey -> Promise<string|null>
+
+    function kreaGalleryThumbnailUrl(charKey) {
+        return `${MALCOLMREY_THUMBNAIL_BASE_URL}${encodeURIComponent(charKey)}.jpg`;
+    }
+
+    function readKreaGalleryLocalCache() {
+        try {
+            const raw = localStorage.getItem(KREA_GALLERY_CACHE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.ts !== "number") return null;
+            if (Date.now() - parsed.ts > KREA_GALLERY_CACHE_TTL_MS) return null;
+            return parsed.entries;
+        } catch (e) { return null; }
+    }
+
+    function writeKreaGalleryLocalCache(entries) {
+        try {
+            localStorage.setItem(KREA_GALLERY_CACHE_KEY, JSON.stringify({ ts: Date.now(), entries }));
+        } catch (e) { /* localStorage full or unavailable — non-fatal, just skip caching */ }
+    }
+
+    function clearKreaGalleryIndexCache() {
+        kreaGalleryEntriesCache = null;
+        try { localStorage.removeItem(KREA_GALLERY_CACHE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function openKreaThumbDb() {
+        if (kreaThumbDbPromise) return kreaThumbDbPromise;
+        if (typeof indexedDB === "undefined") {
+            kreaThumbDbPromise = Promise.reject(new Error("IndexedDB unavailable"));
+            return kreaThumbDbPromise;
+        }
+        kreaThumbDbPromise = new Promise((resolve, reject) => {
+            let req;
+            try { req = indexedDB.open(KREA_THUMB_DB_NAME, 1); }
+            catch (e) { reject(e); return; }
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(KREA_THUMB_STORE)) {
+                    db.createObjectStore(KREA_THUMB_STORE, { keyPath: "key" });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+        }).catch(err => {
+            kreaThumbDbPromise = null;
+            throw err;
+        });
+        return kreaThumbDbPromise;
+    }
+
+    async function readKreaThumbBlob(cacheKey) {
+        try {
+            const db = await openKreaThumbDb();
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction(KREA_THUMB_STORE, "readonly");
+                const req = tx.objectStore(KREA_THUMB_STORE).get(cacheKey);
+                req.onsuccess = () => {
+                    const row = req.result;
+                    resolve(row && row.blob instanceof Blob ? row.blob : null);
+                };
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) { return null; }
+    }
+
+    async function writeKreaThumbBlob(cacheKey, blob) {
+        if (!(blob instanceof Blob) || !cacheKey) return;
+        try {
+            const db = await openKreaThumbDb();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(KREA_THUMB_STORE, "readwrite");
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+                tx.objectStore(KREA_THUMB_STORE).put({
+                    key: cacheKey,
+                    blob,
+                    mime: blob.type || "image/jpeg",
+                    ts: Date.now(),
+                });
+            });
+        } catch (e) { /* quota / private mode — non-fatal */ }
+    }
+
+    function kreaThumbObjectUrlFromBlob(cacheKey, blob) {
+        const existing = kreaThumbBlobUrlByKey.get(cacheKey);
+        if (existing) return existing;
+        const url = URL.createObjectURL(blob);
+        kreaThumbBlobUrlByKey.set(cacheKey, url);
+        return url;
+    }
+
+    async function resolveKreaThumbDisplayUrl(remoteUrl, opts = {}) {
+        const cacheKey = String(remoteUrl || "").trim();
+        const forceReload = !!opts.forceReload;
+        if (!cacheKey) return null;
+        if (!forceReload && kreaThumbBlobUrlByKey.has(cacheKey)) return kreaThumbBlobUrlByKey.get(cacheKey);
+        if (!forceReload && kreaThumbInflight.has(cacheKey)) return kreaThumbInflight.get(cacheKey);
+
+        const work = (async () => {
+            if (!forceReload) {
+                const cached = await readKreaThumbBlob(cacheKey);
+                if (cached) return kreaThumbObjectUrlFromBlob(cacheKey, cached);
+            }
+            try {
+                const res = await fetch(cacheKey, {
+                    mode: "cors",
+                    credentials: "omit",
+                    cache: forceReload ? "reload" : "force-cache",
+                });
+                if (!res.ok) return null;
+                const blob = await res.blob();
+                // HF sometimes serves thumbs as octet-stream / empty MIME — still accept image-looking blobs.
+                const mime = String(blob.type || "").toLowerCase();
+                const looksImage = !mime || mime.startsWith("image/") || mime === "application/octet-stream";
+                if (!(blob instanceof Blob) || !blob.size || !looksImage) return null;
+                await writeKreaThumbBlob(cacheKey, blob);
+                // Replace any prior object URL for this key after a forced reload.
+                if (forceReload && kreaThumbBlobUrlByKey.has(cacheKey)) {
+                    try { URL.revokeObjectURL(kreaThumbBlobUrlByKey.get(cacheKey)); } catch (e) { /* ignore */ }
+                    kreaThumbBlobUrlByKey.delete(cacheKey);
+                }
+                return kreaThumbObjectUrlFromBlob(cacheKey, blob);
+            } catch (e) {
+                return null; // CORS / network — remote <img src> remains the display path
+            }
+        })().finally(() => { kreaThumbInflight.delete(cacheKey); });
+
+        kreaThumbInflight.set(cacheKey, work);
+        return work;
+    }
+
+    // Prefer IndexedDB/blob when available; never block first paint on network fetch.
+    // Misses keep the remote src visible and warm the cache in the background.
+    // Keep data-thumb-url so blank/failed thumbs can be retried later.
+    async function hydrateKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
+        const imgs = ($root.find ? $root.find("img.kg-thumb[data-thumb-url]") : $()).toArray();
+        if (!imgs.length) return;
+        let cursor = 0;
+        const workerCount = Math.max(1, Math.min(concurrency, imgs.length));
+        async function worker() {
+            while (cursor < imgs.length) {
+                const img = imgs[cursor++];
+                if (!img || !img.isConnected) continue;
+                const remote = img.getAttribute("data-thumb-url");
+                if (!remote) continue;
+
+                // Instant session/memory hit
+                const memoryHit = kreaThumbBlobUrlByKey.get(remote);
+                if (memoryHit) {
+                    img.src = memoryHit;
+                    continue;
+                }
+
+                // Fast IndexedDB lookup — only swap if we already have bytes locally
+                const cached = await readKreaThumbBlob(remote);
+                if (!img.isConnected) continue;
+                if (cached) {
+                    img.src = kreaThumbObjectUrlFromBlob(remote, cached);
+                    continue;
+                }
+
+                // Keep remote src painting now; cache opportunistically for next time
+                resolveKreaThumbDisplayUrl(remote).catch(() => {});
+            }
+        }
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    }
+
+    function kreaThumbFallbackHtml(remoteUrl) {
+        const attr = remoteUrl ? ` data-thumb-url="${psEscapeAttr(remoteUrl)}"` : "";
+        return `<div class="kg-thumb-fallback kg-thumb-missing"${attr}><i class="fa-solid fa-image"></i></div>`;
+    }
+
+    function kreaThumbImgHtml(remoteUrl, srcUrl) {
+        return `<img class="kg-thumb" data-thumb-url="${psEscapeAttr(remoteUrl)}" src="${psEscapeAttr(srcUrl || remoteUrl)}" loading="eager" decoding="async" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:8px; background:rgba(255,255,255,0.04);">`;
+    }
+
+    function waitForImageLoad(img) {
+        return new Promise(resolve => {
+            if (!img) { resolve(false); return; }
+            const finish = (ok) => {
+                img.onload = null;
+                img.onerror = null;
+                resolve(!!ok);
+            };
+            if (img.complete) {
+                finish(img.naturalWidth > 0);
+                return;
+            }
+            img.onload = () => finish(true);
+            img.onerror = () => finish(false);
+        });
+    }
+
+    // Reload only blank/broken thumbs currently visible in the gallery page.
+    async function retryBlankKreaGalleryThumbs($root, { concurrency = KREA_THUMB_FETCH_CONCURRENCY } = {}) {
+        if (!$root || !$root.length) return { attempted: 0, recovered: 0 };
+        const targets = [];
+
+        $root.find(".kg-thumb-fallback[data-thumb-url]").each(function() {
+            const remote = String($(this).attr("data-thumb-url") || "").trim();
+            if (remote) targets.push({ el: this, remote });
+        });
+
+        $root.find("img.kg-thumb[data-thumb-url]").each(function() {
+            const remote = String(this.getAttribute("data-thumb-url") || "").trim();
+            if (!remote) return;
+            if (this.complete && this.naturalWidth > 0) return;
+            targets.push({ el: this, remote });
+        });
+
+        if (!targets.length) return { attempted: 0, recovered: 0 };
+
+        let cursor = 0;
+        let recovered = 0;
+        const workerCount = Math.max(1, Math.min(concurrency, targets.length));
+
+        async function worker() {
+            while (cursor < targets.length) {
+                const item = targets[cursor++];
+                if (!item || !item.el || !item.el.isConnected) continue;
+
+                const localUrl = await resolveKreaThumbDisplayUrl(item.remote, { forceReload: true });
+                if (!item.el.isConnected) continue;
+
+                const nextSrc = localUrl || `${item.remote}${item.remote.includes("?") ? "&" : "?"}kgretry=${Date.now()}`;
+                let img = item.el.tagName === "IMG" ? item.el : null;
+
+                if (!img) {
+                    const $img = $(kreaThumbImgHtml(item.remote, nextSrc));
+                    $(item.el).replaceWith($img);
+                    img = $img[0];
+                } else {
+                    img.src = nextSrc;
+                }
+
+                const ok = await waitForImageLoad(img);
+                if (!img.isConnected) continue;
+                if (ok) recovered += 1;
+                else $(img).replaceWith(kreaThumbFallbackHtml(item.remote));
+            }
+        }
+
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+        return { attempted: targets.length, recovered };
+    }
+
+    // Returns [{ filename, label, reference, source: "Runtime"|"Baked", thumbUrl: string|null }]
+    async function loadKreaGalleryEntries(opts = {}) {
+        const forceRefresh = !!opts.forceRefresh;
+        if (!forceRefresh && kreaGalleryEntriesCache) return kreaGalleryEntriesCache;
+        if (!forceRefresh) {
+            const cached = readKreaGalleryLocalCache();
+            if (cached) { kreaGalleryEntriesCache = cached; return cached; }
+        }
+        if (kreaGalleryEntriesLoad) return kreaGalleryEntriesLoad;
+
+        kreaGalleryEntriesLoad = (async () => {
+            const [filenamesRes, thumbsRes, bakedList] = await Promise.all([
+                fetch(MALCOLMREY_BROWSER_INDEX_URL, { cache: forceRefresh ? "no-cache" : "default" }),
+                fetch(MALCOLMREY_THUMBNAIL_INDEX_URL, { cache: forceRefresh ? "no-cache" : "default" }).catch(() => null),
+                loadBakedKreaLoras().catch(() => []),
+            ]);
+            if (!filenamesRes.ok) throw new Error(`Malcolmrey index request failed (${filenamesRes.status}).`);
+            const filenamesJson = await filenamesRes.json();
+            let thumbnailSet = {};
+            if (thumbsRes && thumbsRes.ok) {
+                try { thumbnailSet = await thumbsRes.json(); } catch (e) { thumbnailSet = {}; }
+            }
+
+            const rawEntries = collectMalcolmreyKreaEntries(filenamesJson)
+                .sort((a, b) => a.filename.localeCompare(b.filename));
+            if (!rawEntries.length) throw new Error("The Malcolmrey index did not contain any Krea 2 LoRA filenames.");
+
+            const runtimeEntries = rawEntries.map(({ charKey, filename }) => ({
+                filename,
+                label: prettyKreaCharacterLabel(charKey, filename),
+                reference: `hf://${MALCOLMREY_KREA_REPOSITORY}/${filename}`,
+                source: "Runtime",
+                thumbUrl: thumbnailSet[charKey] ? kreaGalleryThumbnailUrl(charKey) : null,
+            }));
+
+            const bakedEntries = (Array.isArray(bakedList) ? bakedList : []).map(item => ({
+                filename: item.filename,
+                label: item.label || prettyKreaLoraName(item.filename),
+                reference: item.reference,
+                source: "Baked",
+                thumbUrl: null,
+            }));
+
+            const combined = [...bakedEntries, ...runtimeEntries];
+            kreaGalleryEntriesCache = combined;
+            writeKreaGalleryLocalCache(combined);
+            return combined;
+        })().finally(() => { kreaGalleryEntriesLoad = null; });
+
+        return kreaGalleryEntriesLoad;
+    }
+
+    async function openKreaGalleryAssignPopup(s, li, charKey, reference, label) {
+        const rows = getModeCharacterAssignments(li, charKey);
+        const slotLabels = [1, 2, 3, 4].map(i => {
+            const key = i === 1 ? "selectedLora" : `selectedLora${i}`;
+            const current = s[key] ? String(s[key]).split("/").pop() : "(empty)";
+            return `<button type="button" class="ps-modern-btn secondary kg-assign-slot" data-slot="${i}" style="width:100%; text-align:left; padding:10px; margin-bottom:6px; font-size:0.78rem;">Slot ${i} — <span style="color:var(--text-muted);">${psEscapeText(current)}</span></button>`;
+        }).join("");
+        const charRows = rows.length
+            ? rows.map((a, idx) => `<button type="button" class="ps-modern-btn secondary kg-assign-char" data-idx="${idx}" style="width:100%; text-align:left; padding:10px; margin-bottom:6px; font-size:0.78rem;">${psEscapeText(a.character || `Character ${idx + 1}`)} — <span style="color:var(--text-muted);">${psEscapeText(a.lora || "(no LoRA set)")}</span></button>`).join("")
+            : `<div style="font-size:0.75rem; color:var(--text-muted); padding:6px 0;">No analyzed characters yet for this chat. Use Character Analysis first, or assign to a slot above.</div>`;
+
+        const $content = $(`
+            <div style="max-height:70vh; overflow-y:auto;">
+                <div style="font-size:0.85rem; font-weight:700; margin-bottom:10px; word-break:break-word;">${psEscapeText(label)}</div>
+                <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px;">Assign to Slot</div>
+                ${slotLabels}
+                <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); margin:14px 0 6px;">Assign to Character</div>
+                ${charRows}
+            </div>
+        `);
+
+        const popup = new Popup($content, POPUP_TYPE.TEXT, "", { okButton: "Close", wide: true });
+
+        $content.find(".kg-assign-slot").on("click", function() {
+            const slot = parseInt($(this).data("slot"), 10);
+            setExplicitRuntimeLoraSlot(s, slot, reference);
+            toastr.success(`Assigned to Slot ${slot}.`, "Megumin Suite");
+            try {
+                if (typeof popup.completeAffirmative === "function") popup.completeAffirmative();
+                else if (typeof popup.hide === "function") popup.hide();
+            } catch (e) { /* popup still has Close button */ }
+        });
+        $content.find(".kg-assign-char").on("click", function() {
+            const idx = parseInt($(this).data("idx"), 10);
+            if (rows[idx]) {
+                rows[idx].lora = reference;
+                saveProfileToMemory();
+                toastr.success(`Assigned to ${rows[idx].character || "character"}.`, "Megumin Suite");
+            }
+            try {
+                if (typeof popup.completeAffirmative === "function") popup.completeAffirmative();
+                else if (typeof popup.hide === "function") popup.hide();
+            } catch (e) { /* popup still has Close button */ }
+        });
+
+        await popup.show();
+    }
+
+    function renderKreaLoraGallery(c) {
+        c.empty();
+        const s = getLocalProfile().imageGen;
+        ensureImageGenLoraArrays(s);
+        if (!s.loraIntel) s.loraIntel = { enabled: false, ensureLoras: false, useDanbooruTags: true, ensureCharacterTag: false, useCharDescriptions: false, descriptionStyle: 'natural', promptAssemblyMode: 'structured', assignmentViewMode: 'structured', sendAllCharactersToPromptAi: false, globalActiveLoras: [], characterActiveLoras: {}, characterAssignments: {}, characterAssignmentsByMode: {}, lastCharacterAnalysisResponse: "", characterAnalysisFeedback: "", compiledPromptOverride: "" };
+        ensureLoraIntelDefaults(s.loraIntel);
+        const li = s.loraIntel;
+        const charKey = getCharacterKey() || "default";
+        ensureStructuredCharacterAssignments(li, charKey);
+        syncCurrentModeCharacterAssignments(li, charKey);
+
+        const KG_PAGE_SIZE = 24;
+        let thumbHydrateToken = 0;
+
+        c.append(`
+            <style>
+                /* Keep gallery scroll inside the modal; do not grow the page behind SillyTavern. */
+                #ps_stage_content:has(.kg-gallery-root) {
+                    overflow: hidden !important;
+                    min-height: 0;
+                }
+                .kg-gallery-root {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    height: 100%;
+                    max-height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    background: #18181b;
+                    border: 1px solid var(--border-color);
+                    border-radius: 12px;
+                }
+                .kg-toolbar {
+                    flex: 0 0 auto;
+                    position: relative;
+                    z-index: 2;
+                    background: #18181b;
+                    border-bottom: 1px solid var(--border-color);
+                    padding: 14px 16px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
+                }
+                #kg_grid {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-x: hidden;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                    overscroll-behavior: contain;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+                    gap: 10px;
+                    padding: 14px;
+                    align-content: start;
+                }
+                .kg-thumb-fallback { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem; }
+                .kg-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+                .kg-refresh-btn {
+                    flex: 0 0 auto;
+                    width: 30px;
+                    height: 30px;
+                    min-height: 30px !important;
+                    padding: 0 !important;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 8px;
+                    font-size: 0.72rem;
+                    line-height: 1;
+                    min-width: 30px;
+                }
+                .kg-refresh-btn.is-busy i { animation: kg-spin 0.8s linear infinite; }
+                @keyframes kg-spin { to { transform: rotate(360deg); } }
+            </style>
+            <div class="kg-gallery-root">
+                <div id="kg_toolbar" class="kg-toolbar">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+                        <div class="ps-rule-title" style="margin-bottom:0;"><i class="fa-solid fa-images"></i> LoRA Gallery</div>
+                        <button type="button" id="kg_refresh_btn" class="ps-modern-btn secondary kg-refresh-btn" title="Retry blank thumbnails" aria-label="Retry blank thumbnails"><i class="fa-solid fa-rotate"></i></button>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <input id="kg_search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search LoRA name..." class="ps-modern-input" style="flex: 1; min-width: 140px; font-size: 16px; padding: 10px;">
+                        <select id="kg_source_filter" class="ps-modern-input" style="width: auto; padding: 10px; font-size: 0.8rem;">
+                            <option value="all">All Sources</option>
+                            <option value="Runtime">Runtime (Malcolmrey)</option>
+                            <option value="Baked">Baked</option>
+                        </select>
+                    </div>
+                    <div id="kg_status" style="font-size: 0.72rem; color: var(--text-muted);">Loading LoRA index…</div>
+                    <div id="kg_pager" style="display: none; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" id="kg_prev_btn" class="ps-modern-btn secondary kg-page-btn" style="padding: 8px 12px; font-size: 0.75rem;"><i class="fa-solid fa-chevron-left"></i> Prev</button>
+                        <span id="kg_page_label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;"></span>
+                        <button type="button" id="kg_next_btn" class="ps-modern-btn secondary kg-page-btn" style="padding: 8px 12px; font-size: 0.75rem;">Next <i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </div>
+                <div id="kg_grid"></div>
+            </div>
+        `);
+
+        const $status = $("#kg_status");
+        const $grid = $("#kg_grid");
+        const $pager = $("#kg_pager");
+        const $pageLabel = $("#kg_page_label");
+        const $prevBtn = $("#kg_prev_btn");
+        const $nextBtn = $("#kg_next_btn");
+        const $refreshBtn = $("#kg_refresh_btn");
+        let allEntries = [];
+        let currentPage = 1;
+
+        function cardHtml(entry) {
+            const safeLabel = psEscapeText(entry.label);
+            const safeRef = psEscapeAttr(entry.reference);
+            const badgeColor = entry.source === "Runtime" ? "#a855f7" : "#10b981";
+            let imgOrPlaceholder;
+            if (entry.thumbUrl) {
+                const cachedLocal = kreaThumbBlobUrlByKey.get(entry.thumbUrl);
+                imgOrPlaceholder = cachedLocal
+                    ? kreaThumbImgHtml(entry.thumbUrl, cachedLocal)
+                    : kreaThumbImgHtml(entry.thumbUrl, entry.thumbUrl);
+            } else {
+                imgOrPlaceholder = `<div class="kg-thumb-fallback"><i class="fa-solid fa-image"></i></div>`;
+            }
+            return `
+                <div class="kg-card" data-ref="${safeRef}" data-label="${safeLabel}" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 10px; padding: 6px; cursor: pointer; display:flex; flex-direction:column; gap:6px; -webkit-tap-highlight-color: rgba(168,85,247,0.25);">
+                    <div style="width:100%; aspect-ratio:1/1; border-radius:8px; overflow:hidden; background:rgba(255,255,255,0.04); display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:1.6rem;">${imgOrPlaceholder}</div>
+                    <div style="font-size:0.68rem; font-weight:700; color:var(--text-main); line-height:1.2; max-height:2.4em; overflow:hidden;">${safeLabel}</div>
+                    <span style="align-self:flex-start; font-size:0.58rem; font-weight:800; text-transform:uppercase; padding:2px 6px; border-radius:5px; background:${badgeColor}22; color:${badgeColor};">${entry.source}</span>
+                </div>
+            `;
+        }
+
+        function getFilteredEntries() {
+            const term = String($("#kg_search").val() || "").trim().toLowerCase();
+            const sourceFilter = $("#kg_source_filter").val();
+            let filtered = allEntries;
+            if (sourceFilter !== "all") filtered = filtered.filter(e => e.source === sourceFilter);
+            if (term) filtered = filtered.filter(e => e.label.toLowerCase().includes(term) || e.filename.toLowerCase().includes(term));
+            return filtered;
+        }
+
+        function renderGrid() {
+            const filtered = getFilteredEntries();
+            const totalPages = Math.max(1, Math.ceil(filtered.length / KG_PAGE_SIZE));
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const start = (currentPage - 1) * KG_PAGE_SIZE;
+            const pageEntries = filtered.slice(start, start + KG_PAGE_SIZE);
+            const showingFrom = filtered.length ? start + 1 : 0;
+            const showingTo = start + pageEntries.length;
+
+            $status.text(filtered.length
+                ? `Showing ${showingFrom}–${showingTo} of ${filtered.length} LoRAs${filtered.length !== allEntries.length ? ` (${allEntries.length} total)` : ""}`
+                : `0 of ${allEntries.length} LoRAs`);
+
+            if (filtered.length > KG_PAGE_SIZE) {
+                $pager.css("display", "flex");
+                $pageLabel.text(`Page ${currentPage} / ${totalPages}`);
+                $prevBtn.prop("disabled", currentPage <= 1);
+                $nextBtn.prop("disabled", currentPage >= totalPages);
+            } else {
+                $pager.hide();
+            }
+
+            if (!filtered.length) {
+                thumbHydrateToken += 1;
+                $grid.html(`<div style="grid-column:1/-1; text-align:center; color:var(--text-muted); font-size:0.8rem; padding:30px 0;">No LoRAs match your search.</div>`);
+                return;
+            }
+            $grid.html(pageEntries.map(cardHtml).join(""));
+            $grid.scrollTop(0);
+            $grid.find(".kg-thumb").on("error", function() {
+                const remote = String($(this).attr("data-thumb-url") || "").trim();
+                $(this).replaceWith(kreaThumbFallbackHtml(remote));
+            });
+            $grid.find(".kg-card").on("click", function() {
+                const ref = $(this).attr("data-ref");
+                const label = $(this).attr("data-label");
+                openKreaGalleryAssignPopup(s, li, charKey, ref, label);
+            });
+
+            const token = ++thumbHydrateToken;
+            hydrateKreaGalleryThumbs($grid).catch(() => {}).finally(() => {
+                if (token !== thumbHydrateToken) return;
+            });
+        }
+
+        function resetToFirstPageAndRender() {
+            currentPage = 1;
+            renderGrid();
+        }
+
+        async function loadAndRender() {
+            $status.text("Loading LoRA index…");
+            $pager.hide();
+            try {
+                allEntries = await loadKreaGalleryEntries({ forceRefresh: false });
+                // Keep the current page when possible (only clamp inside renderGrid).
+                renderGrid();
+            } catch (e) {
+                console.error("[Megumin Suite] LoRA Gallery load failed:", e);
+                $status.text("Failed to load LoRA index.");
+                $pager.hide();
+                $grid.html(`<div style="grid-column:1/-1; text-align:center; color:#ef4444; font-size:0.8rem; padding:30px 0;">${psEscapeText(e && e.message ? e.message : String(e))}</div>`);
+            }
+        }
+
+        async function retryBlankThumbs() {
+            $refreshBtn.addClass("is-busy").prop("disabled", true);
+            const prevStatus = $status.text();
+            $status.text("Retrying blank thumbnails…");
+            try {
+                const result = await retryBlankKreaGalleryThumbs($grid);
+                if (!result.attempted) {
+                    $status.text(prevStatus || "No blank thumbnails on this page.");
+                } else {
+                    $status.text(`Retried ${result.attempted} blank thumbnail${result.attempted === 1 ? "" : "s"} — recovered ${result.recovered}.`);
+                }
+            } catch (e) {
+                console.error("[Megumin Suite] Thumbnail retry failed:", e);
+                $status.text("Thumbnail retry failed.");
+            } finally {
+                $refreshBtn.removeClass("is-busy").prop("disabled", false);
+            }
+        }
+
+        $("#kg_search").on("input", resetToFirstPageAndRender);
+        $("#kg_source_filter").on("change", resetToFirstPageAndRender);
+        $refreshBtn.on("click", () => retryBlankThumbs());
+        $prevBtn.on("click", () => {
+            if (currentPage > 1) {
+                currentPage -= 1;
+                renderGrid();
+            }
+        });
+        $nextBtn.on("click", () => {
+            const totalPages = Math.max(1, Math.ceil(getFilteredEntries().length / KG_PAGE_SIZE));
+            if (currentPage < totalPages) {
+                currentPage += 1;
+                renderGrid();
+            }
+        });
+
+        loadAndRender();
+    }
+
     function setExplicitRuntimeLoraSlot(s, slot, reference) {
         const index = Math.max(1, Math.min(4, parseInt(slot, 10) || 1));
         const key = index === 1 ? "selectedLora" : `selectedLora${index}`;
@@ -2161,24 +3072,78 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         saveProfileToMemory();
     }
 
-    function appendKreaRuntimeLoraTriggerInstruction(prompt, loras) {
-        // Every Krea LoRA slot needs the "a woman" trigger conveyed to the LLM,
-        // regardless of whether the LoRA is the baked default/manifest entry
-        // (a plain filename) or a Malcolmrey Finder pick (an hf:// reference).
+    function buildKreaLoraTriggerSuffix(loras) {
+        // Krea character LoRAs are keyed to the plain, generic phrase "a woman"
+        // rather than a unique per-identity token. This returns ONLY that
+        // literal phrase, repeated once per selected LoRA slot -- no identity
+        // names, no Civitai/HF labels, no meta-instruction sentences.
+        //
+        // We deliberately do NOT build a verbose "instruction" paragraph
+        // (e.g. "Use the exact trigger phrase X for identity Y") and hand it
+        // to the NanoGPT rewrite LLM anymore. Faster/cheaper chat models are
+        // prone to treating instruction-shaped text as content to preserve
+        // "exactly" and echo it back verbatim (including nonsense like raw
+        // Civitai IDs) instead of transforming it -- which is exactly what
+        // was polluting the final render prompt. A plain repeated trigger
+        // word is safe to literally exist inside an SD/Krea prompt either
+        // way, so we inject it deterministically in code instead of asking
+        // an LLM to understand and comply with a rule about it.
         const selected = (Array.isArray(loras) ? loras : [])
             .map(value => String(value || "").trim())
             .filter(value => value && value.toLowerCase() !== "none");
-        if (!selected.length) return String(prompt || "");
-        const identities = selected.map(reference => prettyKreaLoraName(reference.split("/").pop())).join(", ");
-        const countWord = selected.length === 1 ? "one selected identity" : `${selected.length} selected identities`;
-        const instruction = `Krea character LoRA instruction: ${countWord} (${identities}). Use the exact trigger phrase "a woman" for every selected LoRA identity. Describe each as a distinct adult woman with a separate spatial label and do not merge their faces, hair, or clothing.`;
+        if (!selected.length) return "";
+        return selected.map(() => "a woman").join(", ");
+    }
+
+    function appendKreaRuntimeLoraTriggerInstruction(prompt, loras) {
+        const suffix = buildKreaLoraTriggerSuffix(loras);
+        if (!suffix) return String(prompt || "");
         const current = String(prompt || "").trim();
-        return current ? `${current}\n${instruction}` : instruction;
+        return current ? `${current}, ${suffix}` : suffix;
+    }
+
+    function syncKreaLoraFinderUi(s) {
+        const runpodOn = !!(s && ensureRunpodSettings(s).enabled);
+        const isKrea = !!(s && s.selectedModel === RUNPOD_KREA_MODEL);
+        const $btn = $("#ig_krea_lora_browser_btn");
+        const $hint = $("#ig_krea_lora_hint");
+        if (!$btn.length) return;
+        $btn.css("display", "inline-flex");
+        if (!runpodOn) {
+            $hint.html('Turn on <b>Render with RunPod</b>, set model to <code>krea2_turbo_fp8_scaled.safetensors</code>, then click <b>Krea LoRA Finder</b> to pick Malcolmrey / baked LoRAs into slots 1–4.');
+        } else if (!isKrea) {
+            $hint.html('RunPod is on, but the model is not Krea 2. Select <code>krea2_turbo_fp8_scaled.safetensors</code> in the Model dropdown (or click Finder — it will switch for you).');
+        } else {
+            $hint.html('Finder picks Malcolmrey <span style="color:#c084fc;font-weight:700;">Runtime</span> and baked <span style="color:#10b981;font-weight:700;">Baked</span> LoRAs into slots 1–4. Saved per profile; not overwritten by character keyword analysis.');
+        }
+        $hint.show();
     }
 
     async function showMalcolmreyKreaLoraFinder(s) {
-        if (!ensureRunpodSettings(s).enabled || s.selectedModel !== RUNPOD_KREA_MODEL) {
-            return toastr.warning("Enable RunPod and select the Krea 2 model before choosing a runtime LoRA.");
+      try {
+        const rp = ensureRunpodSettings(s);
+        if (!rp.enabled) {
+            rp.enabled = true;
+            if (s.promptStyle === "krea2" || !s.selectedModel || isRunpodAnimaModel(s.selectedModel)) {
+                s.selectedModel = RUNPOD_KREA_MODEL;
+            }
+            ensureRunpodDropdownValues(s);
+            saveProfileToMemory();
+            $("#ig_runpod_card").addClass("active");
+            $("#ig_runpod_settings").show();
+            populateRunpodImageLists(s);
+            igFetchComfyLists();
+            syncKreaLoraFinderUi(s);
+            toastr.info("Enabled RunPod for Krea LoRA Finder.");
+        }
+        if (s.selectedModel !== RUNPOD_KREA_MODEL) {
+            s.selectedModel = RUNPOD_KREA_MODEL;
+            ensureRunpodDropdownValues(s);
+            saveProfileToMemory();
+            populateRunpodImageLists(s);
+            $("#ig_model").val(RUNPOD_KREA_MODEL);
+            syncKreaLoraFinderUi(s);
+            toastr.info("Switched model to Krea 2 for runtime LoRAs.");
         }
         const $overlay = $(`
             <div class="ig-krea-lora-overlay" style="position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:18px; box-sizing:border-box; background:rgba(0,0,0,.72); font-family:'Inter',sans-serif;">
@@ -2226,7 +3191,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             $status.css("padding", "10px 18px");
             $results.show();
             render();
-            $overlay.find(".ig-krea-lora-search").on("input", render).trigger("focus");
+            $overlay.find(".ig-krea-lora-search").on("input", render);
             $overlay.on("click", ".ig-krea-lora-pick", function() {
                 const slot = $overlay.find(".ig-krea-lora-slot").val();
                 setExplicitRuntimeLoraSlot(s, slot, String($(this).attr("data-reference") || ""));
@@ -2236,10 +3201,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } catch (error) {
             $overlay.find(".ig-krea-lora-status").html(`<span style="color:#ef4444;">${psEscapeText(error.message || "Could not load the Malcolmrey index.")}</span>`);
         }
+      } catch (outerError) {
+        console.error("[Megumin Suite] Krea LoRA Finder failed to open:", outerError);
+        toastr.error(`Krea LoRA Finder could not open: ${outerError && outerError.message ? outerError.message : outerError}`);
+      }
     }
-
-    let meguminComfyLoraCache = null;
-    let meguminComfyLoraCacheUrl = "";
 
     /** Map saved LoRA path to the exact string Comfy lists (folder slash vs backslash, etc.). */
     function resolveLoraPathForDropdown(stored, filesList) {
@@ -2267,9 +3233,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             // Reuse the cache igFetchComfyLists already populated (it includes the
             // baked-manifest names); only fetch here if that hasn't run yet, so a
             // baked/manifest LoRA still canonicalizes correctly during generation.
-            if (meguminComfyLoraCache && meguminComfyLoraCacheUrl === "runpod") return meguminComfyLoraCache;
-            const baked = await loadBakedKreaLoras().catch(() => []);
-            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...baked.map(item => item.reference)];
+            if (meguminComfyLoraCacheUrl === "runpod" && runpodAnimaLoraNames && runpodKreaLoraNames) {
+                meguminComfyLoraCache = getRunpodLoraOptionsForModel(s, runpodAnimaLoraNames, runpodKreaLoraNames);
+                return meguminComfyLoraCache;
+            }
+            const { anima, krea } = await loadRunpodBakedLoraBundles();
+            rememberRunpodBakedLoraNames(anima.map(item => item.reference), krea.map(item => item.reference));
+            meguminComfyLoraCache = getRunpodLoraOptionsForModel(s, runpodAnimaLoraNames, runpodKreaLoraNames);
             meguminComfyLoraCacheUrl = "runpod";
             return meguminComfyLoraCache;
         }
@@ -2292,14 +3262,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const s = getLocalProfile().imageGen;
         if (SHOW_RUNPOD_IMAGE_BACKEND && ensureRunpodSettings(s).enabled) {
             if (ensureRunpodDropdownValues(s)) saveProfileToMemory();
-            const baked = await loadBakedKreaLoras().catch(error => {
-                console.warn("[Megumin Suite] Could not load baked Krea LoRA manifest:", error);
-                return [];
-            });
-            const bakedNames = baked.map(item => item.reference);
-            populateRunpodImageLists(s, bakedNames);
-            meguminComfyLoraCache = [...RUNPOD_IMAGE_LORAS, ...bakedNames];
-            meguminComfyLoraCacheUrl = "runpod";
+            const { anima, krea } = await loadRunpodBakedLoraBundles();
+            const animaNames = anima.map(item => item.reference);
+            const kreaNames = krea.map(item => item.reference);
+            rememberRunpodBakedLoraNames(animaNames, kreaNames);
+            populateRunpodImageLists(s, animaNames, kreaNames);
             return;
         }
         const url = s.comfyUrl;
@@ -2401,6 +3368,56 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             if (node?.inputs && typeof node.inputs === "object") replaceLinks(node.inputs);
         }
         for (const nodeId of nanoNodeIds) delete workflow[nodeId];
+        return true;
+    }
+
+    /**
+     * Stock ComfyUI LoraLoader rejects empty/"None" names. Bypass idle slots by
+     * rewiring MODEL/CLIP consumers to that node's inputs, then delete the node.
+     * Leaves MeguminRuntimeLoraStack and rgthree stacks alone (they accept None).
+     */
+    function igBypassInactiveLoraLoaderNodes(workflow) {
+        if (!workflow || typeof workflow !== "object") return false;
+        const inactive = new Map();
+        for (const [nodeId, node] of Object.entries(workflow)) {
+            if (node?.class_type !== "LoraLoader") continue;
+            const name = String(node.inputs?.lora_name ?? "").trim();
+            if (name && name.toLowerCase() !== "none") continue;
+            inactive.set(String(nodeId), {
+                model: node.inputs?.model,
+                clip: node.inputs?.clip
+            });
+        }
+        if (!inactive.size) return false;
+
+        const resolveLink = (link, visiting = new Set()) => {
+            if (!Array.isArray(link) || link.length < 2) return link;
+            const src = String(link[0]);
+            if (!inactive.has(src) || visiting.has(src)) return link;
+            visiting.add(src);
+            const ports = inactive.get(src);
+            const next = Number(link[1]) === 1 ? ports.clip : ports.model;
+            return resolveLink(next, visiting);
+        };
+
+        const rewriteValue = (value) => {
+            if (Array.isArray(value)) {
+                if (value.length >= 2 && inactive.has(String(value[0])) && typeof value[1] === "number") {
+                    return resolveLink(value);
+                }
+                for (let i = 0; i < value.length; i++) value[i] = rewriteValue(value[i]);
+                return value;
+            }
+            if (!value || typeof value !== "object") return value;
+            for (const key of Object.keys(value)) value[key] = rewriteValue(value[key]);
+            return value;
+        };
+
+        for (const [nodeId, node] of Object.entries(workflow)) {
+            if (inactive.has(String(nodeId))) continue;
+            if (node?.inputs && typeof node.inputs === "object") rewriteValue(node.inputs);
+        }
+        for (const nodeId of inactive.keys()) delete workflow[nodeId];
         return true;
     }
 
@@ -3069,7 +4086,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 prompt: String(p?.prompt || "").trim()
             })).filter(p => p.label && p.prompt)
             : [];
-        return { assignments, positions };
+        // Only the Manual Scene Selector sets userPickedCast. Auto/smart/
+        // keyword-inferred casts must NOT be treated as a user override, or
+        // "Send All Character References" silently shrinks after the first run.
+        return {
+            assignments,
+            positions,
+            userPickedCast: !!(scene?.userPickedCast && assignments.length > 0)
+        };
     }
 
     function buildManualImageSceneInstruction(scene, s, li, booruStd = false) {
@@ -3199,7 +4223,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             $("body").append($overlay);
             $overlay.find(".ig-manual-scene-one").on("click", function() {
                 const idx = parseInt($(this).attr("data-idx"), 10);
-                finish({ assignments: [assignments[idx]].filter(Boolean), positions: readPositions() });
+                finish({ assignments: [assignments[idx]].filter(Boolean), positions: readPositions(), userPickedCast: true });
             });
             $overlay.find(".ig-manual-scene-send").on("click", function() {
                 const selected = $overlay.find(".ig-manual-scene-check:checked").map(function() {
@@ -3209,7 +4233,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     toastr.warning("Select at least one character, or click Use Only on a row.");
                     return;
                 }
-                finish({ assignments: selected, positions: readPositions() });
+                finish({ assignments: selected, positions: readPositions(), userPickedCast: true });
             });
             $overlay.find(".ig-manual-scene-cancel").on("click", () => finish(null));
             $overlay.on("click", function(e) {
@@ -3240,6 +4264,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             let promptText = "";
             let skipLeadPrefix = false;
             let aiText = "";
+            let nanoSystemPrompt = "";
             if (source === "sillytavern") {
                 let gen;
                 if (s.generatorBackend === "direct") {
@@ -3255,15 +4280,14 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             } else {
                 const sceneText = getSceneSnapshotForMessage(clickedMessage);
                 const latestSceneText = getLatestVisualSceneText(clickedMessage);
-                const selectedAssignments = normalizeManualImageScene(manualScene).assignments;
-                const selectedPositions = normalizeManualImageScene(manualScene).positions;
+                const normalizedManual = normalizeManualImageScene(manualScene);
+                const selectedAssignments = normalizedManual.assignments;
+                const selectedPositions = normalizedManual.positions;
                 if (source === "comfy_llm") {
-                    const nanoContext = buildComfyNanoPromptContext(s, sceneText, {
-                        assignments: selectedAssignments,
-                        positions: selectedPositions
-                    });
+                    const nanoContext = buildComfyNanoPromptContext(s, sceneText, normalizedManual);
                     promptText = nanoContext.fallbackPrompt;
                     aiText = nanoContext.aiText;
+                    nanoSystemPrompt = nanoContext.systemPrompt;
                 } else {
                     const position = selectedPositions[0] || detectPositionPresetFromScene(latestSceneText);
                     promptText = buildDeterministicBackgroundPrompt(s, latestSceneText, {
@@ -3282,8 +4306,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             await igGenerateWithComfy(promptText, source === "comfy_llm" && clickedOrigin ? { origin: clickedOrigin } : null, {
                 manualScene,
                 aiText: aiText || promptText,
+                nanoSystemPrompt,
                 requireAiTextWorkflow: source === "comfy_llm",
-                skipLeadPrefix: source === "comfy_llm" ? true : skipLeadPrefix
+                skipLeadPrefix: source === "comfy_llm" ? isNaturalLanguageImageStyle(s.promptStyle) : skipLeadPrefix
             });
 
         } catch(e) {
@@ -3293,6 +4318,138 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } finally {
             activeImageGenRequest = null;
             activeManualImageScene = null;
+        }
+    }
+
+    const MANUAL_PROMPT_UNDO_LIMIT = 20;
+
+    function igEnsureManualPromptState(s) {
+        if (!s) return s;
+        if (s.lastGeneratedImagePrompt === undefined) s.lastGeneratedImagePrompt = "";
+        if (s.manualPromptFeedback === undefined) s.manualPromptFeedback = "";
+        if (s.manualPrompt === undefined) s.manualPrompt = "";
+        if (!Array.isArray(s.manualPromptUndoStack)) s.manualPromptUndoStack = [];
+        return s;
+    }
+
+    function igRefreshManualUndoButton(s) {
+        const stack = Array.isArray(s?.manualPromptUndoStack) ? s.manualPromptUndoStack : [];
+        const $btn = $("#ig_manual_undo_btn");
+        if (!$btn.length) return;
+        $btn.prop("disabled", stack.length === 0);
+        $btn.html(`<i class="fa-solid fa-rotate-left"></i> Undo (${stack.length})`);
+    }
+
+    function igRememberGeneratedImagePrompt(promptText, opts = {}) {
+        const text = String(promptText || "").trim();
+        if (!text) return;
+        const s = getLocalProfile()?.imageGen;
+        if (!s) return;
+        igEnsureManualPromptState(s);
+        const promptChanged = s.lastGeneratedImagePrompt !== text;
+        if (promptChanged) {
+            s.lastGeneratedImagePrompt = text;
+            saveProfileToMemory();
+        }
+        if ($("#ig_last_image_prompt").length) $("#ig_last_image_prompt").val(text);
+        if (opts.syncManual !== false) {
+            const currentManual = String($("#ig_manual_prompt").val() ?? s.manualPrompt ?? "");
+            if (currentManual.trim() !== text) {
+                igSetManualPromptValue(s, text, {
+                    recordUndo: true,
+                    toast: opts.toast || null
+                });
+            }
+        }
+    }
+
+    function igPushManualPromptUndo(s, previousPrompt) {
+        igEnsureManualPromptState(s);
+        const prev = String(previousPrompt ?? "");
+        const last = s.manualPromptUndoStack[s.manualPromptUndoStack.length - 1];
+        if (last === prev) return false;
+        s.manualPromptUndoStack.push(prev);
+        if (s.manualPromptUndoStack.length > MANUAL_PROMPT_UNDO_LIMIT) {
+            s.manualPromptUndoStack.splice(0, s.manualPromptUndoStack.length - MANUAL_PROMPT_UNDO_LIMIT);
+        }
+        return true;
+    }
+
+    function igSetManualPromptValue(s, nextPrompt, opts = {}) {
+        igEnsureManualPromptState(s);
+        const next = String(nextPrompt || "");
+        const current = String($("#ig_manual_prompt").val() ?? s.manualPrompt ?? "");
+        if (next === current) {
+            igRefreshManualUndoButton(s);
+            return next;
+        }
+        if (opts.recordUndo) igPushManualPromptUndo(s, current);
+        s.manualPrompt = next;
+        if ($("#ig_manual_prompt").length) $("#ig_manual_prompt").val(next);
+        saveProfileToMemory();
+        igRefreshManualUndoButton(s);
+        if (opts.toast) toastr.success(opts.toast);
+        return next;
+    }
+
+    function igUndoManualPrompt(s) {
+        igEnsureManualPromptState(s);
+        if (!s.manualPromptUndoStack.length) return toastr.info("Nothing to undo.");
+        const restored = s.manualPromptUndoStack.pop();
+        s.manualPrompt = String(restored ?? "");
+        if ($("#ig_manual_prompt").length) $("#ig_manual_prompt").val(s.manualPrompt);
+        saveProfileToMemory();
+        igRefreshManualUndoButton(s);
+        toastr.success("Manual prompt restored.");
+    }
+
+    function buildManualPromptFeedbackSystemPrompt(s) {
+        const styleHint = s?.promptStyle === "krea2"
+            ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists). Keep it a photograph starting with phrasing such as 'A photo of'; do not call it a digital illustration, anime, drawing, 2d, or cartoon."
+            : ((s?.promptStyle === "sdxl")
+                ? "Keep the result as one dense paragraph of fluent natural-language image-generation prose (not tag lists)."
+                : "Keep the result as a comma-separated list of lowercase image tags (spaces instead of underscores), matching the existing style.");
+        return [
+            "You revise an existing image-generation prompt using the user's feedback.",
+            "Start from CURRENT PROMPT and apply only the requested FEEDBACK changes.",
+            "Preserve everything that the feedback does not mention: subjects, identities, pose, camera, setting, lighting, clothing/nudity state, and explicitness level.",
+            "Do not invent a new scene unless the feedback asks for it.",
+            "Every depicted person must remain an unmistakable adult.",
+            styleHint,
+            "Output contract: respond with the finished revised image prompt only. No preamble, quotes, labels, meta-commentary, or explanations."
+        ].join(" ");
+    }
+
+    async function igRegenerateManualPromptWithFeedback(s, $btn) {
+        igEnsureManualPromptState(s);
+        const current = String($("#ig_manual_prompt").val() || s.manualPrompt || "").trim();
+        const feedback = String($("#ig_manual_prompt_feedback").val() || s.manualPromptFeedback || "").trim();
+        if (!current) return toastr.warning("Manual prompt is empty. Paste or load a prompt first.");
+        if (!feedback) return toastr.warning("Add feedback first, then regenerate.");
+        const nano = getNanoGptGlobalSettings();
+        if (!nano.apiKey) return toastr.warning("Add a NanoGPT API key in the NanoGPT Prompt Writer card first.");
+
+        s.manualPromptFeedback = feedback;
+        saveProfileToMemory();
+
+        const originalHtml = $btn?.length ? $btn.html() : "";
+        if ($btn?.length) $btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Rewriting...');
+        try {
+            const revised = await callNanoGptPromptWriter(
+                buildManualPromptFeedbackSystemPrompt(s),
+                `CURRENT PROMPT:\n${current}\n\nFEEDBACK:\n${feedback}`
+            );
+            if (!revised) throw new Error("NanoGPT returned an empty response.");
+            const cleaned = stripUtilityThinkingWrapper(revised).trim();
+            if (!cleaned) throw new Error("NanoGPT returned an empty response.");
+            igSetManualPromptValue(s, cleaned, {
+                recordUndo: true,
+                toast: "Manual prompt updated from feedback."
+            });
+        } catch (e) {
+            toastr.error(e?.message || "Could not regenerate the manual prompt.");
+        } finally {
+            if ($btn?.length) $btn.prop("disabled", false).html(originalHtml || '<i class="fa-solid fa-rotate"></i> Regenerate With Feedback');
         }
     }
 
@@ -3339,11 +4496,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     // New Helper Function for generating the prompt text
-    function getMatchedBooruTags(li, charKey, manualAssignments = null) {
+    function getMatchedBooruTags(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
         const matched = [];
 
-        for (const a of getPromptAiCharacterAssignments(li, charKey, manualAssignments)) {
+        for (const a of getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts)) {
             ensureStructuredCharacterAssignment(a);
             const tagBlock = getAssignmentTagBlock(a, li);
             if (!tagBlock) continue;
@@ -3360,9 +4517,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return String(a.description || "").trim();
     }
 
-    function getMatchedCharacterAssignments(li, charKey, manualAssignments = null) {
+    function getMatchedCharacterAssignments(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled) return [];
-        return getPromptAiCharacterAssignments(li, charKey, manualAssignments);
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts);
     }
 
     function getActiveCharacterAssignments(li, charKey, manualAssignments = null) {
@@ -3381,9 +4538,13 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
             .filter(a => assignmentMatchesRecentChat(a, recentChat, allowEmptyMatch));
     }
 
-    function getPromptAiCharacterAssignments(li, charKey, manualAssignments = null) {
+    function getPromptAiCharacterAssignments(li, charKey, manualAssignments = null, opts = null) {
         if (!li) return [];
-        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+        const userPickedCast = !!(opts?.userPickedCast && Array.isArray(manualAssignments) && manualAssignments.length > 0);
+        // User explicitly picked a cast in the Manual Scene Selector → only
+        // those references. Otherwise (including keyword-inferred casts), honor
+        // Send All so the prompt AI always gets the full appearance library.
+        if (userPickedCast) {
             return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
         }
         if (li.sendAllCharactersToPromptAi) {
@@ -3391,15 +4552,22 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 .map(ensureStructuredCharacterAssignment)
                 .filter(a => a && !a.neverInclude);
         }
+        if (Array.isArray(manualAssignments) && manualAssignments.length > 0) {
+            return manualAssignments.map(ensureStructuredCharacterAssignment).filter(a => a && !a.neverInclude);
+        }
         return getActiveCharacterAssignments(li, charKey, manualAssignments);
     }
 
-    function shouldPromptAiChooseCharacters(li, manualAssignments = null) {
-        return !!(li?.sendAllCharactersToPromptAi && !(Array.isArray(manualAssignments) && manualAssignments.length > 0));
+    function shouldPromptAiChooseCharacters(li, manualAssignments = null, opts = null) {
+        if (!li?.sendAllCharactersToPromptAi) return false;
+        // Only a user-picked Manual Scene cast disables the choose-from-library
+        // mode. Inferred/auto assignment lists must not.
+        if (opts?.userPickedCast && Array.isArray(manualAssignments) && manualAssignments.length > 0) return false;
+        return true;
     }
 
-    function getPromptAiCharacterChoiceInstruction(li, manualAssignments = null) {
-        if (shouldPromptAiChooseCharacters(li, manualAssignments)) {
+    function getPromptAiCharacterChoiceInstruction(li, manualAssignments = null, opts = null) {
+        if (shouldPromptAiChooseCharacters(li, manualAssignments, opts)) {
             return "All analyzed character references are provided below as a reference library. Choose which character or characters are actually present from the latest roleplay message/scene, and use only those chosen characters in the image prompt. Do not include every reference character by default, and do not add absent characters just because their reference appears here.";
         }
         return "Use these stable appearance cues for who is present, then derive action, pose, expression, temporary state, setting, and composition from the chat scene.";
@@ -3506,9 +4674,9 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         ].filter(Boolean).join(', '));
     }
 
-    function getMatchedCharacterGuidance(li, charKey, manualAssignments = null) {
+    function getMatchedCharacterGuidance(li, charKey, manualAssignments = null, opts = null) {
         if (!li || !li.enabled || !li.useDanbooruTags) return [];
-        return getPromptAiCharacterAssignments(li, charKey, manualAssignments)
+        return getPromptAiCharacterAssignments(li, charKey, manualAssignments, opts)
             .map(a => ({ character: a.character || "character", tags: getStableAssignmentTagBlock(a, li) }))
             .filter(a => a.tags);
     }
@@ -3546,12 +4714,16 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return !!(li && li.enabled && li.useDanbooruTags);
     }
 
-    /** Comfy / preview prefix from `standardBooruLeadTags` when Booru Tags mode is on; empty otherwise. */
+    /** Comfy / preview prefix from leading tags + LoRA triggers when Booru Tags mode is on; empty otherwise. */
     function buildBooruStandardTagLead(s, li) {
         if (!s || !isLoraIntelBooruTagsMode(li)) return '';
-        const raw = (s.standardBooruLeadTags && String(s.standardBooruLeadTags).trim()) ? String(s.standardBooruLeadTags).trim() : '';
-        if (!raw) return '';
-        return normalizeGeneratedTagField(raw);
+        const lead = String(s.standardBooruLeadTags || "").trim();
+        const triggers = String(s.loraTriggers || "").trim();
+        const parts = [];
+        if (lead) parts.push(lead);
+        if (triggers) parts.push(triggers);
+        if (!parts.length) return '';
+        return normalizeGeneratedTagField(parts.join(", "));
     }
 
     async function generateImagePromptText(opts = null) {
@@ -3571,9 +4743,10 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const booruStableLeadPrepend = buildBooruStandardTagLead(s, li);
         const allowStoredAppearanceGuidance = true;
         const manualAssignments = manualScene.assignments;
-        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments) : [];
+        const castOpts = { userPickedCast: !!manualScene.userPickedCast };
+        const characterGuidance = allowStoredAppearanceGuidance && shouldUseCharacterGuidance(s, li) ? getMatchedCharacterGuidance(li, charKey, manualAssignments, castOpts) : [];
         const guidedCharacters = characterGuidance.length > 0;
-        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, manualAssignments);
+        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, manualAssignments, castOpts);
         const personaGuidance = buildPersonaImageGuidance(s, booruStd);
         const manualSceneInstruction = buildManualImageSceneInstruction(manualScene, s, li, booruStd);
 
@@ -3631,7 +4804,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 const guide = characterGuidance.map(m => `${m.character}: ${m.tags}`).join(' | ');
                 extraParts.push(`Character reference library. ${characterChoiceInstruction} Translate tags into flowing prose; do not paste them as a tag block.\n${guide}`);
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments, castOpts);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     extraParts.push(`Character appearance cues (Danbooru-style tags per role). ${characterChoiceInstruction} Weave the chosen character cues into your flowing description: translate into prose (face, hair, eyes, figure, clothing, any named character look-alike tag). Do not emit them as a comma-separated prefix or block.\n${booruInstr}`);
@@ -3660,7 +4833,7 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                     extraStr += `\nCharacter reference library. ${characterChoiceInstruction} Keep chosen Anima-style tags with spaces and escaped literal parentheses: ${guide}`;
                 }
             } else if (allowStoredAppearanceGuidance && li && li.enabled) {
-                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments);
+                const matchedBooru = getMatchedBooruTags(li, charKey, manualAssignments, castOpts);
                 if (matchedBooru.length > 0) {
                     const booruInstr = matchedBooru.map(m => `${m.character}: ${m.tags}`).join(' | ');
                     extraStr += `\n${characterChoiceInstruction}`;
@@ -3746,6 +4919,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
     }
 
     async function igAttachGeneratedImage(base64Clean, finalPrompt, target, format = "png") {
+        const skipManualSync = !!(target?.libraryOnly || target?.background);
+        igRememberGeneratedImagePrompt(finalPrompt, { syncManual: !skipManualSync });
         if (target?.origin && !target.message) {
             target = { ...target, ...(resolveBackgroundOrigin(target.origin) || {}) };
         }
@@ -3934,16 +5109,52 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
         let aiText = String(opts?.aiText ?? finalPrompt).trim() || finalPrompt;
 
+        // --- CLIENT-SIDE PROMPT WRITER ---
+        // Generate the render prompt in the browser BEFORE any GPU job exists:
+        // the user sees/edits the real prompt, failures are loud and cheap,
+        // and no billed GPU seconds are spent waiting on a chat API. The
+        // in-workflow NanoGPT node stays as the fallback when this is
+        // unavailable (no key / network / CORS).
+        const nanoSystemPrompt = String(opts?.nanoSystemPrompt || "").trim() || buildNanoImageSystemPrompt(s);
+        const wantsNanoPrompt = !!opts?.requireAiTextWorkflow
+            || (background && !!String(opts?.aiText || "").trim() && String(opts?.aiText || "").trim() !== finalPrompt);
+        let nanoPromptClientSide = false;
+        if (wantsNanoPrompt) {
+            if (!background) showKazumaProgress("Writing Image Prompt...");
+            const generated = await callNanoGptPromptWriter(nanoSystemPrompt, aiText);
+            if (generated) {
+                if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(generated)) return;
+                finalPrompt = sanitizePromptTags(generated);
+                // Tag styles get the same Anima post-processing as the
+                // legacy path: underscore/parenthesis normalization plus
+                // the Max Tags dedupe/cap, then the user's Leading Tags
+                // (quality/meta block) are prepended in code -- never
+                // invented by the writer.
+                if (!isNaturalLanguageImageStyle(s.promptStyle)) {
+                    finalPrompt = normalizeAnimaGeneratedTags(finalPrompt);
+                }
+                finalPrompt = limitAnimaPromptTags(finalPrompt, s, s.loraIntel);
+                if (!opts?.skipLeadPrefix) {
+                    finalPrompt = ensureImageLeadPrefix(finalPrompt);
+                }
+                nanoPromptClientSide = true;
+            } else if (getNanoGptGlobalSettings().apiKey) {
+                toastr.warning("NanoGPT direct call failed. Falling back to the in-workflow NanoGPT node (prompt will not be previewable).", "Megumin Suite");
+            } else if (!background) {
+                toastr.info("Set your NanoGPT API key in Image Generation settings to write and preview the prompt before rendering.", "Megumin Suite", { timeOut: 6000 });
+            }
+        }
+
         // --- INTERCEPT PROMPT IF PREVIEW IS ENABLED ---
         if (s.previewPrompt && !background) {
             $("#kazuma_progress_overlay").hide(); // Hide the progress bar temporarily
 
-            const isWorkflowAiPrompt = !!opts?.requireAiTextWorkflow;
+            const isWorkflowAiPrompt = !!opts?.requireAiTextWorkflow && !nanoPromptClientSide;
             const $content = isWorkflowAiPrompt
                 ? $(`
                     <div style="display:flex; flex-direction:column; gap:10px; font-family:'Inter',sans-serif;">
                         <div style="font-size:.82rem; color:var(--text-main); font-weight:700;">NanoGPT will generate the final prompt inside ComfyUI after you send this workflow.</div>
-                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the scene-native <code>%ai_text%</code> source. <code>%prompt%</code> contains only configured UI/character/LoRA guidance as an API-error fallback.</div>
+                        <div style="font-size:.7rem; color:var(--text-muted);">The text below is the scene-native <code>%ai_text%</code> source. <code>%prompt%</code> holds a deterministic scene prompt used only if the NanoGPT call fails. Tip: set a NanoGPT API key in Image Generation settings to write the prompt in your browser instead — then you can see and edit the exact final prompt here before rendering.</div>
                         <textarea class="ps-modern-input ig-ai-source-preview" readonly style="height:180px; resize:vertical; font-family:monospace; font-size:.75rem; padding:10px;">${psEscapeText(aiText)}</textarea>
                         <details>
                             <summary style="cursor:pointer; font-size:.7rem; color:var(--text-muted);">Show configured-tag fallback</summary>
@@ -3992,11 +5203,15 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         } catch (e) { return toastr.error(`Could not load ${s.currentWorkflowName}`); }
 
         let workflow = (typeof workflowRaw === 'string') ? JSON.parse(workflowRaw) : workflowRaw;
-        if (opts?.preserveStoredPrompt) igBypassNanoTextNodesForStoredPrompt(workflow);
+        // When the prompt was already written client-side, remove the
+        // in-workflow NanoGPT node entirely: the worker must not re-run (and
+        // possibly rewrite) the prompt the user just saw/approved, and
+        // skipping it saves billed GPU seconds.
+        if (opts?.preserveStoredPrompt || nanoPromptClientSide) igBypassNanoTextNodesForStoredPrompt(workflow);
         const workflowHasAiText = igWorkflowContainsPlaceholder(workflow, "%ai_text%");
-        if (opts?.requireAiTextWorkflow && !workflowHasAiText) {
+        if (opts?.requireAiTextWorkflow && !nanoPromptClientSide && !workflowHasAiText) {
             $("#kazuma_progress_overlay").hide();
-            throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json or add %ai_text% to the NanoGPT node.`);
+            throw new Error(`The selected workflow "${s.currentWorkflowName}" has no %ai_text% input. Select anima_nanogpt.json (or a NanoGPT workflow) or switch quick-image source away from ComfyUI NanoGPT.`);
         }
         let finalSeed = parseInt(s.customSeed); if (finalSeed === -1 || isNaN(finalSeed)) finalSeed = Math.floor(Math.random() * 1000000000);
 
@@ -4110,19 +5325,37 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
         let l1 = slots[0], l2 = slots[1], l3 = slots[2], l4 = slots[3];
         let w1 = weights[0], w2 = weights[1], w3 = weights[2], w4 = weights[3];
+        let kreaIdentitySuffix = "";
         if (s.promptStyle === "krea2") {
-            const triggerInstruction = appendKreaRuntimeLoraTriggerInstruction("", [l1, l2, l3, l4]);
-            if (triggerInstruction) {
-                finalPrompt = `${finalPrompt}\n${triggerInstruction}`.trim();
-                aiText = `${aiText}\n${triggerInstruction}`.trim();
+            kreaIdentitySuffix = buildKreaLoraTriggerSuffix([l1, l2, l3, l4]);
+            // The LoRA trigger words ("a woman" per selected identity) are
+            // injected deterministically, never via LLM compliance, by
+            // exactly one owner:
+            //  - If the workflow still contains a MeguminNanoGPTText node,
+            //    that node appends %krea_identity_suffix% in Python to
+            //    whatever text it returns (LLM output or fallback_text).
+            //  - Otherwise (client-side prompt, stored prompt, or plain
+            //    workflows) they are appended to finalPrompt right here.
+            // aiText (the LLM's input) never carries trigger bookkeeping, so
+            // a weak model can't echo instruction-shaped text into the
+            // render prompt.
+            const workflowHasNanoNode = Object.values(workflow || {}).some(node => node?.class_type === "MeguminNanoGPTText");
+            if (kreaIdentitySuffix && !workflowHasNanoNode) {
+                finalPrompt = appendKreaRuntimeLoraTriggerInstruction(finalPrompt, [l1, l2, l3, l4]);
             }
         }
         finalPrompt = ensureSelectedVrtlIdentityPromptForLoras(finalPrompt, [l1, l2, l3, l4]);
         if (s.promptStyle === "krea2" && blockForbiddenKrea2Prompt(finalPrompt)) return;
 
+        const nanoSettings = getNanoGptGlobalSettings();
         const comfyRepl = {
             "%prompt%": finalPrompt,
             "%ai_text%": aiText,
+            "%krea_identity_suffix%": kreaIdentitySuffix,
+            "%nanogpt_api_key%": nanoSettings.apiKey,
+            "%nanogpt_model%": nanoSettings.model,
+            "%nanogpt_temperature%": nanoSettings.temperature,
+            "%nanogpt_system%": nanoSystemPrompt,
             "%negative_prompt%": s.customNegative || "",
             "%seed%": finalSeed,
             "%sampler%": s.selectedSampler || "euler",
@@ -4154,6 +5387,8 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 if (!seedPlaceholderState.injected && node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
             }
         }
+        // Empty LoRA slots become "None" above; stock LoraLoader cannot load that.
+        igBypassInactiveLoraLoaderNodes(workflow);
 
         igLastComfyApiRequest = igBuildLastComfyApiSnapshot(s, workflow, finalPrompt, aiText, finalSeed, l1, l2, l3, l4, w1, w2, w3, w4);
         igRefreshLastComfyApiPanel();
@@ -4881,8 +6116,11 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         const participantText = explicit
             ? `${girls} adult ${girls === 1 ? "woman" : "women"} and ${boys} adult ${boys === 1 ? "man" : "men"}`
             : `${Math.max(1, assignments.length)} adult character${assignments.length === 1 ? "" : "s"}`;
+        const opener = s.promptStyle === "krea2"
+            ? `A photo of ${participantText}.`
+            : `A clear image of ${participantText}.`;
         return [
-            `A clear image of ${participantText}.`,
+            opener,
             people ? `Character identities and appearance: ${people}.` : "",
             positionStaging ? `They are performing this exact action: ${positionStaging}.` : "",
             anatomy ? `The adult male has a visibly ${anatomy}.` : "",
@@ -4968,20 +6206,107 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
         return true;
     }
 
+    // Concrete style references for the prompt-writer LLM. Two registers on
+    // purpose: an explicit example (so adult scenes get direct anatomical
+    // prose instead of euphemism) and a non-sexual example (so normal scenes
+    // stay normal instead of drifting explicit). Both model the exact target
+    // shape: photographic opener ("A photo of"), one paragraph, per-person
+    // sentences with spatial anchors, "a woman ..." subject construction
+    // (which doubles as the Krea LoRA trigger phrase), setting/lighting/camera close.
+    const KREA2_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the shape and directness, never the people, bodies, setting, or act):
+A photo of two women in warm lamplight, eye-level medium shot on a rumpled bed. A woman with long crimson hair and red eyes kneels on the left on all fours, fully nude with small bare breasts, back arched, face flushed and mouth open in a moan as she grips the white sheets. A woman with wavy blonde hair and green eyes kneels close behind her on the right, nude with large breasts pressed against the first woman's back, one hand between her thighs with fingers visibly penetrating her, the other hand cupping her breast. Sweat glistens on both bodies. Dim bedside lamp, rumpled sheets, shallow depth of field, warm skin-toned palette, photographic skin texture.
+
+STYLE EXAMPLE (normal register -- copy the shape, never the people, clothing, or setting):
+A photo of a cozy afternoon cafe, medium shot at eye level. A woman with short black hair and amber eyes sits on the left of a small wooden table in an oversized beige sweater, laughing with a coffee cup raised halfway. A woman with a silver ponytail and blue eyes sits across from her on the right in a fitted denim jacket, leaning forward mid-story with animated hands. Warm window light, a blurred pastry counter in the background, soft bokeh, gentle golden palette.`;
+
+    // Concrete few-shot shape references for the Anima tag writer. Same
+    // two-register rationale as KREA2_WRITER_STYLE_EXAMPLES: an explicit
+    // example (direct act/anatomy tags instead of euphemism) and a safe
+    // example (normal scenes stay normal). Quality/safety/meta tags
+    // (masterpiece, score_N, safe, nsfw, explicit, etc.) are intentionally
+    // omitted -- those come from the user's Leading Tags setting and are
+    // prepended in code. Examples therefore start at the count block.
+    const ANIMA_WRITER_STYLE_EXAMPLES = `STYLE EXAMPLE (explicit register -- copy the tag order, grouping, and directness, never the people, bodies, setting, or act; do not invent quality/safety prefix tags -- those are prepended separately):
+2girls, yuri, long hair, red hair, red eyes, small breasts, completely nude, all fours, arched back, moaning, open mouth, blush, sheet grab, second woman kneeling behind her, wavy hair, blonde hair, green eyes, large breasts, nude, breast press, fingering from behind, vaginal, grabbing another's breast, sweat, trembling, indoors, bedroom, on bed, bed sheet, dim lighting, lamp, depth of field
+
+STYLE EXAMPLE (safe register -- copy the tag order and grouping, never the people, clothing, or setting; do not invent quality/safety prefix tags -- those are prepended separately):
+2girls, cafe, sitting, short hair, black hair, brown eyes, oversized sweater, holding cup, laughing, second woman across the table, grey hair, ponytail, blue eyes, denim jacket, leaning forward, talking, wooden table, window, sunlight, blurry background, indoors, warm lighting, medium shot`;
+
+    /**
+     * Single source of truth for the prompt-writer LLM's instructions.
+     * Instructions live ONLY here (the system message); the user message is
+     * pure scene data. Mixing instructions into the user message is what made
+     * small models echo instruction text verbatim into rendered prompts.
+     */
+    function buildNanoImageSystemPrompt(s) {
+        const parts = [];
+        if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
+            const mediumRule = s?.promptStyle === "krea2"
+                ? "Open with photographic phrasing such as 'A photo of' plus camera framing. Never call the image a digital illustration, anime, drawing, 2d, cartoon, render, or similar non-photo medium."
+                : "Cover, in order: medium/style and camera framing.";
+            parts.push(
+                "You convert roleplay scene data into one finished natural-language image-generation prompt.",
+                "Write one dense paragraph of fluent, concrete English prose describing only what is visible in the latest moment of the SCENE section. The most recent message matters most.",
+                `${mediumRule} Then cover each visible adult subject with face, hair, body, clothing or nudity state, placement, pose, expression, and current action; then setting, lighting, and color mood.`,
+                "The CHARACTERS section is appearance reference only -- it tells you what each named person looks like. Never treat it as evidence of action, pose, nudity, or camera. Translate any tag shorthand in it into prose.",
+                "If more than one person is visible, give each their own sentence with a clear spatial anchor (left, right, foreground, behind, kneeling, standing) and keep each person's features inside their own sentence so identities never merge.",
+                "Prefer introducing each female subject as 'a woman with ...' before using her name or pronouns.",
+                "Every depicted person must be an unmistakable adult.",
+                "Never use Danbooru tags, underscores, 1girl-style shorthand, quality-token lists, or comma-separated tag dumps."
+            );
+        } else {
+            const booruStd = isBooruStandardImageMode(s, s?.loraIntel);
+            const maxTags = getAnimaMaxTags(s);
+            const leadTags = buildBooruStandardTagLead(s, s?.loraIntel);
+            parts.push(
+                "You convert roleplay scene data into one finished image-generation prompt for the Anima anime model: a single comma-separated list of lowercase Danbooru-style tags with spaces instead of underscores. Score tags like score_7 are the only tags that keep underscores. Prefer real booru tags (Gelbooru spelling when it differs from Danbooru) over invented phrases.",
+                "Depict only the latest visible moment of the SCENE section; the most recent message matters most.",
+                "Follow the official Anima tag order after any fixed leading tags: character-count tags, per-character appearance blocks, then act/pose/contact tags, then setting, lighting, and camera/composition tags.",
+                // Quality/safety/meta tags are owned by the user's Leading Tags
+                // setting and prepended in code -- the writer must never invent
+                // its own masterpiece/score_N/safe/nsfw/explicit block.
+                leadTags
+                    ? `Do not invent quality, safety, or meta tags such as masterpiece, best quality, score_N, highres, newest, safe, sensitive, nsfw, or explicit. The app automatically prepends these fixed Leading Tags after you write: ${leadTags}. Leave them out of your output entirely.`
+                    : "Do not invent quality, safety, or meta tags such as masterpiece, best quality, score_N, highres, newest, safe, sensitive, nsfw, or explicit. Start directly with the character-count tags.",
+                "Start with the exact visible person count using tags such as 1girl, 1boy, 2girls, or 1boy, 1girl.",
+                "The CHARACTERS section is appearance reference only; never treat it as evidence of action, pose, nudity, or camera. Copy each depicted character's appearance tags into that character's own block, dropping any reference tag the current scene contradicts (for example clothing tags when that character is undressed in the scene).",
+                "When more than one person is visible, keep each character's hair, eye, body, breast-size, and clothing tags inside one contiguous block, and anchor every block after the first with a short spatial phrase such as 'second woman kneeling behind her' (Anima accepts short natural-language phrases mixed with tags). Never interleave two characters' appearance tags.",
+                "Every depicted person must be an unmistakable adult.",
+                maxTags && !booruStd ? `Output at most ${maxTags} comma-separated tags total. When trimming, keep character-count, per-character appearance, and act/pose/contact tags before scenery and mood detail.` : "",
+                "Never output underscores between words, artist tags, watermark or username tags, weighted tags like (tag:1.2), duplicate tags, or full sentences beyond the short spatial anchor phrases."
+            );
+        }
+        if (s?.adultTagPrecision) parts.push(getAdultPrecisionInstruction(s));
+        if (isNaturalLanguageImageStyle(s?.promptStyle)) parts.push(IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION);
+        parts.push(
+            "Match the scene's explicitness exactly: if the scene is sexually explicit, name the act, position, contact points, anatomy, and fluids directly with plain adult words -- never euphemize, soften, or omit what is happening. If the scene is not sexual, write a fully non-sexual prompt and do not add nudity, arousal, or innuendo that is not in the scene.",
+            "If a SELECTED ACTION section exists, it is the action to depict, overriding the scene text.",
+            "If an EXTRA GUIDANCE section exists, weave those visual cues in where they fit.",
+            "Output contract: respond with the finished image prompt only. No preamble, quotes, labels, meta-commentary, explanations, file names, or IDs."
+        );
+        const rules = parts.filter(Boolean).join(" ");
+        // Concrete few-shot shape references matter more than rules for
+        // small prompt-writer models; every style gets register-matched
+        // examples (prose for Krea2/SDXL, Anima tag lists otherwise).
+        if (s?.promptStyle === "krea2" || s?.promptStyle === "sdxl") {
+            return `${rules}\n\n${KREA2_WRITER_STYLE_EXAMPLES}`;
+        }
+        return `${rules}\n\n${ANIMA_WRITER_STYLE_EXAMPLES}`;
+    }
+
     function buildComfyNanoPromptContext(s, sceneText, manualScene = null) {
         const normalizedScene = normalizeManualImageScene(manualScene);
         const li = s.loraIntel;
         const charKey = getCharacterKey() || "default";
+        const castOpts = { userPickedCast: !!normalizedScene.userPickedCast };
+        // Scene-cast for fallback/LoRA inference may be keyword-filtered; that
+        // must not shrink the prompt-AI reference library when Send All is on.
         const assignments = normalizedScene.assignments.length
             ? normalizedScene.assignments
             : getDeterministicSceneAssignments(s, sceneText);
-        const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments)
-            ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments)
-            : assignments;
-        const characterChoiceInstruction = getPromptAiCharacterChoiceInstruction(li, normalizedScene.assignments);
-        const characterTags = assignments
-            .flatMap(a => getAssignmentTagParts(a, li))
-            .filter(Boolean);
+        const promptReferenceAssignments = shouldPromptAiChooseCharacters(li, normalizedScene.assignments, castOpts)
+            ? getPromptAiCharacterAssignments(li, charKey, normalizedScene.assignments, castOpts)
+            : (Array.isArray(assignments) ? assignments : []);
         const naturalDescriptionLines = li?.enabled && li.useCharDescriptions
             ? promptReferenceAssignments.map(a => {
                 const desc = getAssignmentNaturalDescription(a);
@@ -4994,62 +6319,57 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
                 return tagBlock ? `${a.character || "character"}: ${tagBlock}` : "";
             }).filter(Boolean)
             : [];
-        const characterReferenceBlock = [
-            naturalDescriptionLines.length
-                ? `Natural-language character appearance references. Use these as stable identity/appearance guidance for who is present; do not treat them as scene action, pose, expression, nudity state, or camera direction:\n${naturalDescriptionLines.join("\n")}`
-                : "",
-            booruReferenceLines.length
-                ? `Booru-style character appearance cues. Preserve identity and translate visual shorthand into the final prompt style, especially for Krea/prose workflows; do not paste raw tags into prose unless the selected image style requires tags:\n${booruReferenceLines.join("\n")}`
-                : ""
-        ].filter(Boolean).join("\n\n");
+        const characterLines = naturalDescriptionLines.length ? naturalDescriptionLines : booruReferenceLines;
         const selectedActionTags = normalizedScene.positions
             .map(position => getBatchPositionStaging(position.label, position.prompt))
             .filter(Boolean);
-        const configuredTags = normalizeGeneratedTagField([
-            buildBooruStandardTagLead(s, li),
-            s.promptExtra,
-            ...characterTags,
-            ...selectedActionTags
-        ].filter(Boolean).join(", "));
-        const selectedActionInstruction = selectedActionTags.length
-            ? `Explicit user-selected action override:\n${selectedActionTags.join(", ")}`
+        // Leading Tags are prepended in code (ensureImageLeadPrefix), not
+        // mixed into EXTRA GUIDANCE -- otherwise the writer either echoes
+        // or invents a competing quality block.
+        const extraGuidance = normalizeGeneratedTagField(String(s.promptExtra || "").trim());
+        const chooseInstruction = shouldPromptAiChooseCharacters(li, normalizedScene.assignments, castOpts)
+            ? getPromptAiCharacterChoiceInstruction(li, normalizedScene.assignments, castOpts)
             : "";
 
+        // Deterministic fallback: a real scene-derived prompt (characters,
+        // detected action, scene tags) that renders something sensible even
+        // when every LLM path fails. Never instruction text.
+        const fallbackPosition = normalizedScene.positions[0] || detectPositionPresetFromScene(sceneText);
+        const fallbackPrompt = buildDeterministicBackgroundPrompt(s, sceneText, {
+            assignments: assignments.length ? assignments : null,
+            position: fallbackPosition,
+            sceneType: (fallbackPosition || isExplicitSceneText(sceneText)) ? "explicit" : "normal"
+        }) || (s.promptStyle === "krea2" ? "a photo of the current roleplay scene" : "a detailed cinematic illustration of the current roleplay scene");
+
+        // User message = pure data with named sections. All instructions live
+        // in the system prompt (buildNanoImageSystemPrompt), except the
+        // choose-who-appears line which only applies when Send All is on.
         return {
-            fallbackPrompt: configuredTags || "roleplay scene image",
+            systemPrompt: [
+                buildNanoImageSystemPrompt(s),
+                chooseInstruction
+            ].filter(Boolean).join(" "),
+            fallbackPrompt,
             aiText: [
-                "Create one finished image-generation prompt for the latest visible roleplay moment.",
-                "Infer the action, pose, anatomy/contact, clothing state, location, lighting, expression, and camera composition directly from the roleplay scene. Do not use or invent a deterministic action classification.",
-                s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
-                isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
-                characterReferenceBlock ? characterChoiceInstruction : "",
-                "The configured tags below are persistent user/character/LoRA guidance. Preserve identities and LoRA triggers, but do not treat appearance or style tags as evidence for what action is occurring.",
-                selectedActionInstruction,
-                `Roleplay scene:\n${String(sceneText || "").trim()}`,
-                characterReferenceBlock,
-                configuredTags ? `Configured UI, character, and LoRA tags:\n${configuredTags}` : "",
-                "Return only the final image-generation prompt with no explanation."
+                characterLines.length ? `CHARACTERS (appearance reference only):\n${characterLines.join("\n")}` : "",
+                selectedActionTags.length ? `SELECTED ACTION:\n${selectedActionTags.join(", ")}` : "",
+                extraGuidance ? `EXTRA GUIDANCE:\n${extraGuidance}` : "",
+                `SCENE (latest roleplay messages, newest last):\n${String(sceneText || "").trim()}`
             ].filter(Boolean).join("\n\n")
         };
     }
 
     function buildBackgroundAiText(job) {
-        const s = getLocalProfile()?.imageGen;
+        // Pure data sections only; instructions live in buildNanoImageSystemPrompt.
         const source = String(job?.sceneText || "").trim();
         const required = String(job?.directPrompt || "").trim();
         const position = String(job?.metadata?.position || "").trim();
         const sceneType = String(job?.metadata?.sceneType || "").trim();
         return [
-            "Create one finished image-generation prompt from the following source.",
-            "Hard constraints: preserve exact character identities and LoRA triggers, participant counts, the detected adult action/position, and explicit anatomy/contact when present.",
-            s?.adultTagPrecision ? getAdultPrecisionInstruction(s) : "",
-            isNaturalLanguageImageStyle(s?.promptStyle) ? IMAGE_BODY_SHAPE_POSITIVE_INSTRUCTION : "",
-            "The fallback visual prompt is guidance, not a list of mandatory tags. Treat location, clothing, lighting, expression, atmosphere, and camera terms as soft scene evidence. Keep only details supported by the latest scene, reconcile contradictions, and discard stale context.",
-            "Return only the final prompt with no explanation.",
-            sceneType ? `Scene type: ${sceneType}` : "",
-            position ? `Required position/action: ${position}` : "",
-            source ? `Roleplay scene:\n${source}` : "",
-            required ? `Deterministic fallback and visual cues:\n${required}` : "",
+            sceneType ? `SCENE TYPE:\n${sceneType}` : "",
+            position ? `SELECTED ACTION:\n${position}` : "",
+            required ? `EXTRA GUIDANCE:\n${required}` : "",
+            source ? `SCENE (latest roleplay messages, newest last):\n${source}` : "",
         ].filter(Boolean).join("\n\n");
     }
 
@@ -5465,10 +6785,12 @@ For a spatially complex explicit scene, keep the prompt in prose but include a f
 
     return {
         renderImageGen,
+        renderKreaLoraGallery,
         toggleQuickGenButton,
         loadDanbooruTags,
         igGenerateWithComfy,
         igManualGenerate,
+        igBypassInactiveLoraLoaderNodes,
         getCleanedChatHistory,
         cleanMessageTextForKeywords,
         stripUtilityThinkingWrapper,

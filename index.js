@@ -42,6 +42,7 @@ const visualGeneration = createVisualGeneration({
 
 const {
     renderImageGen,
+    renderKreaLoraGallery,
     toggleQuickGenButton,
     igManualGenerate,
     getCleanedChatHistory,
@@ -171,6 +172,7 @@ function initProfile() {
             manualPrompt: "",
             manualPromptSource: "comfy_llm",
             standardBooruLeadTags: "",
+            loraTriggers: "",
             structuredPromptRules: true,
             adultTagPrecision: true,
             includePromptExamples: false,
@@ -223,9 +225,11 @@ function initProfile() {
                 descriptionStyle: 'natural',
                 promptAssemblyMode: 'structured',
                 assignmentViewMode: 'structured',
+                sendAllCharactersToPromptAi: false,
                 globalActiveLoras: [],
                 characterActiveLoras: {},
                 characterAssignments: {},
+                characterAssignmentsByMode: {},
                 tagFieldToggles: {
                     characterTag: true,
                     seriesTag: true,
@@ -233,6 +237,7 @@ function initProfile() {
                     clothingTags: true
                 },
                 lastCharacterAnalysisResponse: "",
+                characterAnalysisFeedback: "",
                 compiledPromptOverride: ""
             }
         },
@@ -344,6 +349,17 @@ function saveProfileToMemory() {
         window.psSaveTimer = setTimeout(() => saveInd.fadeOut(400), 2000);
     }
 }
+
+// Mobile browsers frequently suspend background tabs almost immediately, which can drop a
+// pending debounced settings save (e.g. right after dragging a LoRA weight slider then
+// switching apps). Force an immediate flush whenever the tab is about to be hidden/closed.
+["visibilitychange", "pagehide"].forEach(evt => {
+    document.addEventListener(evt, () => {
+        if (document.visibilityState === "hidden" || evt === "pagehide") {
+            try { saveSettingsDebounced.flush ? saveSettingsDebounced.flush() : saveSettingsDebounced(); } catch (e) { /* no-op */ }
+        }
+    });
+});
 
 // NEW: Function to calculate and update the token UI with a Hover Breakdown
 function updateLiveTokenCount() {
@@ -487,6 +503,7 @@ const tabsUI = [
     { title: "Story Planner", sub: "Generate and track future plot developments.", icon: "fa-map", render: renderStoryPlanner },
     { title: "Dynamic Ban List", sub: "Scan and ban repetitive AI phrases.", icon: "fa-ban", render: renderBanList },
     { title: "Image Generation", sub: "Wire up ComfyUI to auto-generate scene images during roleplay.", icon: "fa-image", render: renderImageGen },
+    { title: "LoRA Gallery", sub: "Browse Krea 2 LoRAs and assign them to a slot or a character.", icon: "fa-images", render: renderKreaLoraGallery },
     { title: "NPCs Bank", sub: "Automatically extract and track significant NPCs in the story.", icon: "fa-address-book", render: renderNpcBank },
     { title: "Memory Core", sub: "Advanced 3-Tier Context & History Management.", icon: "fa-memory", render: renderMemoryCore }
 ];
@@ -2214,7 +2231,7 @@ async function npcGeneratePfp(npcName) {
     // Build full NPC dossier text for the AI
     const npcText = npcBuildTextFromData(npc);
 
-    let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas. Focus on anime art style." : (s.promptStyle === "krea2" ? "Use a long, concrete natural-language Krea 2 prompt. Describe subject, pose, expression, setting, lighting, camera, color, and texture in fluent prose; do not use tag lists or shorthand." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences. Focus on photorealism." : "Use a comma-separated list of detailed keywords and visual descriptors."));
+    let styleStr = s.promptStyle === "illustrious" ? "Use Danbooru-style tags separated by commas. Focus on anime art style." : (s.promptStyle === "krea2" ? "Use a long, concrete natural-language Krea 2 prompt. Write it as a photograph starting with phrasing such as 'A photo of'. Describe subject, pose, expression, setting, lighting, camera, color, and texture in fluent prose; do not use tag lists, shorthand, digital illustration, or anime." : (s.promptStyle === "sdxl" ? "Use natural, descriptive prose and full sentences. Focus on photorealism." : "Use a comma-separated list of detailed keywords and visual descriptors."));
     let perspStr = "This is a CHARACTER PORTRAIT. Frame it as an upper-body/bust shot focused on the character's face and shoulders. Soft, flattering lighting. Clean or simple background. Capture their personality through expression and posture.";
 
     toastr.info(`Generating portrait prompt for ${npcName}...`, "NPC Bank");
@@ -2291,6 +2308,9 @@ async function npcGeneratePfp(npcName) {
             }
             if (node.class_type === "KSampler" && 'seed' in node.inputs && typeof node.inputs['seed'] === 'number') { node.inputs.seed = finalSeed; }
         }
+    }
+    if (typeof visualGeneration.igBypassInactiveLoraLoaderNodes === "function") {
+        visualGeneration.igBypassInactiveLoraLoaderNodes(workflow);
     }
 
     try {

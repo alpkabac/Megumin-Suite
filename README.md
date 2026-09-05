@@ -60,6 +60,8 @@ To bake additional LoRAs into every worker, add entries to [data/krea2_baked_lor
 
 `filename` must be a unique `.safetensors` basename. A baked entry is downloaded at image-build time, shown in the Finder after the extension is refreshed, and selected by its local filename. It is different from a Malcolmrey **Runtime** entry, which is fetched from Hugging Face only when a worker needs it.
 
+Before building, add the GitHub Actions repository secret **`CIVITAI_API_TOKEN`**. Keep baked NSFW LoRA URLs on **`civitai.red`**. The Dockerfile upgrades `comfy-cli` to `>=1.7.3` so `.red` is treated as Civitai and the token is attached normally. Hugging Face core weights and runtime LoRAs from `malcolmrey/krea2` need no token. On the RunPod endpoint, set **`NANOGPT_API_KEY`**.
+
 1. Run **Build and Push Krea 2 RunPod Image**, then deploy `ghcr.io/<owner>/krea2-runpod:latest` as a new RunPod Serverless endpoint.
 2. Import [krea2_runpod_runtime_lora.json](krea2_runpod_runtime_lora.json) into SillyTavern's Comfy workflows and select it. Set Image Style to **Krea 2 (Natural Prose)** and select `krea2_turbo_fp8_scaled.safetensors` in the RunPod model field.
 3. In **LoRA Lab**, choose **Krea LoRA Finder**. It reads and revalidates Malcolmrey's public browser index each time it opens, and saves the selected `hf://malcolmrey/krea2/<filename>` reference in the exact slot you choose. The selection is profile-owned, persistent, and never overwritten by chat keyword matching or a panel refresh. The Finder also shows the entries from the baked-LoRA array above.
